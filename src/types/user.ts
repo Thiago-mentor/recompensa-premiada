@@ -44,6 +44,14 @@ export interface UserProfile {
   pptPvPDuelsRemaining?: number;
   /** Quando (Firestore) os duelos podem voltar a 3 só com o tempo (10 min). */
   pptPvpDuelsRefillAvailableAt?: Timestamp | null;
+  /** Duelos Quiz restantes antes de assistir anúncio (escrita só no servidor). */
+  quizPvPDuelsRemaining?: number;
+  /** Quando (Firestore) os duelos de Quiz podem voltar a 3 só com o tempo (10 min). */
+  quizPvpDuelsRefillAvailableAt?: Timestamp | null;
+  /** Duelos Reaction Tap restantes antes de assistir anúncio (escrita só no servidor). */
+  reactionPvPDuelsRemaining?: number;
+  /** Quando (Firestore) os duelos de Reaction podem voltar a 3 só com o tempo (10 min). */
+  reactionPvpDuelsRefillAvailableAt?: Timestamp | null;
 }
 
 /** Payload permitido na criação inicial (cliente ou função) */

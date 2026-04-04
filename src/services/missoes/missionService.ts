@@ -11,11 +11,11 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
-import { isSparkFreeTier } from "@/lib/firebase/sparkMode";
+import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { COLLECTIONS, SUBCOLLECTIONS } from "@/lib/constants/collections";
 import type { MissionTemplate, UserMissionProgress } from "@/types/mission";
 import { callFunction } from "@/services/callables/client";
-import { sparkClaimMissionReward } from "@/services/spark/operations";
+import { sparkClaimMissionReward } from "@/services/spark/missions";
 
 export async function listActiveMissions(): Promise<MissionTemplate[]> {
   const q = query(
@@ -51,7 +51,7 @@ export async function claimMissionRewardCallable(missionId: string): Promise<{
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return { ok: false, error: "Faça login novamente." };
 
-  if (isSparkFreeTier()) {
+  if (shouldUseSparkFallback()) {
     return sparkClaimMissionReward(uid, missionId);
   }
 

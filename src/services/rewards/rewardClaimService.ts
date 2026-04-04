@@ -1,9 +1,9 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { isSparkFreeTier } from "@/lib/firebase/sparkMode";
+import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { callFunction } from "@/services/callables/client";
-import { sparkRequestRewardClaim } from "@/services/spark/operations";
+import { sparkRequestRewardClaim } from "@/services/spark/rewards";
 
 export async function requestRewardClaim(input: {
   valor: number;
@@ -13,7 +13,7 @@ export async function requestRewardClaim(input: {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return { ok: false, error: "Faça login novamente." };
 
-  if (isSparkFreeTier()) {
+  if (shouldUseSparkFallback()) {
     return sparkRequestRewardClaim({ uid, ...input });
   }
 

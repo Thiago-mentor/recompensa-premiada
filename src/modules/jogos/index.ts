@@ -8,6 +8,7 @@ export {
   type MultiplayerResultPayload,
 } from "./core/multiplayer";
 export { GameCard } from "./components/GameCard";
+export { GameModeSwitcher } from "./components/GameModeSwitcher";
 export { MatchResultModal } from "./components/MatchResultModal";
 export { RankingTable } from "./components/RankingTable";
 export { TopPodium } from "./components/TopPodium";

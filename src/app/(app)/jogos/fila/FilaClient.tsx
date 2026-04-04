@@ -14,6 +14,8 @@ import {
   isAutoQueueGame,
   joinAutoMatchQueue,
   leaveAutoMatchQueue,
+  syncQuizDuelRefillSchedule,
+  syncReactionDuelRefillSchedule,
   syncPptDuelRefillSchedule,
 } from "@/services/matchmaking/autoQueueService";
 import type { GameId } from "@/types/game";
@@ -21,12 +23,27 @@ import type { MultiplayerSlotDocument } from "@/types/gameRoom";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 import { formatFirebaseError } from "@/lib/firebase/errors";
+import { GameModeSwitcher } from "@/modules/jogos";
 import {
   PPT_DEFAULT_DUEL_CHARGES,
   PPT_DUEL_CHARGES_MAX_STACK,
   PPT_REFILL_WAIT_MS,
 } from "@/lib/constants/pptPvp";
-import { runPptDuelRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
+import {
+  QUIZ_DEFAULT_DUEL_CHARGES,
+  QUIZ_DUEL_CHARGES_MAX_STACK,
+  QUIZ_REFILL_WAIT_MS,
+} from "@/lib/constants/quizPvp";
+import {
+  REACTION_DEFAULT_DUEL_CHARGES,
+  REACTION_DUEL_CHARGES_MAX_STACK,
+  REACTION_REFILL_WAIT_MS,
+} from "@/lib/constants/reactionPvp";
+import {
+  runPptDuelRewardedAdFlow,
+  runQuizDuelRewardedAdFlow,
+  runReactionDuelRewardedAdFlow,
+} from "@/services/anuncios/rewardedAdService";
 
 function formatCountdownMs(remainingMs: number): string {
   const s = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -35,12 +52,29 @@ function formatCountdownMs(remainingMs: number): string {
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
-/** Firestore pode devolver número ou string; antes só aceitávamos `number`, e a UI caía no default (3). */
+/** Firestore: número ou string; campo ausente → null (UI usa default 3). Negativo = dado corrompido → mostra 0. */
 function parsePptDuelsRemaining(raw: unknown): number | null {
   if (raw === undefined || raw === null) return null;
   const n = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(n) || n < 0) return null;
+  if (!Number.isFinite(n)) return null;
+  if (n < 0) return 0;
   return Math.min(PPT_DUEL_CHARGES_MAX_STACK, Math.floor(n));
+}
+
+function parseReactionDuelsRemaining(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0) return 0;
+  return Math.min(REACTION_DUEL_CHARGES_MAX_STACK, Math.floor(n));
+}
+
+function parseQuizDuelsRemaining(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0) return 0;
+  return Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, Math.floor(n));
 }
 
 const OPTIONS: { id: GameId; label: string; short: string }[] = [
@@ -48,6 +82,31 @@ const OPTIONS: { id: GameId; label: string; short: string }[] = [
   { id: "quiz", label: "Quiz rápido", short: "Quiz" },
   { id: "reaction_tap", label: "Reaction tap", short: "Reaction" },
 ];
+
+function queueCopy(gameId: GameId) {
+  if (gameId === "ppt") {
+    return {
+      summary: "Duelo curto, leitura rápida e 1 carga consumida ao emparelhar.",
+      searching: "Cancelando antes do emparelhamento não consome duelo.",
+    };
+  }
+  if (gameId === "quiz") {
+    return {
+      summary: "Perguntas em tempo real e 1 carga consumida ao emparelhar.",
+      searching: "Cancelando antes do emparelhamento não consome duelo.",
+    };
+  }
+  if (gameId === "reaction_tap") {
+    return {
+      summary: "Reflexo em tempo real e 1 carga consumida ao emparelhar.",
+      searching: "Cancelando antes do emparelhamento não consome duelo.",
+    };
+  }
+  return {
+    summary: "Vence quem reagir melhor no confronto em tempo real.",
+    searching: "Entrando adversário, a sala abre automaticamente.",
+  };
+}
 
 export function FilaClient() {
   const router = useRouter();
@@ -61,9 +120,17 @@ export function FilaClient() {
   const [error, setError] = useState<string | null>(null);
   const [pptDuelsLeft, setPptDuelsLeft] = useState<number | null>(null);
   const [pptRefillAtMs, setPptRefillAtMs] = useState<number | null>(null);
+  const [quizDuelsLeft, setQuizDuelsLeft] = useState<number | null>(null);
+  const [quizRefillAtMs, setQuizRefillAtMs] = useState<number | null>(null);
+  const [reactionDuelsLeft, setReactionDuelsLeft] = useState<number | null>(null);
+  const [reactionRefillAtMs, setReactionRefillAtMs] = useState<number | null>(null);
   const [adBusy, setAdBusy] = useState(false);
   const [pptClock, setPptClock] = useState(0);
-  const refillAppliedAfterDeadlineRef = useRef(false);
+  const [quizClock, setQuizClock] = useState(0);
+  const [reactionClock, setReactionClock] = useState(0);
+  const pptRefillAppliedAfterDeadlineRef = useRef(false);
+  const quizRefillAppliedAfterDeadlineRef = useRef(false);
+  const reactionRefillAppliedAfterDeadlineRef = useRef(false);
 
   const queueUnavailable = !autoQueueAllowed();
 
@@ -72,14 +139,24 @@ export function FilaClient() {
   }, [initialGame]);
 
   useEffect(() => {
-    if (gameId !== "ppt") {
+    if (gameId !== "ppt" && gameId !== "quiz" && gameId !== "reaction_tap") {
       setPptDuelsLeft(null);
+      setPptRefillAtMs(null);
+      setQuizDuelsLeft(null);
+      setQuizRefillAtMs(null);
+      setReactionDuelsLeft(null);
+      setReactionRefillAtMs(null);
       return;
     }
     const auth = getFirebaseAuth();
     const uid = auth.currentUser?.uid;
     if (!uid) {
       setPptDuelsLeft(null);
+      setPptRefillAtMs(null);
+      setQuizDuelsLeft(null);
+      setQuizRefillAtMs(null);
+      setReactionDuelsLeft(null);
+      setReactionRefillAtMs(null);
       return;
     }
     const db = getFirebaseFirestore();
@@ -88,6 +165,10 @@ export function FilaClient() {
       if (!snap.exists()) {
         setPptDuelsLeft(PPT_DEFAULT_DUEL_CHARGES);
         setPptRefillAtMs(null);
+        setQuizDuelsLeft(QUIZ_DEFAULT_DUEL_CHARGES);
+        setQuizRefillAtMs(null);
+        setReactionDuelsLeft(REACTION_DEFAULT_DUEL_CHARGES);
+        setReactionRefillAtMs(null);
         return;
       }
       const data = snap.data();
@@ -97,6 +178,22 @@ export function FilaClient() {
       setPptRefillAtMs(
         refAt && typeof refAt.toMillis === "function" ? refAt.toMillis() : null,
       );
+      const parsedQuiz = parseQuizDuelsRemaining(data?.quizPvPDuelsRemaining);
+      setQuizDuelsLeft(parsedQuiz ?? QUIZ_DEFAULT_DUEL_CHARGES);
+      const quizRefAt = data?.quizPvpDuelsRefillAvailableAt as { toMillis?: () => number } | undefined;
+      setQuizRefillAtMs(
+        quizRefAt && typeof quizRefAt.toMillis === "function" ? quizRefAt.toMillis() : null,
+      );
+      const parsedReaction = parseReactionDuelsRemaining(data?.reactionPvPDuelsRemaining);
+      setReactionDuelsLeft(parsedReaction ?? REACTION_DEFAULT_DUEL_CHARGES);
+      const reactionRefAt = data?.reactionPvpDuelsRefillAvailableAt as
+        | { toMillis?: () => number }
+        | undefined;
+      setReactionRefillAtMs(
+        reactionRefAt && typeof reactionRefAt.toMillis === "function"
+          ? reactionRefAt.toMillis()
+          : null,
+      );
     });
   }, [gameId]);
 
@@ -105,12 +202,34 @@ export function FilaClient() {
     void syncPptDuelRefillSchedule().catch(() => undefined);
   }, [gameId, pptDuelsLeft]);
 
+  useEffect(() => {
+    if (gameId !== "quiz" || quizDuelsLeft !== 0) return;
+    void syncQuizDuelRefillSchedule().catch(() => undefined);
+  }, [gameId, quizDuelsLeft]);
+
+  useEffect(() => {
+    if (gameId !== "reaction_tap" || reactionDuelsLeft !== 0) return;
+    void syncReactionDuelRefillSchedule().catch(() => undefined);
+  }, [gameId, reactionDuelsLeft]);
+
   const pptWaitingRefill =
     gameId === "ppt" &&
     pptDuelsLeft !== null &&
     pptDuelsLeft < 1 &&
     pptRefillAtMs !== null &&
     Date.now() < pptRefillAtMs;
+  const reactionWaitingRefill =
+    gameId === "reaction_tap" &&
+    reactionDuelsLeft !== null &&
+    reactionDuelsLeft < 1 &&
+    reactionRefillAtMs !== null &&
+    Date.now() < reactionRefillAtMs;
+  const quizWaitingRefill =
+    gameId === "quiz" &&
+    quizDuelsLeft !== null &&
+    quizDuelsLeft < 1 &&
+    quizRefillAtMs !== null &&
+    Date.now() < quizRefillAtMs;
 
   useEffect(() => {
     if (!pptWaitingRefill) return;
@@ -119,23 +238,71 @@ export function FilaClient() {
   }, [pptWaitingRefill]);
 
   useEffect(() => {
+    if (!quizWaitingRefill) return;
+    const id = window.setInterval(() => setQuizClock((c) => c + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [quizWaitingRefill]);
+
+  useEffect(() => {
+    if (!reactionWaitingRefill) return;
+    const id = window.setInterval(() => setReactionClock((c) => c + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [reactionWaitingRefill]);
+
+  useEffect(() => {
     if (gameId !== "ppt" || pptDuelsLeft !== 0 || pptRefillAtMs === null) {
-      refillAppliedAfterDeadlineRef.current = false;
+      pptRefillAppliedAfterDeadlineRef.current = false;
       return;
     }
     if (Date.now() < pptRefillAtMs) return;
-    if (refillAppliedAfterDeadlineRef.current) return;
-    refillAppliedAfterDeadlineRef.current = true;
+    if (pptRefillAppliedAfterDeadlineRef.current) return;
+    pptRefillAppliedAfterDeadlineRef.current = true;
     void syncPptDuelRefillSchedule().catch(() => {
-      refillAppliedAfterDeadlineRef.current = false;
+      pptRefillAppliedAfterDeadlineRef.current = false;
     });
   }, [gameId, pptDuelsLeft, pptRefillAtMs, pptClock]);
+
+  useEffect(() => {
+    if (gameId !== "quiz" || quizDuelsLeft !== 0 || quizRefillAtMs === null) {
+      quizRefillAppliedAfterDeadlineRef.current = false;
+      return;
+    }
+    if (Date.now() < quizRefillAtMs) return;
+    if (quizRefillAppliedAfterDeadlineRef.current) return;
+    quizRefillAppliedAfterDeadlineRef.current = true;
+    void syncQuizDuelRefillSchedule().catch(() => {
+      quizRefillAppliedAfterDeadlineRef.current = false;
+    });
+  }, [gameId, quizDuelsLeft, quizRefillAtMs, quizClock]);
+
+  useEffect(() => {
+    if (gameId !== "reaction_tap" || reactionDuelsLeft !== 0 || reactionRefillAtMs === null) {
+      reactionRefillAppliedAfterDeadlineRef.current = false;
+      return;
+    }
+    if (Date.now() < reactionRefillAtMs) return;
+    if (reactionRefillAppliedAfterDeadlineRef.current) return;
+    reactionRefillAppliedAfterDeadlineRef.current = true;
+    void syncReactionDuelRefillSchedule().catch(() => {
+      reactionRefillAppliedAfterDeadlineRef.current = false;
+    });
+  }, [gameId, reactionDuelsLeft, reactionRefillAtMs, reactionClock]);
 
   const pptCanEnterQueue =
     gameId !== "ppt" ||
     pptDuelsLeft === null ||
     pptDuelsLeft >= 1 ||
     (pptRefillAtMs !== null && Date.now() >= pptRefillAtMs);
+  const reactionCanEnterQueue =
+    gameId !== "reaction_tap" ||
+    reactionDuelsLeft === null ||
+    reactionDuelsLeft >= 1 ||
+    (reactionRefillAtMs !== null && Date.now() >= reactionRefillAtMs);
+  const quizCanEnterQueue =
+    gameId !== "quiz" ||
+    quizDuelsLeft === null ||
+    quizDuelsLeft >= 1 ||
+    (quizRefillAtMs !== null && Date.now() >= quizRefillAtMs);
 
   useEffect(() => {
     if (queueUnavailable) {
@@ -151,6 +318,7 @@ export function FilaClient() {
   }, [buscarNaUrl, initialGame, queueUnavailable]);
 
   const stopSearch = useCallback(() => {
+    setError(null);
     setPhase("form");
     router.replace(`${ROUTES.jogosFila}?gameId=${gameId}`);
   }, [router, gameId]);
@@ -236,6 +404,8 @@ export function FilaClient() {
   }, [phase, gameId, router, queueUnavailable]);
 
   const activeLabel = OPTIONS.find((x) => x.id === gameId)?.label ?? gameId;
+  const activeCopy = queueCopy(gameId);
+  const switcherGameId = gameId === "quiz" || gameId === "reaction_tap" ? gameId : "ppt";
 
   return (
     <div className="relative mx-auto max-w-lg">
@@ -267,17 +437,18 @@ export function FilaClient() {
               {phase === "searching" ? "Procurando adversário" : "Fila 1v1"}
             </h1>
             <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-white/45">
-              Emparelhamento em tempo real com outro jogador.
+              {phase === "searching"
+                ? `Buscando partida de ${activeLabel.toLowerCase()} em tempo real.`
+                : activeCopy.summary}
             </p>
           </header>
 
           {queueUnavailable ? (
             <AlertBanner tone="error">
-              Fila 1v1 indisponível nesta configuração. Opções: (1) emuladores —{" "}
-              <code className="text-white/80">NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true</code>, reinicie o
-              dev server e rode <code className="text-white/80">npm run emulators</code> na raiz do
-              projeto; ou (2) nuvem — <code className="text-white/80">NEXT_PUBLIC_SPARK_FREE_TIER=false</code>
-              , plano Blaze e <code className="text-white/80">firebase deploy --only functions</code>.
+              Fila 1v1 indisponível nesta configuração. Para o fluxo principal do projeto, use
+              emuladores locais com <code className="text-white/80">NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true</code>{" "}
+              e <code className="text-white/80">npm run emulators</code>, ou publique as Cloud
+              Functions na nuvem com <code className="text-white/80">NEXT_PUBLIC_SPARK_FREE_TIER=false</code>.
             </AlertBanner>
           ) : null}
 
@@ -287,26 +458,70 @@ export function FilaClient() {
             </AlertBanner>
           ) : null}
 
-          {gameId === "ppt" && pptDuelsLeft !== null ? (
+          {(gameId === "ppt" || gameId === "quiz" || gameId === "reaction_tap") &&
+          (gameId === "ppt"
+            ? pptDuelsLeft
+            : gameId === "quiz"
+              ? quizDuelsLeft
+              : reactionDuelsLeft) !== null ? (
             <div className="rounded-2xl border border-amber-400/25 bg-amber-950/20 px-4 py-3 text-center">
               <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-200/70">
                 Duelos PvP restantes
               </p>
               <p className="mt-1 font-mono text-2xl font-black text-amber-100 tabular-nums">
-                {pptDuelsLeft}
+                {gameId === "ppt"
+                  ? pptDuelsLeft
+                  : gameId === "quiz"
+                    ? quizDuelsLeft
+                    : reactionDuelsLeft}
               </p>
               <p className="mt-1 text-[11px] text-white/45">
                 1 duelo é descontado ao <span className="text-white/60">emparelhar</span> (ao entrar na
                 sala). Sem duelos: anúncio (+3) ou espere{" "}
-                {Math.round(PPT_REFILL_WAIT_MS / 60000)} min para +3.
+                {Math.round(
+                  (
+                    gameId === "ppt"
+                      ? PPT_REFILL_WAIT_MS
+                      : gameId === "quiz"
+                        ? QUIZ_REFILL_WAIT_MS
+                        : REACTION_REFILL_WAIT_MS
+                  ) / 60000,
+                )}{" "}
+                min para +3.
               </p>
-              {pptDuelsLeft < 1 ? (
+              {(gameId === "ppt"
+                ? pptDuelsLeft
+                : gameId === "quiz"
+                  ? quizDuelsLeft
+                  : reactionDuelsLeft)! < 1 ? (
                 <div className="mt-3 space-y-2">
-                  {pptWaitingRefill ? (
+                  {(gameId === "ppt"
+                    ? pptWaitingRefill
+                    : gameId === "quiz"
+                      ? quizWaitingRefill
+                      : reactionWaitingRefill) ? (
                     <p className="rounded-xl border border-white/10 bg-black/30 py-3 font-mono text-lg font-black tabular-nums text-amber-100">
-                      {formatCountdownMs(pptRefillAtMs! - Date.now())}
+                      {formatCountdownMs(
+                        (
+                          gameId === "ppt"
+                            ? pptRefillAtMs
+                            : gameId === "quiz"
+                              ? quizRefillAtMs
+                              : reactionRefillAtMs
+                        )! - Date.now(),
+                      )}
                     </p>
-                  ) : pptRefillAtMs !== null && Date.now() >= pptRefillAtMs ? (
+                  ) : (gameId === "ppt"
+                      ? pptRefillAtMs
+                      : gameId === "quiz"
+                        ? quizRefillAtMs
+                        : reactionRefillAtMs) !== null &&
+                    Date.now() >=
+                      (gameId === "ppt"
+                        ? pptRefillAtMs!
+                        : gameId === "quiz"
+                          ? quizRefillAtMs!
+                          : reactionRefillAtMs!) ? (
                     <p className="text-xs font-semibold text-emerald-300/90">Liberando duelos…</p>
                   ) : null}
                   <Button
@@ -318,7 +533,12 @@ export function FilaClient() {
                       setAdBusy(true);
                       void (async () => {
                         try {
-                          const r = await runPptDuelRewardedAdFlow();
+                          const r =
+                            gameId === "ppt"
+                              ? await runPptDuelRewardedAdFlow()
+                              : gameId === "quiz"
+                                ? await runQuizDuelRewardedAdFlow()
+                                : await runReactionDuelRewardedAdFlow();
                           if (r.ok) {
                             setError(null);
                           } else {
@@ -337,38 +557,24 @@ export function FilaClient() {
             </div>
           ) : null}
 
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-            <p className="text-center text-[10px] font-bold uppercase tracking-[0.3em] text-white/40">
-              Modo de jogo
+          <div>
+            <GameModeSwitcher
+              currentGameId={switcherGameId}
+              mode="queue"
+              onSelect={(nextGameId) => {
+                if (queueUnavailable) return;
+                setError(null);
+                setGameId(nextGameId);
+                router.replace(
+                  phase === "searching"
+                    ? routeJogosFilaBuscar(nextGameId)
+                    : `${ROUTES.jogosFila}?gameId=${nextGameId}`,
+                );
+              }}
+            />
+            <p className="mt-3 text-center text-[11px] leading-relaxed text-white/45">
+              {activeCopy.summary}
             </p>
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              {OPTIONS.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  disabled={phase === "searching" || queueUnavailable}
-                  onClick={() => {
-                    setGameId(o.id);
-                    if (phase === "form") {
-                      router.replace(`${ROUTES.jogosFila}?gameId=${o.id}`);
-                    }
-                  }}
-                  className={cn(
-                    "rounded-xl border-2 px-4 py-2.5 text-sm font-bold transition-all duration-200",
-                    gameId === o.id
-                      ? "border-cyan-400/60 bg-gradient-to-br from-cyan-500/25 to-violet-600/20 text-white shadow-[0_0_20px_-4px_rgba(34,211,238,0.4)]"
-                      : "border-white/10 bg-white/5 text-white/60 hover:border-violet-400/35 hover:bg-white/10 hover:text-white",
-                  )}
-                >
-                  <span className="block text-xs font-black uppercase tracking-wider text-cyan-200/80">
-                    {o.short}
-                  </span>
-                  <span className="mt-0.5 block max-w-[8.5rem] text-left text-[11px] font-semibold leading-tight text-white/80">
-                    {o.label}
-                  </span>
-                </button>
-              ))}
-            </div>
           </div>
 
           {phase === "form" ? (
@@ -376,7 +582,12 @@ export function FilaClient() {
               variant="arena"
               size="lg"
               className="w-full"
-              disabled={queueUnavailable || (gameId === "ppt" && !pptCanEnterQueue)}
+              disabled={
+                queueUnavailable ||
+                (gameId === "ppt" && !pptCanEnterQueue) ||
+                (gameId === "quiz" && !quizCanEnterQueue) ||
+                (gameId === "reaction_tap" && !reactionCanEnterQueue)
+              }
               onClick={() => {
                 setError(null);
                 router.replace(routeJogosFilaBuscar(gameId));
@@ -408,6 +619,7 @@ export function FilaClient() {
                 <p className="mt-1 text-xs text-white/50">
                   Modo: <strong className="text-white">{activeLabel}</strong>
                 </p>
+                <p className="mt-2 text-[11px] leading-relaxed text-white/45">{activeCopy.searching}</p>
               </div>
 
               <Button

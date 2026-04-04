@@ -2,13 +2,21 @@
 
 import { rewardedAdMockEnabled } from "@/lib/firebase/config";
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { isSparkFreeTier } from "@/lib/firebase/sparkMode";
+import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import {
   PPT_DUEL_CHARGES_PER_AD,
   PPT_PVP_DUELS_PLACEMENT_ID,
 } from "@/lib/constants/pptPvp";
+import {
+  QUIZ_DUEL_CHARGES_PER_AD,
+  QUIZ_PVP_DUELS_PLACEMENT_ID,
+} from "@/lib/constants/quizPvp";
+import {
+  REACTION_DUEL_CHARGES_PER_AD,
+  REACTION_PVP_DUELS_PLACEMENT_ID,
+} from "@/lib/constants/reactionPvp";
 import { callFunction } from "@/services/callables/client";
-import { sparkProcessRewardedAd } from "@/services/spark/operations";
+import { sparkProcessRewardedAd } from "@/services/spark/ads";
 
 const PLACEMENT_HOME = "home_rewarded";
 
@@ -40,6 +48,10 @@ export type ProcessRewardedAdServerResult = {
   coins?: number;
   pptPvPDuelsAdded?: number;
   pptPvPDuelsRemaining?: number;
+  quizPvPDuelsAdded?: number;
+  quizPvPDuelsRemaining?: number;
+  reactionPvPDuelsAdded?: number;
+  reactionPvPDuelsRemaining?: number;
   error?: string;
 };
 
@@ -50,7 +62,7 @@ export async function processRewardedAdOnServer(input: {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return { ok: false, error: "Faça login novamente." };
 
-  if (isSparkFreeTier()) {
+  if (shouldUseSparkFallback()) {
     return sparkProcessRewardedAd({ uid, placementId: input.placementId });
   }
 
@@ -61,6 +73,10 @@ export async function processRewardedAdOnServer(input: {
         coins?: number;
         pptPvPDuelsAdded?: number;
         pptPvPDuelsRemaining?: number;
+        quizPvPDuelsAdded?: number;
+        quizPvPDuelsRemaining?: number;
+        reactionPvPDuelsAdded?: number;
+        reactionPvPDuelsRemaining?: number;
       }
     >("processRewardedAd", {
       placementId: input.placementId,
@@ -72,6 +88,10 @@ export async function processRewardedAdOnServer(input: {
       coins: d?.coins,
       pptPvPDuelsAdded: d?.pptPvPDuelsAdded,
       pptPvPDuelsRemaining: d?.pptPvPDuelsRemaining,
+      quizPvPDuelsAdded: d?.quizPvPDuelsAdded,
+      quizPvPDuelsRemaining: d?.quizPvPDuelsRemaining,
+      reactionPvPDuelsAdded: d?.reactionPvPDuelsAdded,
+      reactionPvPDuelsRemaining: d?.reactionPvPDuelsRemaining,
     };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : "Erro no servidor" };
@@ -140,5 +160,77 @@ export async function runPptDuelRewardedAdFlow(): Promise<{
       total != null
         ? `+${server.pptPvPDuelsAdded ?? PPT_DUEL_CHARGES_PER_AD} duelos · total ${total}`
         : `+${server.pptPvPDuelsAdded ?? PPT_DUEL_CHARGES_PER_AD} duelos liberados`,
+  };
+}
+
+/**
+ * Anúncio recompensado: +3 duelos Quiz (validado no servidor; placement fixo).
+ */
+export async function runQuizDuelRewardedAdFlow(): Promise<{
+  ok: boolean;
+  quizPvPDuelsRemaining?: number;
+  message: string;
+}> {
+  const simulated = await simulateRewardedAd();
+  if (simulated.status !== "granted") {
+    return {
+      ok: false,
+      message:
+        simulated.status === "skipped"
+          ? "Anúncio não concluído."
+          : simulated.reason || "Tente novamente.",
+    };
+  }
+  const server = await processRewardedAdOnServer({
+    placementId: QUIZ_PVP_DUELS_PLACEMENT_ID,
+    mockCompletionToken: rewardedAdMockEnabled ? `mock_${Date.now()}` : undefined,
+  });
+  if (!server.ok) {
+    return { ok: false, message: server.error || "Validação reprovada." };
+  }
+  const total = server.quizPvPDuelsRemaining;
+  return {
+    ok: true,
+    quizPvPDuelsRemaining: total,
+    message:
+      total != null
+        ? `+${server.quizPvPDuelsAdded ?? QUIZ_DUEL_CHARGES_PER_AD} duelos · total ${total}`
+        : `+${server.quizPvPDuelsAdded ?? QUIZ_DUEL_CHARGES_PER_AD} duelos liberados`,
+  };
+}
+
+/**
+ * Anúncio recompensado: +3 duelos Reaction Tap (validado no servidor; placement fixo).
+ */
+export async function runReactionDuelRewardedAdFlow(): Promise<{
+  ok: boolean;
+  reactionPvPDuelsRemaining?: number;
+  message: string;
+}> {
+  const simulated = await simulateRewardedAd();
+  if (simulated.status !== "granted") {
+    return {
+      ok: false,
+      message:
+        simulated.status === "skipped"
+          ? "Anúncio não concluído."
+          : simulated.reason || "Tente novamente.",
+    };
+  }
+  const server = await processRewardedAdOnServer({
+    placementId: REACTION_PVP_DUELS_PLACEMENT_ID,
+    mockCompletionToken: rewardedAdMockEnabled ? `mock_${Date.now()}` : undefined,
+  });
+  if (!server.ok) {
+    return { ok: false, message: server.error || "Validação reprovada." };
+  }
+  const total = server.reactionPvPDuelsRemaining;
+  return {
+    ok: true,
+    reactionPvPDuelsRemaining: total,
+    message:
+      total != null
+        ? `+${server.reactionPvPDuelsAdded ?? REACTION_DUEL_CHARGES_PER_AD} duelos · total ${total}`
+        : `+${server.reactionPvPDuelsAdded ?? REACTION_DUEL_CHARGES_PER_AD} duelos liberados`,
   };
 }

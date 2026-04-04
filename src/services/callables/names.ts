@@ -15,7 +15,12 @@ export const CALLABLES = {
   joinAutoMatch: "joinAutoMatch",
   leaveAutoMatch: "leaveAutoMatch",
   submitPptPick: "submitPptPick",
+  submitQuizAnswer: "submitQuizAnswer",
+  submitReactionTap: "submitReactionTap",
   forfeitPvpRoom: "forfeitPvpRoom",
+  resolvePvpRoomTimeout: "resolvePvpRoomTimeout",
   pvpPptPresence: "pvpPptPresence",
   pptSyncDuelRefill: "pptSyncDuelRefill",
+  quizSyncDuelRefill: "quizSyncDuelRefill",
+  reactionSyncDuelRefill: "reactionSyncDuelRefill",
 } as const;

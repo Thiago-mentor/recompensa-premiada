@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.forfeitPvpRoom = exports.submitPptPick = exports.leaveAutoMatch = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.processReferralReward = exports.reviewRewardClaim = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
+exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.processReferralReward = exports.reviewRewardClaim = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
@@ -41,6 +41,7 @@ const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const firestore_2 = require("firebase-admin/firestore");
 const gameEconomy_1 = require("./gameEconomy");
+const quizQuestions_1 = require("./quizQuestions");
 admin.initializeApp();
 const firestoreDbId = process.env.FIRESTORE_DATABASE_ID?.trim();
 const db = firestoreDbId && firestoreDbId !== "(default)"
@@ -66,6 +67,16 @@ const COL = {
 const AUTO_QUEUE_GAMES = new Set(["ppt", "quiz", "reaction_tap"]);
 /** PPT em sala: primeiro a chegar nesta pontuação vence a partida (cada rodada sem empate = 1 ponto). */
 const PPT_MATCH_TARGET_POINTS = 5;
+const QUIZ_MATCH_TARGET_POINTS = 5;
+const REACTION_MATCH_TARGET_POINTS = 5;
+const QUIZ_RESPONSE_MS_CAP = 30000;
+const QUIZ_FAST_ANSWER_TIE_MS = 120;
+const REACTION_WAIT_MIN_MS = 1800;
+const REACTION_WAIT_MAX_MS = 3400;
+const REACTION_RESPONSE_MS_CAP = 9999;
+const REACTION_FALSE_START_MS = 9999;
+const REACTION_TIE_MS = 18;
+const PVP_ACTION_WINDOW_MS = 10000;
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
 const PPT_DUEL_CHARGES_PER_AD = 3;
@@ -75,14 +86,69 @@ const PPT_DUEL_CHARGES_MAX_STACK = 30;
 const PPT_DUEL_TIME_REFILL_MS = 10 * 60 * 1000;
 /** Anúncio recompensado: `placementId` que libera duelos (validado na Function). */
 const PPT_PVP_DUELS_PLACEMENT_ID = "ppt_pvp_duels";
+const QUIZ_DEFAULT_DUEL_CHARGES = 3;
+const QUIZ_DUEL_CHARGES_PER_AD = 3;
+const QUIZ_DUEL_CHARGES_MAX_STACK = 30;
+const QUIZ_DUEL_TIME_REFILL_MS = 10 * 60 * 1000;
+const QUIZ_PVP_DUELS_PLACEMENT_ID = "quiz_pvp_duels";
+const REACTION_DEFAULT_DUEL_CHARGES = 3;
+const REACTION_DUEL_CHARGES_PER_AD = 3;
+const REACTION_DUEL_CHARGES_MAX_STACK = 30;
+const REACTION_DUEL_TIME_REFILL_MS = 10 * 60 * 1000;
+const REACTION_PVP_DUELS_PLACEMENT_ID = "reaction_pvp_duels";
 function readPptDuelCharges(data) {
     if (!data)
         return PPT_DEFAULT_DUEL_CHARGES;
-    const v = Number(data.pptPvPDuelsRemaining);
-    if (Number.isFinite(v) && v >= 0) {
-        return Math.min(PPT_DUEL_CHARGES_MAX_STACK, Math.floor(v));
+    /** Sem campo no doc (perfis antigos): trata como estoque cheio. Com campo, usa o valor real (≥0). */
+    if (!Object.prototype.hasOwnProperty.call(data, "pptPvPDuelsRemaining")) {
+        return PPT_DEFAULT_DUEL_CHARGES;
     }
-    return PPT_DEFAULT_DUEL_CHARGES;
+    const raw = data.pptPvPDuelsRemaining;
+    if (raw === null || raw === undefined) {
+        return PPT_DEFAULT_DUEL_CHARGES;
+    }
+    const v = Number(raw);
+    if (!Number.isFinite(v))
+        return PPT_DEFAULT_DUEL_CHARGES;
+    return Math.min(PPT_DUEL_CHARGES_MAX_STACK, Math.max(0, Math.floor(v)));
+}
+function readReactionDuelCharges(data) {
+    if (!data)
+        return REACTION_DEFAULT_DUEL_CHARGES;
+    if (!Object.prototype.hasOwnProperty.call(data, "reactionPvPDuelsRemaining")) {
+        return REACTION_DEFAULT_DUEL_CHARGES;
+    }
+    const raw = data.reactionPvPDuelsRemaining;
+    if (raw === null || raw === undefined) {
+        return REACTION_DEFAULT_DUEL_CHARGES;
+    }
+    const v = Number(raw);
+    if (!Number.isFinite(v))
+        return REACTION_DEFAULT_DUEL_CHARGES;
+    return Math.min(REACTION_DUEL_CHARGES_MAX_STACK, Math.max(0, Math.floor(v)));
+}
+function readQuizDuelCharges(data) {
+    if (!data)
+        return QUIZ_DEFAULT_DUEL_CHARGES;
+    if (!Object.prototype.hasOwnProperty.call(data, "quizPvPDuelsRemaining")) {
+        return QUIZ_DEFAULT_DUEL_CHARGES;
+    }
+    const raw = data.quizPvPDuelsRemaining;
+    if (raw === null || raw === undefined) {
+        return QUIZ_DEFAULT_DUEL_CHARGES;
+    }
+    const v = Number(raw);
+    if (!Number.isFinite(v))
+        return QUIZ_DEFAULT_DUEL_CHARGES;
+    return Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, Math.max(0, Math.floor(v)));
+}
+function readQuizTargetScore(data) {
+    if (!data)
+        return QUIZ_MATCH_TARGET_POINTS;
+    const v = Number(data.quizTargetScore);
+    if (!Number.isFinite(v))
+        return QUIZ_MATCH_TARGET_POINTS;
+    return Math.max(QUIZ_MATCH_TARGET_POINTS, Math.floor(v));
 }
 /** Com 0 duelos e prazo vencido: recarrega 3 e remove o campo. */
 async function ensurePptChargesRefilledInTx(tx, userRef, snap) {
@@ -101,6 +167,40 @@ async function ensurePptChargesRefilledInTx(tx, userRef, snap) {
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
     return PPT_DEFAULT_DUEL_CHARGES;
+}
+async function ensureReactionChargesRefilledInTx(tx, userRef, snap) {
+    if (!snap.exists)
+        return 0;
+    const d = snap.data();
+    const c = readReactionDuelCharges(d);
+    if (c >= 1)
+        return c;
+    const raMs = millisFromFirestoreTime(d.reactionPvpDuelsRefillAvailableAt);
+    if (raMs <= 0 || Date.now() < raMs)
+        return c;
+    tx.update(userRef, {
+        reactionPvPDuelsRemaining: REACTION_DEFAULT_DUEL_CHARGES,
+        reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    return REACTION_DEFAULT_DUEL_CHARGES;
+}
+async function ensureQuizChargesRefilledInTx(tx, userRef, snap) {
+    if (!snap.exists)
+        return 0;
+    const d = snap.data();
+    const c = readQuizDuelCharges(d);
+    if (c >= 1)
+        return c;
+    const raMs = millisFromFirestoreTime(d.quizPvpDuelsRefillAvailableAt);
+    if (raMs <= 0 || Date.now() < raMs)
+        return c;
+    tx.update(userRef, {
+        quizPvPDuelsRemaining: QUIZ_DEFAULT_DUEL_CHARGES,
+        quizPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    return QUIZ_DEFAULT_DUEL_CHARGES;
 }
 /**
  * Se duelos = 0: agenda recuperação em 10 min (se ainda não houver data) ou aplica +3 se já passou.
@@ -128,6 +228,60 @@ async function tryApplyPptTimedRefillForUser(uid) {
             tx.update(userRef, {
                 pptPvPDuelsRemaining: PPT_DEFAULT_DUEL_CHARGES,
                 pptPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+    });
+}
+async function tryApplyReactionTimedRefillForUser(uid) {
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    await db.runTransaction(async (tx) => {
+        const rs = await tx.get(userRef);
+        if (!rs.exists)
+            return;
+        const d = rs.data();
+        const c = readReactionDuelCharges(d);
+        if (c >= 1)
+            return;
+        const raMs = millisFromFirestoreTime(d.reactionPvpDuelsRefillAvailableAt);
+        if (raMs <= 0) {
+            tx.update(userRef, {
+                reactionPvpDuelsRefillAvailableAt: firestore_2.Timestamp.fromMillis(Date.now() + REACTION_DUEL_TIME_REFILL_MS),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return;
+        }
+        if (Date.now() >= raMs) {
+            tx.update(userRef, {
+                reactionPvPDuelsRemaining: REACTION_DEFAULT_DUEL_CHARGES,
+                reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+    });
+}
+async function tryApplyQuizTimedRefillForUser(uid) {
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    await db.runTransaction(async (tx) => {
+        const rs = await tx.get(userRef);
+        if (!rs.exists)
+            return;
+        const d = rs.data();
+        const c = readQuizDuelCharges(d);
+        if (c >= 1)
+            return;
+        const raMs = millisFromFirestoreTime(d.quizPvpDuelsRefillAvailableAt);
+        if (raMs <= 0) {
+            tx.update(userRef, {
+                quizPvpDuelsRefillAvailableAt: firestore_2.Timestamp.fromMillis(Date.now() + QUIZ_DUEL_TIME_REFILL_MS),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return;
+        }
+        if (Date.now() >= raMs) {
+            tx.update(userRef, {
+                quizPvPDuelsRemaining: QUIZ_DEFAULT_DUEL_CHARGES,
+                quizPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
         }
@@ -295,6 +449,16 @@ function millisFromFirestoreTime(v) {
     }
     return 0;
 }
+function nextPvpActionDeadline(fromMs = Date.now()) {
+    return firestore_2.Timestamp.fromMillis(fromMs + PVP_ACTION_WINDOW_MS);
+}
+function losingHandAgainst(winnerHand) {
+    if (winnerHand === "pedra")
+        return "tesoura";
+    if (winnerHand === "papel")
+        return "pedra";
+    return "papel";
+}
 /** Sem sinal do oponente neste intervalo → vitória de quem ainda pinga (W.O.). */
 const PVP_PPT_HEARTBEAT_STALE_MS = 3 * 60 * 1000;
 /** Evita W.O. logo após criar a sala (opponente ainda não mandou 1º ping). */
@@ -325,6 +489,604 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
     await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+}
+function clampQuizResponseMs(raw) {
+    const ms = Number(raw);
+    if (!Number.isFinite(ms))
+        return QUIZ_RESPONSE_MS_CAP;
+    return Math.max(0, Math.min(QUIZ_RESPONSE_MS_CAP, Math.floor(ms)));
+}
+function resolveQuizRoundWinner(hostCorrect, guestCorrect, hostResponseMs, guestResponseMs) {
+    if (hostCorrect && !guestCorrect)
+        return "host";
+    if (guestCorrect && !hostCorrect)
+        return "guest";
+    if (!hostCorrect && !guestCorrect)
+        return "draw";
+    const diff = hostResponseMs - guestResponseMs;
+    if (Math.abs(diff) <= QUIZ_FAST_ANSWER_TIE_MS)
+        return "draw";
+    return diff < 0 ? "host" : "guest";
+}
+async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs) {
+    const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
+    const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
+    const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, {
+        pvpRoomId: roomId,
+        quizMatchWinner: matchWinner,
+        responseTimeMs: hostResponseMs,
+    });
+    const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, {
+        pvpRoomId: roomId,
+        quizMatchWinner: matchWinner,
+        responseTimeMs: guestResponseMs,
+    });
+    const [hSnap, gSnap] = await Promise.all([
+        db.doc(`${COL.users}/${hostUid}`).get(),
+        db.doc(`${COL.users}/${guestUid}`).get(),
+    ]);
+    await upsertRanking(hostUid, String(hSnap.data()?.nome || "Jogador"), hSnap.data()?.foto ?? null, ecoH.rankingPoints, hostRes === "vitoria");
+    await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
+    await bumpPlayMatchMissions(hostUid);
+    await bumpPlayMatchMissions(guestUid);
+}
+function clampReactionResponseMs(raw) {
+    const ms = Number(raw);
+    if (!Number.isFinite(ms))
+        return REACTION_RESPONSE_MS_CAP;
+    return Math.max(1, Math.min(REACTION_RESPONSE_MS_CAP, Math.floor(ms)));
+}
+function nextReactionGoLiveAt() {
+    return firestore_2.Timestamp.fromMillis(Date.now() +
+        REACTION_WAIT_MIN_MS +
+        Math.floor(Math.random() * (REACTION_WAIT_MAX_MS - REACTION_WAIT_MIN_MS)));
+}
+function resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs) {
+    if (hostFalseStart && !guestFalseStart)
+        return "guest";
+    if (guestFalseStart && !hostFalseStart)
+        return "host";
+    if (hostFalseStart && guestFalseStart)
+        return "draw";
+    const diff = hostMs - guestMs;
+    if (Math.abs(diff) <= REACTION_TIE_MS)
+        return "draw";
+    return diff < 0 ? "host" : "guest";
+}
+async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestRes, hostMs, guestMs) {
+    const [ecoH, ecoG] = await Promise.all([
+        (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", hostRes, 0, {
+            pvpRoomId: roomId,
+            responseTimeMs: hostMs,
+            reactionMs: hostMs,
+        }),
+        (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", guestRes, 0, {
+            pvpRoomId: roomId,
+            responseTimeMs: guestMs,
+            reactionMs: guestMs,
+        }),
+    ]);
+    const [hSnap, gSnap] = await Promise.all([
+        db.doc(`${COL.users}/${hostUid}`).get(),
+        db.doc(`${COL.users}/${guestUid}`).get(),
+    ]);
+    await upsertRanking(hostUid, String(hSnap.data()?.nome || "Jogador"), hSnap.data()?.foto ?? null, ecoH.rankingPoints, hostRes === "vitoria");
+    await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
+    await bumpPlayMatchMissions(hostUid);
+    await bumpPlayMatchMissions(guestUid);
+}
+async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponseMs, guestResponseMs) {
+    const hostUid = String(r.hostUid);
+    const guestUid = String(r.guestUid);
+    const hostScore = Number(r.quizHostScore ?? 0);
+    const guestScore = Number(r.quizGuestScore ?? 0);
+    const target = readQuizTargetScore(r);
+    const questionId = String(r.quizQuestionId ?? "");
+    const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
+    const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
+    const outcome = matchWinner === "host" ? "host_win" : "guest_win";
+    const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
+    const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
+    const [hUSnap, gUSnap] = await Promise.all([tx.get(hostUserRef), tx.get(guestUserRef)]);
+    if (!hUSnap.exists || !gUSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "Perfil ausente.");
+    }
+    const hostMeta = {
+        pvpRoomId: roomId,
+        questionId,
+        hostAnswerIndex,
+        guestAnswerIndex,
+        hostCorrect,
+        guestCorrect,
+        quizMatchWinner: matchWinner,
+        quizFinalHostScore: hostScore,
+        quizFinalGuestScore: guestScore,
+        responseTimeMs: hostResponseMs,
+    };
+    const guestMeta = {
+        pvpRoomId: roomId,
+        questionId,
+        hostAnswerIndex,
+        guestAnswerIndex,
+        hostCorrect,
+        guestCorrect,
+        quizMatchWinner: matchWinner,
+        quizFinalHostScore: hostScore,
+        quizFinalGuestScore: guestScore,
+        responseTimeMs: guestResponseMs,
+    };
+    const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, hostMeta);
+    const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, guestMeta);
+    const finishedTs = firestore_2.Timestamp.now();
+    const mHost = db.collection(COL.matches).doc();
+    const mGuest = db.collection(COL.matches).doc();
+    const wHost = db.collection(COL.wallet).doc();
+    const wGuest = db.collection(COL.wallet).doc();
+    tx.set(mHost, {
+        id: mHost.id,
+        gameId: "quiz",
+        gameType: "quiz",
+        userId: hostUid,
+        opponentId: guestUid,
+        resultado: hostRes,
+        result: hostRes,
+        score: ecoH.normalizedScore,
+        rewardCoins: ecoH.rewardCoins,
+        rankingPoints: ecoH.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoH.resolvedMetadata,
+        detalhes: ecoH.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.set(mGuest, {
+        id: mGuest.id,
+        gameId: "quiz",
+        gameType: "quiz",
+        userId: guestUid,
+        opponentId: hostUid,
+        resultado: guestRes,
+        result: guestRes,
+        score: ecoG.normalizedScore,
+        rewardCoins: ecoG.rewardCoins,
+        rankingPoints: ecoG.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoG.resolvedMetadata,
+        detalhes: ecoG.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(hostUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(guestUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + ecoH.rewardCoins;
+    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + ecoG.rewardCoins;
+    if (ecoH.rewardCoins > 0) {
+        tx.set(wHost, {
+            userId: hostUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoH.rewardCoins,
+            saldoApos: hostCoinsAfter,
+            descricao: "Quiz 1v1",
+            referenciaId: mHost.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    if (ecoG.rewardCoins > 0) {
+        tx.set(wGuest, {
+            userId: guestUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoG.rewardCoins,
+            saldoApos: guestCoinsAfter,
+            descricao: "Quiz 1v1",
+            referenciaId: mGuest.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    tx.update(roomRef, {
+        status: "completed",
+        phase: "completed",
+        quizHostScore: hostScore,
+        quizGuestScore: guestScore,
+        quizLastHostAnswerIndex: hostAnswerIndex,
+        quizLastGuestAnswerIndex: guestAnswerIndex,
+        quizLastHostCorrect: hostCorrect,
+        quizLastGuestCorrect: guestCorrect,
+        quizLastHostResponseMs: hostResponseMs,
+        quizLastGuestResponseMs: guestResponseMs,
+        quizLastRoundWinner: matchWinner,
+        quizMatchWinner: matchWinner,
+        quizOutcome: outcome,
+        quizRewardsApplied: true,
+        quizAnsweredUids: [],
+        timeoutEmptyRounds: 0,
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const gid = r.gameId || "quiz";
+    tx.set(slotRef(hostUid), {
+        uid: hostUid,
+        gameId: gid,
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(slotRef(guestUid), {
+        uid: guestUid,
+        gameId: gid,
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { hostUid, guestUid, matchWinner };
+}
+async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedByUid) {
+    const hostUid = String(r.hostUid);
+    const guestUid = String(r.guestUid);
+    const matchWinner = forfeitedByUid === hostUid ? "guest" : "host";
+    const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
+    const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
+    const hostResponseMs = matchWinner === "host" ? 0 : QUIZ_RESPONSE_MS_CAP;
+    const guestResponseMs = matchWinner === "guest" ? 0 : QUIZ_RESPONSE_MS_CAP;
+    const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
+    const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
+    const [hUSnap, gUSnap] = await Promise.all([tx.get(hostUserRef), tx.get(guestUserRef)]);
+    if (!hUSnap.exists || !gUSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "Perfil ausente.");
+    }
+    const hostMeta = {
+        pvpRoomId: roomId,
+        quizMatchWinner: matchWinner,
+        forfeit: true,
+        forfeitedBy: forfeitedByUid,
+        responseTimeMs: hostResponseMs,
+    };
+    const guestMeta = {
+        pvpRoomId: roomId,
+        quizMatchWinner: matchWinner,
+        forfeit: true,
+        forfeitedBy: forfeitedByUid,
+        responseTimeMs: guestResponseMs,
+    };
+    const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, hostMeta);
+    const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, guestMeta);
+    const finishedTs = firestore_2.Timestamp.now();
+    const mHost = db.collection(COL.matches).doc();
+    const mGuest = db.collection(COL.matches).doc();
+    const wHost = db.collection(COL.wallet).doc();
+    const wGuest = db.collection(COL.wallet).doc();
+    tx.set(mHost, {
+        id: mHost.id,
+        gameId: "quiz",
+        gameType: "quiz",
+        userId: hostUid,
+        opponentId: guestUid,
+        resultado: hostRes,
+        result: hostRes,
+        score: ecoH.normalizedScore,
+        rewardCoins: ecoH.rewardCoins,
+        rankingPoints: ecoH.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoH.resolvedMetadata,
+        detalhes: ecoH.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.set(mGuest, {
+        id: mGuest.id,
+        gameId: "quiz",
+        gameType: "quiz",
+        userId: guestUid,
+        opponentId: hostUid,
+        resultado: guestRes,
+        result: guestRes,
+        score: ecoG.normalizedScore,
+        rewardCoins: ecoG.rewardCoins,
+        rankingPoints: ecoG.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoG.resolvedMetadata,
+        detalhes: ecoG.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(hostUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(guestUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + ecoH.rewardCoins;
+    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + ecoG.rewardCoins;
+    if (ecoH.rewardCoins > 0) {
+        tx.set(wHost, {
+            userId: hostUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoH.rewardCoins,
+            saldoApos: hostCoinsAfter,
+            descricao: "Quiz 1v1",
+            referenciaId: mHost.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    if (ecoG.rewardCoins > 0) {
+        tx.set(wGuest, {
+            userId: guestUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoG.rewardCoins,
+            saldoApos: guestCoinsAfter,
+            descricao: "Quiz 1v1",
+            referenciaId: mGuest.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    tx.update(roomRef, {
+        status: "completed",
+        phase: "completed",
+        quizLastRoundWinner: matchWinner,
+        quizMatchWinner: matchWinner,
+        quizOutcome: matchWinner === "host" ? "host_win" : "guest_win",
+        quizRewardsApplied: true,
+        quizAnsweredUids: [],
+        timeoutEmptyRounds: 0,
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.set(slotRef(hostUid), {
+        uid: hostUid,
+        gameId: "quiz",
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(slotRef(guestUid), {
+        uid: guestUid,
+        gameId: "quiz",
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs };
+}
+async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r, hostMs, guestMs, hostFalseStart, guestFalseStart, winner) {
+    const hostUid = String(r.hostUid);
+    const guestUid = String(r.guestUid);
+    const nextHostScore = Number(r.reactionHostScore ?? 0) + (winner === "host" ? 1 : 0);
+    const nextGuestScore = Number(r.reactionGuestScore ?? 0) + (winner === "guest" ? 1 : 0);
+    const target = Number(r.reactionTargetScore ?? REACTION_MATCH_TARGET_POINTS);
+    const roundNumber = Number(r.reactionRound ?? 1);
+    const isMatchComplete = (winner === "host" && nextHostScore >= target) || (winner === "guest" && nextGuestScore >= target);
+    if (!isMatchComplete) {
+        const nextGoLiveAt = nextReactionGoLiveAt();
+        tx.update(roomRef, {
+            status: "playing",
+            phase: "reaction_waiting",
+            reactionHostMs: hostMs,
+            reactionGuestMs: guestMs,
+            reactionHostFalseStart: hostFalseStart,
+            reactionGuestFalseStart: guestFalseStart,
+            reactionWinner: winner,
+            reactionLastRoundWinner: winner,
+            reactionHostScore: nextHostScore,
+            reactionGuestScore: nextGuestScore,
+            reactionRound: roundNumber + 1,
+            reactionGoLiveAt: nextGoLiveAt,
+            reactionAnsweredUids: [],
+            timeoutEmptyRounds: 0,
+            actionDeadlineAt: nextPvpActionDeadline(nextGoLiveAt.toMillis()),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return {
+            hostUid,
+            guestUid,
+            hostRes: "empate",
+            guestRes: "empate",
+            winner,
+            hostScore: nextHostScore,
+            guestScore: nextGuestScore,
+            completed: false,
+        };
+    }
+    const hostRes = winner === "host" ? "vitoria" : winner === "guest" ? "derrota" : "empate";
+    const guestRes = winner === "guest" ? "vitoria" : winner === "host" ? "derrota" : "empate";
+    const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
+    const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
+    const [hUSnap, gUSnap] = await Promise.all([tx.get(hostUserRef), tx.get(guestUserRef)]);
+    if (!hUSnap.exists || !gUSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "Perfil ausente.");
+    }
+    const hostMeta = {
+        pvpRoomId: roomId,
+        reactionMs: hostMs,
+        responseTimeMs: hostMs,
+        falseStart: hostFalseStart,
+        reactionWinner: winner,
+    };
+    const guestMeta = {
+        pvpRoomId: roomId,
+        reactionMs: guestMs,
+        responseTimeMs: guestMs,
+        falseStart: guestFalseStart,
+        reactionWinner: winner,
+    };
+    const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", hostRes, 0, hostMeta);
+    const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", guestRes, 0, guestMeta);
+    const finishedTs = firestore_2.Timestamp.now();
+    const mHost = db.collection(COL.matches).doc();
+    const mGuest = db.collection(COL.matches).doc();
+    const wHost = db.collection(COL.wallet).doc();
+    const wGuest = db.collection(COL.wallet).doc();
+    tx.set(mHost, {
+        id: mHost.id,
+        gameId: "reaction_tap",
+        gameType: "reaction_tap",
+        userId: hostUid,
+        opponentId: guestUid,
+        resultado: hostRes,
+        result: hostRes,
+        score: ecoH.normalizedScore,
+        rewardCoins: ecoH.rewardCoins,
+        rankingPoints: ecoH.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoH.resolvedMetadata,
+        detalhes: ecoH.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.set(mGuest, {
+        id: mGuest.id,
+        gameId: "reaction_tap",
+        gameType: "reaction_tap",
+        userId: guestUid,
+        opponentId: hostUid,
+        resultado: guestRes,
+        result: guestRes,
+        score: ecoG.normalizedScore,
+        rewardCoins: ecoG.rewardCoins,
+        rankingPoints: ecoG.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoG.resolvedMetadata,
+        detalhes: ecoG.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(hostUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : hostRes === "empate" ? 8 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(guestUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : guestRes === "empate" ? 8 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + ecoH.rewardCoins;
+    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + ecoG.rewardCoins;
+    if (ecoH.rewardCoins > 0) {
+        tx.set(wHost, {
+            userId: hostUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoH.rewardCoins,
+            saldoApos: hostCoinsAfter,
+            descricao: "Reaction Tap 1v1",
+            referenciaId: mHost.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    if (ecoG.rewardCoins > 0) {
+        tx.set(wGuest, {
+            userId: guestUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoG.rewardCoins,
+            saldoApos: guestCoinsAfter,
+            descricao: "Reaction Tap 1v1",
+            referenciaId: mGuest.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    tx.update(roomRef, {
+        status: "completed",
+        phase: "completed",
+        reactionHostScore: nextHostScore,
+        reactionGuestScore: nextGuestScore,
+        reactionTargetScore: target,
+        reactionHostMs: hostMs,
+        reactionGuestMs: guestMs,
+        reactionHostFalseStart: hostFalseStart,
+        reactionGuestFalseStart: guestFalseStart,
+        reactionWinner: winner,
+        reactionLastRoundWinner: winner,
+        reactionMatchWinner: winner,
+        reactionOutcome: winner === "host" ? "host_win" : "guest_win",
+        reactionRewardsApplied: true,
+        reactionAnsweredUids: [],
+        timeoutEmptyRounds: 0,
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.set(slotRef(hostUid), {
+        uid: hostUid,
+        gameId: "reaction_tap",
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(slotRef(guestUid), {
+        uid: guestUid,
+        gameId: "reaction_tap",
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return {
+        hostUid,
+        guestUid,
+        hostRes,
+        guestRes,
+        winner,
+        hostScore: nextHostScore,
+        guestScore: nextGuestScore,
+        completed: true,
+    };
+}
+async function applyReactionForfeitInTransaction(tx, roomRef, roomId, r, forfeitedByUid) {
+    const hostUid = String(r.hostUid);
+    const guestUid = String(r.guestUid);
+    const winner = forfeitedByUid === hostUid ? "guest" : "host";
+    const hostMs = winner === "host" ? 1 : REACTION_FALSE_START_MS;
+    const guestMs = winner === "guest" ? 1 : REACTION_FALSE_START_MS;
+    const hostFalseStart = forfeitedByUid === hostUid;
+    const guestFalseStart = forfeitedByUid === guestUid;
+    const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, {
+        ...r,
+        reactionHostScore: winner === "host"
+            ? Math.max(Number(r.reactionHostScore ?? 0), Number(r.reactionTargetScore ?? REACTION_MATCH_TARGET_POINTS) - 1)
+            : Number(r.reactionHostScore ?? 0),
+        reactionGuestScore: winner === "guest"
+            ? Math.max(Number(r.reactionGuestScore ?? 0), Number(r.reactionTargetScore ?? REACTION_MATCH_TARGET_POINTS) - 1)
+            : Number(r.reactionGuestScore ?? 0),
+    }, hostMs, guestMs, hostFalseStart, guestFalseStart, winner);
+    return { ...out, winner, hostMs, guestMs };
 }
 /** Finaliza PPT na transação: perdedor = `loserUid` (desistência / inatividade). */
 async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
@@ -481,6 +1243,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
         pptAwaitingBothPicks: false,
         pptEndedByForfeit: true,
         pptForfeitedByUid: loserUid,
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
     const gid = r.gameId || "ppt";
@@ -521,6 +1284,8 @@ async function applyPptVoidBothInactiveInTransaction(tx, roomRef, r) {
         pptAwaitingBothPicks: false,
         pptMatchWinner: firestore_2.FieldValue.delete(),
         pptOutcome: firestore_2.FieldValue.delete(),
+        timeoutEmptyRounds: 0,
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
     const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
@@ -549,6 +1314,242 @@ async function applyPptVoidBothInactiveInTransaction(tx, roomRef, r) {
         roomId: null,
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });
+}
+async function applyGenericPvpTimeoutVoidInTransaction(tx, roomRef, r, extraRoomUpdates = {}) {
+    const hostUid = String(r.hostUid);
+    const guestUid = String(r.guestUid);
+    const gid = r.gameId || "ppt";
+    tx.update(roomRef, {
+        status: "completed",
+        phase: "completed",
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
+        ...extraRoomUpdates,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    if (gid === "reaction_tap") {
+        const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
+        const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
+        tx.update(hostUserRef, {
+            reactionPvPDuelsRemaining: firestore_2.FieldValue.increment(1),
+            reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        tx.update(guestUserRef, {
+            reactionPvPDuelsRemaining: firestore_2.FieldValue.increment(1),
+            reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    tx.set(slotRef(hostUid), {
+        uid: hostUid,
+        gameId: gid,
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(slotRef(guestUid), {
+        uid: guestUid,
+        gameId: gid,
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+}
+async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, pickRefs) {
+    const hostUid = String(r.hostUid);
+    const guestUid = String(r.guestUid);
+    const target = Number(r.pptTargetScore ?? PPT_MATCH_TARGET_POINTS);
+    const hostScore = Number(r.pptHostScore ?? 0);
+    const guestScore = Number(r.pptGuestScore ?? 0);
+    if (out === "draw") {
+        if (pickRefs) {
+            tx.delete(pickRefs.hostRef);
+            tx.delete(pickRefs.guestRef);
+        }
+        tx.update(roomRef, {
+            phase: "ppt_playing",
+            status: "playing",
+            pptPickedUids: [],
+            pptLastHostHand: hostHand,
+            pptLastGuestHand: guestHand,
+            pptLastRoundOutcome: "draw",
+            pptAwaitingBothPicks: true,
+            pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
+            pptConsecutiveEmptyRounds: 0,
+            timeoutEmptyRounds: 0,
+            actionDeadlineAt: nextPvpActionDeadline(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return "round";
+    }
+    const newHost = hostScore + (out === "host_win" ? 1 : 0);
+    const newGuest = guestScore + (out === "guest_win" ? 1 : 0);
+    if (newHost < target && newGuest < target) {
+        if (pickRefs) {
+            tx.delete(pickRefs.hostRef);
+            tx.delete(pickRefs.guestRef);
+        }
+        tx.update(roomRef, {
+            pptHostScore: newHost,
+            pptGuestScore: newGuest,
+            phase: "ppt_playing",
+            status: "playing",
+            pptPickedUids: [],
+            pptLastHostHand: hostHand,
+            pptLastGuestHand: guestHand,
+            pptLastRoundOutcome: out,
+            pptAwaitingBothPicks: true,
+            pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
+            pptConsecutiveEmptyRounds: 0,
+            timeoutEmptyRounds: 0,
+            actionDeadlineAt: nextPvpActionDeadline(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return "round";
+    }
+    const matchWinner = newHost >= target ? "host" : "guest";
+    const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
+    const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
+    const metaBase = {
+        pvpRoomId: roomId,
+        hostHand,
+        guestHand,
+        lastRoundOutcome: out,
+        pptMatchTo: target,
+        pptFinalHostScore: newHost,
+        pptFinalGuestScore: newGuest,
+        pptMatchWinner: matchWinner,
+    };
+    const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("ppt", hostRes, 0, metaBase);
+    const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("ppt", guestRes, 0, metaBase);
+    const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
+    const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
+    const [hUSnap, gUSnap] = await Promise.all([tx.get(hostUserRef), tx.get(guestUserRef)]);
+    if (!hUSnap.exists || !gUSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "Perfil ausente.");
+    }
+    const hu = hUSnap.data();
+    const gu = gUSnap.data();
+    if (pickRefs) {
+        tx.delete(pickRefs.hostRef);
+        tx.delete(pickRefs.guestRef);
+    }
+    const finishedTs = firestore_2.Timestamp.now();
+    const mHost = db.collection(COL.matches).doc();
+    const mGuest = db.collection(COL.matches).doc();
+    const wHost = db.collection(COL.wallet).doc();
+    const wGuest = db.collection(COL.wallet).doc();
+    tx.set(mHost, {
+        id: mHost.id,
+        gameId: "ppt",
+        gameType: "ppt",
+        userId: hostUid,
+        opponentId: guestUid,
+        resultado: hostRes,
+        result: hostRes,
+        score: ecoH.normalizedScore,
+        rewardCoins: ecoH.rewardCoins,
+        rankingPoints: ecoH.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoH.resolvedMetadata,
+        detalhes: ecoH.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.set(mGuest, {
+        id: mGuest.id,
+        gameId: "ppt",
+        gameType: "ppt",
+        userId: guestUid,
+        opponentId: hostUid,
+        resultado: guestRes,
+        result: guestRes,
+        score: ecoG.normalizedScore,
+        rewardCoins: ecoG.rewardCoins,
+        rankingPoints: ecoG.rankingPoints,
+        startedAt: null,
+        finishedAt: finishedTs,
+        metadata: ecoG.resolvedMetadata,
+        detalhes: ecoG.resolvedMetadata,
+        antiSpamToken: null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(hostUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    tx.update(guestUserRef, {
+        totalPartidas: firestore_2.FieldValue.increment(1),
+        totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
+        totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
+        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const coinsH = Number(hu.coins ?? 0) + ecoH.rewardCoins;
+    const coinsG = Number(gu.coins ?? 0) + ecoG.rewardCoins;
+    if (ecoH.rewardCoins > 0) {
+        tx.set(wHost, {
+            userId: hostUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoH.rewardCoins,
+            saldoApos: coinsH,
+            descricao: "PPT 1v1 (sala)",
+            referenciaId: mHost.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    if (ecoG.rewardCoins > 0) {
+        tx.set(wGuest, {
+            userId: guestUid,
+            tipo: "jogo_pvp",
+            moeda: "coins",
+            valor: ecoG.rewardCoins,
+            saldoApos: coinsG,
+            descricao: "PPT 1v1 (sala)",
+            referenciaId: mGuest.id,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    }
+    tx.update(roomRef, {
+        phase: "completed",
+        status: "completed",
+        pptHostScore: newHost,
+        pptGuestScore: newGuest,
+        pptTargetScore: target,
+        pptLastHostHand: hostHand,
+        pptLastGuestHand: guestHand,
+        pptLastRoundOutcome: out,
+        pptMatchWinner: matchWinner,
+        pptOutcome: matchWinner === "host" ? "host_win" : "guest_win",
+        pptRewardsApplied: true,
+        pptAwaitingBothPicks: false,
+        timeoutEmptyRounds: 0,
+        actionDeadlineAt: firestore_2.FieldValue.delete(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const gid = r.gameId || "ppt";
+    tx.set(slotRef(hostUid), {
+        uid: hostUid,
+        gameId: gid,
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(slotRef(guestUid), {
+        uid: guestUid,
+        gameId: gid,
+        queueStatus: "idle",
+        roomId: null,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return "match";
 }
 exports.initializeUserProfile = (0, https_1.onCall)(async (request) => {
     const uid = request.auth?.uid;
@@ -708,7 +1709,7 @@ async function bumpWatchAdMissions(uid) {
     }
 }
 /**
- * Recompensa por anúncio: moedas (placement padrão) ou +3 duelos PPT (`ppt_pvp_duels`).
+ * Recompensa por anúncio: moedas (placement padrão) ou +3 duelos PvP específicos.
  * Limite diário compartilhado; só o servidor altera saldos / duelos.
  */
 exports.processRewardedAd = (0, https_1.onCall)(async (request) => {
@@ -741,6 +1742,8 @@ exports.processRewardedAd = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("failed-precondition", "Token de conclusão obrigatório fora do modo mock.");
     }
     const isPptDuels = placementId === PPT_PVP_DUELS_PLACEMENT_ID;
+    const isQuizDuels = placementId === QUIZ_PVP_DUELS_PLACEMENT_ID;
+    const isReactionDuels = placementId === REACTION_PVP_DUELS_PLACEMENT_ID;
     if (isPptDuels) {
         const adRef = db.collection(COL.adEvents).doc();
         const { capped, added } = await db.runTransaction(async (tx) => {
@@ -778,6 +1781,84 @@ exports.processRewardedAd = (0, https_1.onCall)(async (request) => {
             coins: 0,
             pptPvPDuelsAdded: added,
             pptPvPDuelsRemaining: capped,
+        };
+    }
+    if (isQuizDuels) {
+        const adRef = db.collection(COL.adEvents).doc();
+        const { capped, added } = await db.runTransaction(async (tx) => {
+            const rs = await tx.get(userRef);
+            if (!rs.exists) {
+                throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+            }
+            const raw = rs.data();
+            if (raw.banido) {
+                throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+            }
+            const cur = readQuizDuelCharges(raw);
+            const cappedNext = Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, cur + QUIZ_DUEL_CHARGES_PER_AD);
+            const addedDuels = cappedNext - cur;
+            tx.set(adRef, {
+                id: adRef.id,
+                userId: uid,
+                status: "recompensado",
+                placementId,
+                rewardKind: "quiz_pvp_duels",
+                mock: true,
+                criadoEm: firestore_2.FieldValue.serverTimestamp(),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(userRef, {
+                quizPvPDuelsRemaining: cappedNext,
+                quizPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                totalAdsAssistidos: firestore_2.FieldValue.increment(1),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return { capped: cappedNext, added: addedDuels };
+        });
+        await bumpWatchAdMissions(uid);
+        return {
+            coins: 0,
+            quizPvPDuelsAdded: added,
+            quizPvPDuelsRemaining: capped,
+        };
+    }
+    if (isReactionDuels) {
+        const adRef = db.collection(COL.adEvents).doc();
+        const { capped, added } = await db.runTransaction(async (tx) => {
+            const rs = await tx.get(userRef);
+            if (!rs.exists) {
+                throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+            }
+            const raw = rs.data();
+            if (raw.banido) {
+                throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+            }
+            const cur = readReactionDuelCharges(raw);
+            const cappedNext = Math.min(REACTION_DUEL_CHARGES_MAX_STACK, cur + REACTION_DUEL_CHARGES_PER_AD);
+            const addedDuels = cappedNext - cur;
+            tx.set(adRef, {
+                id: adRef.id,
+                userId: uid,
+                status: "recompensado",
+                placementId,
+                rewardKind: "reaction_pvp_duels",
+                mock: true,
+                criadoEm: firestore_2.FieldValue.serverTimestamp(),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(userRef, {
+                reactionPvPDuelsRemaining: cappedNext,
+                reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                totalAdsAssistidos: firestore_2.FieldValue.increment(1),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return { capped: cappedNext, added: addedDuels };
+        });
+        await bumpWatchAdMissions(uid);
+        return {
+            coins: 0,
+            reactionPvPDuelsAdded: added,
+            reactionPvPDuelsRemaining: capped,
         };
     }
     const coins = economy.rewardAdCoinAmount;
@@ -1114,10 +2195,32 @@ exports.joinAutoMatch = (0, https_1.onCall)(async (request) => {
         uSnap = await userRef.get();
         u = uSnap.data();
     }
+    if (gameId === "quiz") {
+        await tryApplyQuizTimedRefillForUser(uid);
+        uSnap = await userRef.get();
+        u = uSnap.data();
+    }
+    if (gameId === "reaction_tap") {
+        await tryApplyReactionTimedRefillForUser(uid);
+        uSnap = await userRef.get();
+        u = uSnap.data();
+    }
     if (gameId === "ppt") {
         const charges = readPptDuelCharges(u);
         if (charges < 1) {
             throw new https_1.HttpsError("resource-exhausted", "Sem duelos PvP. Assista a um anúncio (+3) ou aguarde 10 minutos para recuperar 3 duelos.");
+        }
+    }
+    if (gameId === "quiz") {
+        const charges = readQuizDuelCharges(u);
+        if (charges < 1) {
+            throw new https_1.HttpsError("resource-exhausted", "Sem duelos PvP de Quiz. Assista a um anúncio (+3) ou aguarde 10 minutos para recuperar 3 duelos.");
+        }
+    }
+    if (gameId === "reaction_tap") {
+        const charges = readReactionDuelCharges(u);
+        if (charges < 1) {
+            throw new https_1.HttpsError("resource-exhausted", "Sem duelos PvP de Reaction Tap. Assista a um anúncio (+3) ou aguarde 10 minutos para recuperar 3 duelos.");
         }
     }
     const nome = String(u.nome || "Jogador");
@@ -1213,6 +2316,10 @@ exports.joinAutoMatch = (0, https_1.onCall)(async (request) => {
             }
             let pptHostC = 0;
             let pptGuestC = 0;
+            let quizHostC = 0;
+            let quizGuestC = 0;
+            let reactionHostC = 0;
+            let reactionGuestC = 0;
             if (gameId === "ppt") {
                 pptHostC = await ensurePptChargesRefilledInTx(tx, hostUserRef, hostUSnap);
                 pptGuestC = await ensurePptChargesRefilledInTx(tx, guestUserRef, guestUSnap);
@@ -1240,8 +2347,67 @@ exports.joinAutoMatch = (0, https_1.onCall)(async (request) => {
                     return null;
                 }
             }
+            if (gameId === "reaction_tap") {
+                reactionHostC = await ensureReactionChargesRefilledInTx(tx, hostUserRef, hostUSnap);
+                reactionGuestC = await ensureReactionChargesRefilledInTx(tx, guestUserRef, guestUSnap);
+                if (reactionHostC < 1) {
+                    tx.delete(coll.doc(host));
+                    tx.set(slotRef(host), {
+                        uid: host,
+                        gameId,
+                        queueStatus: "idle",
+                        roomId: null,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                }
+                if (reactionGuestC < 1) {
+                    tx.delete(coll.doc(guest));
+                    tx.set(slotRef(guest), {
+                        uid: guest,
+                        gameId,
+                        queueStatus: "idle",
+                        roomId: null,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                }
+                if (reactionHostC < 1 || reactionGuestC < 1) {
+                    return null;
+                }
+            }
+            if (gameId === "quiz") {
+                quizHostC = await ensureQuizChargesRefilledInTx(tx, hostUserRef, hostUSnap);
+                quizGuestC = await ensureQuizChargesRefilledInTx(tx, guestUserRef, guestUSnap);
+                if (quizHostC < 1) {
+                    tx.delete(coll.doc(host));
+                    tx.set(slotRef(host), {
+                        uid: host,
+                        gameId,
+                        queueStatus: "idle",
+                        roomId: null,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                }
+                if (quizGuestC < 1) {
+                    tx.delete(coll.doc(guest));
+                    tx.set(slotRef(guest), {
+                        uid: guest,
+                        gameId,
+                        queueStatus: "idle",
+                        roomId: null,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                }
+                if (quizHostC < 1 || quizGuestC < 1) {
+                    return null;
+                }
+            }
             tx.delete(selfW);
             tx.delete(pW);
+            const initialQuizQuestion = gameId === "quiz" ? (0, quizQuestions_1.pickQuizQuestion)() : null;
+            const reactionGoLiveAt = gameId === "reaction_tap" ? nextReactionGoLiveAt() : null;
+            const initialActionDeadlineAt = gameId === "reaction_tap" && reactionGoLiveAt
+                ? nextPvpActionDeadline(reactionGoLiveAt.toMillis())
+                : nextPvpActionDeadline();
             tx.set(roomRef, {
                 id: roomRef.id,
                 gameId,
@@ -1263,6 +2429,34 @@ exports.joinAutoMatch = (0, https_1.onCall)(async (request) => {
                         pptConsecutiveEmptyRounds: 0,
                     }
                     : {}),
+                ...(gameId === "quiz" && initialQuizQuestion
+                    ? {
+                        status: "playing",
+                        phase: "quiz_playing",
+                        quizHostScore: 0,
+                        quizGuestScore: 0,
+                        quizTargetScore: QUIZ_MATCH_TARGET_POINTS,
+                        quizRound: 1,
+                        quizQuestionId: initialQuizQuestion.id,
+                        quizQuestionText: initialQuizQuestion.q,
+                        quizOptions: initialQuizQuestion.options,
+                        quizAnsweredUids: [],
+                    }
+                    : {}),
+                ...(gameId === "reaction_tap" && reactionGoLiveAt
+                    ? {
+                        status: "playing",
+                        phase: "reaction_waiting",
+                        reactionHostScore: 0,
+                        reactionGuestScore: 0,
+                        reactionTargetScore: REACTION_MATCH_TARGET_POINTS,
+                        reactionRound: 1,
+                        reactionGoLiveAt,
+                        reactionAnsweredUids: [],
+                    }
+                    : {}),
+                timeoutEmptyRounds: 0,
+                actionDeadlineAt: initialActionDeadlineAt,
                 criadoEm: firestore_2.FieldValue.serverTimestamp(),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
@@ -1282,31 +2476,100 @@ exports.joinAutoMatch = (0, https_1.onCall)(async (request) => {
             });
             if (gameId === "ppt") {
                 const refillAt = firestore_2.Timestamp.fromMillis(Date.now() + PPT_DUEL_TIME_REFILL_MS);
+                /** Valor explícito: `increment(-1)` com campo ausente no Firestore parte de 0 → -1 e quebra a leitura. */
+                const nextHost = pptHostC - 1;
+                const nextGuest = pptGuestC - 1;
                 if (pptHostC === 1) {
                     tx.update(hostUserRef, {
-                        pptPvPDuelsRemaining: firestore_2.FieldValue.increment(-1),
+                        pptPvPDuelsRemaining: nextHost,
                         pptPvpDuelsRefillAvailableAt: refillAt,
                         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                     });
                 }
                 else {
                     tx.update(hostUserRef, {
-                        pptPvPDuelsRemaining: firestore_2.FieldValue.increment(-1),
+                        pptPvPDuelsRemaining: nextHost,
                         pptPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
                         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                     });
                 }
                 if (pptGuestC === 1) {
                     tx.update(guestUserRef, {
-                        pptPvPDuelsRemaining: firestore_2.FieldValue.increment(-1),
+                        pptPvPDuelsRemaining: nextGuest,
                         pptPvpDuelsRefillAvailableAt: refillAt,
                         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                     });
                 }
                 else {
                     tx.update(guestUserRef, {
-                        pptPvPDuelsRemaining: firestore_2.FieldValue.increment(-1),
+                        pptPvPDuelsRemaining: nextGuest,
                         pptPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+            }
+            if (gameId === "quiz") {
+                const refillAt = firestore_2.Timestamp.fromMillis(Date.now() + QUIZ_DUEL_TIME_REFILL_MS);
+                const nextHost = quizHostC - 1;
+                const nextGuest = quizGuestC - 1;
+                if (quizHostC === 1) {
+                    tx.update(hostUserRef, {
+                        quizPvPDuelsRemaining: nextHost,
+                        quizPvpDuelsRefillAvailableAt: refillAt,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+                else {
+                    tx.update(hostUserRef, {
+                        quizPvPDuelsRemaining: nextHost,
+                        quizPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+                if (quizGuestC === 1) {
+                    tx.update(guestUserRef, {
+                        quizPvPDuelsRemaining: nextGuest,
+                        quizPvpDuelsRefillAvailableAt: refillAt,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+                else {
+                    tx.update(guestUserRef, {
+                        quizPvPDuelsRemaining: nextGuest,
+                        quizPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+            }
+            if (gameId === "reaction_tap") {
+                const refillAt = firestore_2.Timestamp.fromMillis(Date.now() + REACTION_DUEL_TIME_REFILL_MS);
+                const nextHost = reactionHostC - 1;
+                const nextGuest = reactionGuestC - 1;
+                if (reactionHostC === 1) {
+                    tx.update(hostUserRef, {
+                        reactionPvPDuelsRemaining: nextHost,
+                        reactionPvpDuelsRefillAvailableAt: refillAt,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+                else {
+                    tx.update(hostUserRef, {
+                        reactionPvPDuelsRemaining: nextHost,
+                        reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+                if (reactionGuestC === 1) {
+                    tx.update(guestUserRef, {
+                        reactionPvPDuelsRemaining: nextGuest,
+                        reactionPvpDuelsRefillAvailableAt: refillAt,
+                        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }
+                else {
+                    tx.update(guestUserRef, {
+                        reactionPvPDuelsRemaining: nextGuest,
+                        reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
                         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                     });
                 }
@@ -1333,6 +2596,20 @@ exports.pptSyncDuelRefill = (0, https_1.onCall)(async (req) => {
     const uid = req.auth?.uid;
     assertAuthed(uid);
     await tryApplyPptTimedRefillForUser(uid);
+    return { ok: true };
+});
+/** Agenda ou aplica recuperação de duelos Quiz por tempo (10 min); não entra na fila. */
+exports.quizSyncDuelRefill = (0, https_1.onCall)(async (req) => {
+    const uid = req.auth?.uid;
+    assertAuthed(uid);
+    await tryApplyQuizTimedRefillForUser(uid);
+    return { ok: true };
+});
+/** Agenda ou aplica recuperação de duelos Reaction Tap por tempo (10 min); não entra na fila. */
+exports.reactionSyncDuelRefill = (0, https_1.onCall)(async (req) => {
+    const uid = req.auth?.uid;
+    assertAuthed(uid);
+    await tryApplyReactionTimedRefillForUser(uid);
     return { ok: true };
 });
 exports.leaveAutoMatch = (0, https_1.onCall)(async (request) => {
@@ -1408,6 +2685,9 @@ exports.submitPptPick = (0, https_1.onCall)(async (request) => {
             return false;
         if (r.gameId !== "ppt")
             return false;
+        if (millisFromFirestoreTime(r.actionDeadlineAt) > 0 && Date.now() > millisFromFirestoreTime(r.actionDeadlineAt)) {
+            throw new https_1.HttpsError("failed-precondition", "Tempo da rodada esgotado.");
+        }
         const hostUid = String(r.hostUid);
         const guestUid = String(r.guestUid);
         if (uid !== hostUid && uid !== guestUid)
@@ -1429,205 +2709,43 @@ exports.submitPptPick = (0, https_1.onCall)(async (request) => {
         if (hu.banido || gu.banido)
             return false;
         const myPref = uid === hostUid ? hPref : gPref;
-        const mySnap = uid === hostUid ? hPSnap : gPSnap;
-        const otherSnap = uid === hostUid ? gPSnap : hPSnap;
-        if (mySnap.exists) {
+        const pickedUids = new Set(r.pptPickedUids ?? []);
+        const hostPickValid = hPSnap.exists && pickedUids.has(hostUid);
+        const guestPickValid = gPSnap.exists && pickedUids.has(guestUid);
+        if (hPSnap.exists && !hostPickValid) {
+            tx.delete(hPref);
+        }
+        if (gPSnap.exists && !guestPickValid) {
+            tx.delete(gPref);
+        }
+        const mySnapExists = uid === hostUid ? hostPickValid : guestPickValid;
+        const otherSnapExists = uid === hostUid ? guestPickValid : hostPickValid;
+        if (mySnapExists) {
             throw new https_1.HttpsError("already-exists", "Você já escolheu nesta rodada.");
         }
-        tx.set(myPref, {
-            hand,
-            criadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        if (!otherSnap.exists) {
+        if (!otherSnapExists) {
+            tx.set(myPref, {
+                hand,
+                criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
             tx.update(roomRef, {
                 phase: "ppt_waiting",
                 status: "playing",
                 pptPickedUids: firestore_2.FieldValue.arrayUnion(uid),
                 pptAwaitingBothPicks: false,
                 pptConsecutiveEmptyRounds: 0,
+                timeoutEmptyRounds: 0,
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
             return "queued";
         }
-        const hostHand = uid === hostUid ? hand : String(hPSnap.data().hand);
-        const guestHand = uid === guestUid ? hand : String(gPSnap.data().hand);
+        const hostHand = uid === hostUid ? hand : String(hPSnap.data()?.hand ?? "");
+        const guestHand = uid === guestUid ? hand : String(gPSnap.data()?.hand ?? "");
         const out = pptOutcomeFromHands(hostHand, guestHand);
-        const hostScore = Number(r.pptHostScore ?? 0);
-        const guestScore = Number(r.pptGuestScore ?? 0);
-        const target = Number(r.pptTargetScore ?? PPT_MATCH_TARGET_POINTS);
-        if (out === "draw") {
-            tx.delete(hPref);
-            tx.delete(gPref);
-            tx.update(roomRef, {
-                phase: "ppt_playing",
-                status: "playing",
-                pptPickedUids: [],
-                pptLastHostHand: hostHand,
-                pptLastGuestHand: guestHand,
-                pptLastRoundOutcome: "draw",
-                pptAwaitingBothPicks: true,
-                pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
-                pptConsecutiveEmptyRounds: 0,
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            return "round";
-        }
-        const newHost = hostScore + (out === "host_win" ? 1 : 0);
-        const newGuest = guestScore + (out === "guest_win" ? 1 : 0);
-        if (newHost < target && newGuest < target) {
-            tx.delete(hPref);
-            tx.delete(gPref);
-            tx.update(roomRef, {
-                pptHostScore: newHost,
-                pptGuestScore: newGuest,
-                phase: "ppt_playing",
-                status: "playing",
-                pptPickedUids: [],
-                pptLastHostHand: hostHand,
-                pptLastGuestHand: guestHand,
-                pptLastRoundOutcome: out,
-                pptAwaitingBothPicks: true,
-                pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
-                pptConsecutiveEmptyRounds: 0,
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            return "round";
-        }
-        const matchWinner = newHost >= target ? "host" : "guest";
-        const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
-        const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
-        const metaBase = {
-            pvpRoomId: roomId,
-            hostHand,
-            guestHand,
-            lastRoundOutcome: out,
-            pptMatchTo: target,
-            pptFinalHostScore: newHost,
-            pptFinalGuestScore: newGuest,
-            pptMatchWinner: matchWinner,
-        };
-        const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("ppt", hostRes, 0, metaBase);
-        const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("ppt", guestRes, 0, metaBase);
-        const finishedTs = firestore_2.Timestamp.now();
-        const mHost = db.collection(COL.matches).doc();
-        const mGuest = db.collection(COL.matches).doc();
-        const wHost = db.collection(COL.wallet).doc();
-        const wGuest = db.collection(COL.wallet).doc();
-        tx.set(mHost, {
-            id: mHost.id,
-            gameId: "ppt",
-            gameType: "ppt",
-            userId: hostUid,
-            opponentId: guestUid,
-            resultado: hostRes,
-            result: hostRes,
-            score: ecoH.normalizedScore,
-            rewardCoins: ecoH.rewardCoins,
-            rankingPoints: ecoH.rankingPoints,
-            startedAt: null,
-            finishedAt: finishedTs,
-            metadata: ecoH.resolvedMetadata,
-            detalhes: ecoH.resolvedMetadata,
-            antiSpamToken: null,
-            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        return applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, {
+            hostRef: hPref,
+            guestRef: gPref,
         });
-        tx.set(mGuest, {
-            id: mGuest.id,
-            gameId: "ppt",
-            gameType: "ppt",
-            userId: guestUid,
-            opponentId: hostUid,
-            resultado: guestRes,
-            result: guestRes,
-            score: ecoG.normalizedScore,
-            rewardCoins: ecoG.rewardCoins,
-            rankingPoints: ecoG.rankingPoints,
-            startedAt: null,
-            finishedAt: finishedTs,
-            metadata: ecoG.resolvedMetadata,
-            detalhes: ecoG.resolvedMetadata,
-            antiSpamToken: null,
-            criadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        const hWin = hostRes === "vitoria";
-        const hLoss = hostRes === "derrota";
-        const gWin = guestRes === "vitoria";
-        const gLoss = guestRes === "derrota";
-        tx.update(hostUserRef, {
-            totalPartidas: firestore_2.FieldValue.increment(1),
-            totalVitorias: firestore_2.FieldValue.increment(hWin ? 1 : 0),
-            totalDerrotas: firestore_2.FieldValue.increment(hLoss ? 1 : 0),
-            coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
-            xp: firestore_2.FieldValue.increment(hWin ? 15 : 5),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        tx.update(guestUserRef, {
-            totalPartidas: firestore_2.FieldValue.increment(1),
-            totalVitorias: firestore_2.FieldValue.increment(gWin ? 1 : 0),
-            totalDerrotas: firestore_2.FieldValue.increment(gLoss ? 1 : 0),
-            coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
-            xp: firestore_2.FieldValue.increment(gWin ? 15 : 5),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        const coinsH = Number(hu.coins ?? 0) + ecoH.rewardCoins;
-        const coinsG = Number(gu.coins ?? 0) + ecoG.rewardCoins;
-        if (ecoH.rewardCoins > 0) {
-            tx.set(wHost, {
-                userId: hostUid,
-                tipo: "jogo_pvp",
-                moeda: "coins",
-                valor: ecoH.rewardCoins,
-                saldoApos: coinsH,
-                descricao: "PPT 1v1 (sala)",
-                referenciaId: mHost.id,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-        }
-        if (ecoG.rewardCoins > 0) {
-            tx.set(wGuest, {
-                userId: guestUid,
-                tipo: "jogo_pvp",
-                moeda: "coins",
-                valor: ecoG.rewardCoins,
-                saldoApos: coinsG,
-                descricao: "PPT 1v1 (sala)",
-                referenciaId: mGuest.id,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-        }
-        tx.delete(hPref);
-        tx.delete(gPref);
-        tx.update(roomRef, {
-            phase: "completed",
-            status: "completed",
-            pptHostScore: newHost,
-            pptGuestScore: newGuest,
-            pptTargetScore: target,
-            pptLastHostHand: hostHand,
-            pptLastGuestHand: guestHand,
-            pptLastRoundOutcome: out,
-            pptMatchWinner: matchWinner,
-            pptOutcome: matchWinner === "host" ? "host_win" : "guest_win",
-            pptRewardsApplied: true,
-            pptAwaitingBothPicks: false,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        const gid = r.gameId || "ppt";
-        tx.set(slotRef(hostUid), {
-            uid: hostUid,
-            gameId: gid,
-            queueStatus: "idle",
-            roomId: null,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        tx.set(slotRef(guestUid), {
-            uid: guestUid,
-            gameId: gid,
-            queueStatus: "idle",
-            roomId: null,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        return "match";
     });
     if (pptTxResult === "queued") {
         return { status: "queued" };
@@ -1700,7 +2818,246 @@ exports.submitPptPick = (0, https_1.onCall)(async (request) => {
         guestHand: fd.pptLastGuestHand,
     };
 });
-/** Desistência explícita ou sair da sala: quem chama perde; oponente vence (PPT). */
+exports.submitQuizAnswer = (0, https_1.onCall)(async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const roomId = String(request.data?.roomId || "").trim();
+    const answerIndex = Number(request.data?.answerIndex);
+    const responseTimeMs = clampQuizResponseMs(request.data?.responseTimeMs);
+    if (!roomId || !Number.isInteger(answerIndex) || answerIndex < 0) {
+        throw new https_1.HttpsError("invalid-argument", "roomId ou resposta inválidos.");
+    }
+    const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
+    const answersColl = roomRef.collection("quiz_answers");
+    const result = await db.runTransaction(async (tx) => {
+        const roomSnap = await tx.get(roomRef);
+        if (!roomSnap.exists) {
+            throw new https_1.HttpsError("not-found", "Sala inexistente.");
+        }
+        const room = roomSnap.data();
+        if (String(room.gameId) !== "quiz") {
+            throw new https_1.HttpsError("failed-precondition", "Esta sala não é Quiz.");
+        }
+        if (uid !== room.hostUid && uid !== room.guestUid) {
+            throw new https_1.HttpsError("permission-denied", "Você não está nesta sala.");
+        }
+        if (room.quizRewardsApplied === true || room.phase === "completed" || room.status === "completed") {
+            throw new https_1.HttpsError("failed-precondition", "Partida já finalizada.");
+        }
+        if (millisFromFirestoreTime(room.actionDeadlineAt) > 0 &&
+            Date.now() > millisFromFirestoreTime(room.actionDeadlineAt)) {
+            throw new https_1.HttpsError("failed-precondition", "Tempo da pergunta esgotado.");
+        }
+        const questionId = String(room.quizQuestionId ?? "");
+        const question = (0, quizQuestions_1.getQuizQuestionById)(questionId);
+        if (!question) {
+            throw new https_1.HttpsError("failed-precondition", "Questão da sala inválida.");
+        }
+        if (answerIndex >= question.options.length) {
+            throw new https_1.HttpsError("invalid-argument", "Opção inválida para esta questão.");
+        }
+        const hostUid = String(room.hostUid);
+        const guestUid = String(room.guestUid);
+        const otherUid = uid === hostUid ? guestUid : hostUid;
+        const myAnswerRef = answersColl.doc(uid);
+        const otherAnswerRef = answersColl.doc(otherUid);
+        const [myAnswerSnap, otherAnswerSnap] = await Promise.all([
+            tx.get(myAnswerRef),
+            tx.get(otherAnswerRef),
+        ]);
+        if (myAnswerSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Você já respondeu esta questão.");
+        }
+        const answered = new Set(Array.isArray(room.quizAnsweredUids)
+            ? room.quizAnsweredUids.map((x) => String(x))
+            : []);
+        answered.add(uid);
+        if (!otherAnswerSnap.exists) {
+            tx.set(myAnswerRef, {
+                uid,
+                answerIndex,
+                responseTimeMs,
+                createdAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(roomRef, {
+                quizAnsweredUids: Array.from(answered),
+                timeoutEmptyRounds: 0,
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return { status: "queued" };
+        }
+        const otherAnswer = otherAnswerSnap.data();
+        const hostAnswerIndex = uid === hostUid ? answerIndex : Number(otherAnswer.answerIndex ?? -1);
+        const guestAnswerIndex = uid === guestUid ? answerIndex : Number(otherAnswer.answerIndex ?? -1);
+        const hostResponse = uid === hostUid ? responseTimeMs : clampQuizResponseMs(otherAnswer.responseTimeMs);
+        const guestResponse = uid === guestUid ? responseTimeMs : clampQuizResponseMs(otherAnswer.responseTimeMs);
+        const hostCorrect = hostAnswerIndex === question.correctIndex;
+        const guestCorrect = guestAnswerIndex === question.correctIndex;
+        const roundWinner = resolveQuizRoundWinner(hostCorrect, guestCorrect, hostResponse, guestResponse);
+        const nextHostScore = Number(room.quizHostScore ?? 0) + (roundWinner === "host" ? 1 : 0);
+        const nextGuestScore = Number(room.quizGuestScore ?? 0) + (roundWinner === "guest" ? 1 : 0);
+        const target = readQuizTargetScore(room);
+        if ((roundWinner === "host" && nextHostScore >= target) || (roundWinner === "guest" && nextGuestScore >= target)) {
+            const matchWinner = roundWinner;
+            const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...room, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse);
+            return {
+                status: "completed",
+                matchWinner,
+                hostUid: out.hostUid,
+                guestUid: out.guestUid,
+                hostScore: nextHostScore,
+                guestScore: nextGuestScore,
+                hostResponseMs: hostResponse,
+                guestResponseMs: guestResponse,
+                hostAnswerIndex,
+                guestAnswerIndex,
+            };
+        }
+        tx.delete(otherAnswerRef);
+        const nextQuestion = (0, quizQuestions_1.pickQuizQuestion)(Math.random, questionId);
+        tx.update(roomRef, {
+            status: "playing",
+            phase: "quiz_playing",
+            quizHostScore: nextHostScore,
+            quizGuestScore: nextGuestScore,
+            quizRound: Number(room.quizRound ?? 1) + 1,
+            quizQuestionId: nextQuestion.id,
+            quizQuestionText: nextQuestion.q,
+            quizOptions: nextQuestion.options,
+            quizAnsweredUids: [],
+            quizLastHostAnswerIndex: hostAnswerIndex,
+            quizLastGuestAnswerIndex: guestAnswerIndex,
+            quizLastHostCorrect: hostCorrect,
+            quizLastGuestCorrect: guestCorrect,
+            quizLastHostResponseMs: hostResponse,
+            quizLastGuestResponseMs: guestResponse,
+            quizLastRoundWinner: roundWinner,
+            timeoutEmptyRounds: 0,
+            actionDeadlineAt: nextPvpActionDeadline(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return {
+            status: "round",
+            roundWinner,
+            hostScore: nextHostScore,
+            guestScore: nextGuestScore,
+            hostAnswerIndex,
+            guestAnswerIndex,
+            hostCorrect,
+            guestCorrect,
+            hostResponseMs: hostResponse,
+            guestResponseMs: guestResponse,
+            correctIndex: question.correctIndex,
+            questionId,
+        };
+    });
+    if (result.status === "completed") {
+        await postQuizMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, result.hostResponseMs, result.guestResponseMs);
+    }
+    return result;
+});
+exports.submitReactionTap = (0, https_1.onCall)(async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const roomId = String(request.data?.roomId || "").trim();
+    const requestedFalseStart = request.data?.falseStart === true;
+    if (!roomId) {
+        throw new https_1.HttpsError("invalid-argument", "roomId obrigatório.");
+    }
+    const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
+    const resultsColl = roomRef.collection("reaction_results");
+    const result = await db.runTransaction(async (tx) => {
+        const roomSnap = await tx.get(roomRef);
+        if (!roomSnap.exists) {
+            throw new https_1.HttpsError("not-found", "Sala inexistente.");
+        }
+        const room = roomSnap.data();
+        if (String(room.gameId) !== "reaction_tap") {
+            throw new https_1.HttpsError("failed-precondition", "Esta sala não é Reaction Tap.");
+        }
+        if (uid !== room.hostUid && uid !== room.guestUid) {
+            throw new https_1.HttpsError("permission-denied", "Você não está nesta sala.");
+        }
+        if (room.reactionRewardsApplied === true ||
+            room.phase === "completed" ||
+            room.status === "completed") {
+            throw new https_1.HttpsError("failed-precondition", "Partida já finalizada.");
+        }
+        if (millisFromFirestoreTime(room.actionDeadlineAt) > 0 &&
+            Date.now() > millisFromFirestoreTime(room.actionDeadlineAt)) {
+            throw new https_1.HttpsError("failed-precondition", "Tempo da rodada esgotado.");
+        }
+        const goLiveAtMs = millisFromFirestoreTime(room.reactionGoLiveAt);
+        const falseStart = requestedFalseStart || (goLiveAtMs > 0 && Date.now() < goLiveAtMs);
+        const reactionMs = falseStart
+            ? REACTION_FALSE_START_MS
+            : clampReactionResponseMs(request.data?.reactionMs);
+        const hostUid = String(room.hostUid);
+        const guestUid = String(room.guestUid);
+        const otherUid = uid === hostUid ? guestUid : hostUid;
+        const myResultRef = resultsColl.doc(uid);
+        const otherResultRef = resultsColl.doc(otherUid);
+        const [myResultSnap, otherResultSnap] = await Promise.all([
+            tx.get(myResultRef),
+            tx.get(otherResultRef),
+        ]);
+        if (myResultSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Você já reagiu nesta partida.");
+        }
+        const answered = new Set(Array.isArray(room.reactionAnsweredUids)
+            ? room.reactionAnsweredUids.map((x) => String(x))
+            : []);
+        answered.add(uid);
+        if (!otherResultSnap.exists) {
+            tx.set(myResultRef, {
+                uid,
+                reactionMs,
+                falseStart,
+                createdAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(roomRef, {
+                reactionAnsweredUids: Array.from(answered),
+                timeoutEmptyRounds: 0,
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return { status: "queued" };
+        }
+        const other = otherResultSnap.data();
+        const hostMs = uid === hostUid ? reactionMs : clampReactionResponseMs(other.reactionMs);
+        const guestMs = uid === guestUid ? reactionMs : clampReactionResponseMs(other.reactionMs);
+        const hostFalseStart = uid === hostUid ? falseStart : other.falseStart === true;
+        const guestFalseStart = uid === guestUid ? falseStart : other.falseStart === true;
+        const winner = resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs);
+        const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, room, hostMs, guestMs, hostFalseStart, guestFalseStart, winner);
+        tx.delete(otherResultRef);
+        return out.completed
+            ? {
+                status: "completed",
+                winner,
+                hostUid: out.hostUid,
+                guestUid: out.guestUid,
+                hostRes: out.hostRes,
+                guestRes: out.guestRes,
+                hostMs,
+                guestMs,
+                hostScore: out.hostScore,
+                guestScore: out.guestScore,
+            }
+            : {
+                status: "round",
+                winner,
+                hostMs,
+                guestMs,
+                hostScore: out.hostScore,
+                guestScore: out.guestScore,
+            };
+    });
+    if (result.status === "completed") {
+        await postReactionTapRanking(roomId, result.hostUid, result.guestUid, result.hostRes, result.guestRes, result.hostMs, result.guestMs);
+    }
+    return result;
+});
+/** Desistência explícita ou sair da sala: quem chama perde; oponente vence (PPT/Quiz/Reaction). */
 exports.forfeitPvpRoom = (0, https_1.onCall)(async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
@@ -1718,19 +3075,319 @@ exports.forfeitPvpRoom = (0, https_1.onCall)(async (request) => {
         if (uid !== r.hostUid && uid !== r.guestUid) {
             throw new https_1.HttpsError("permission-denied", "Você não está nesta sala.");
         }
-        if (String(r.gameId) !== "ppt") {
-            throw new https_1.HttpsError("failed-precondition", "W.O. disponível só em salas PPT.");
+        const gameId = String(r.gameId);
+        if (gameId !== "ppt" && gameId !== "quiz" && gameId !== "reaction_tap") {
+            throw new https_1.HttpsError("failed-precondition", "W.O. disponível só em salas PvP.");
         }
-        if (r.pptRewardsApplied === true || r.phase === "completed" || r.status === "completed") {
+        if (r.pptRewardsApplied === true ||
+            r.quizRewardsApplied === true ||
+            r.reactionRewardsApplied === true ||
+            r.phase === "completed" ||
+            r.status === "completed") {
             return { applied: false };
         }
-        const out = await applyPptForfeitInTransaction(tx, roomRef, roomId, r, uid);
-        return { applied: true, ...out };
+        if (gameId === "ppt") {
+            const out = await applyPptForfeitInTransaction(tx, roomRef, roomId, r, uid);
+            return { applied: true, gameId: "ppt", ...out };
+        }
+        if (gameId === "quiz") {
+            const out = await applyQuizForfeitInTransaction(tx, roomRef, roomId, r, uid);
+            return { applied: true, gameId: "quiz", ...out };
+        }
+        const out = await applyReactionForfeitInTransaction(tx, roomRef, roomId, r, uid);
+        return { applied: true, gameId: "reaction_tap", ...out };
     });
     if (result.applied) {
-        await postPptMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, { forfeitedByUid: uid });
+        if (result.gameId === "ppt") {
+            await postPptMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, { forfeitedByUid: uid });
+        }
+        else {
+            if (result.gameId === "reaction_tap") {
+                await postReactionTapRanking(roomId, result.hostUid, result.guestUid, result.hostRes, result.guestRes, result.hostMs, result.guestMs);
+                return {
+                    ok: true,
+                    applied: result.applied,
+                    matchWinner: result.applied ? result.winner : null,
+                    gameId: result.applied ? result.gameId : null,
+                };
+            }
+            await postQuizMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, result.hostResponseMs, result.guestResponseMs);
+        }
     }
-    return { ok: true, applied: result.applied, matchWinner: result.applied ? result.matchWinner : null };
+    return {
+        ok: true,
+        applied: result.applied,
+        matchWinner: result.applied ? ("winner" in result ? result.winner : result.matchWinner) : null,
+        gameId: result.applied ? result.gameId : null,
+    };
+});
+async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
+    const result = await db.runTransaction(async (tx) => {
+        const rs = await tx.get(roomRef);
+        if (!rs.exists) {
+            return { kind: "noop" };
+        }
+        const r = rs.data();
+        const gameId = String(r.gameId || "");
+        if (actorUid && actorUid !== r.hostUid && actorUid !== r.guestUid) {
+            throw new https_1.HttpsError("permission-denied", "Você não está nesta sala.");
+        }
+        if (r.phase === "completed" ||
+            r.status === "completed" ||
+            r.status === "cancelled" ||
+            r.pptRewardsApplied === true ||
+            r.quizRewardsApplied === true ||
+            r.reactionRewardsApplied === true) {
+            return { kind: "noop" };
+        }
+        const deadlineMs = millisFromFirestoreTime(r.actionDeadlineAt);
+        if (deadlineMs <= 0 || Date.now() < deadlineMs) {
+            return { kind: "noop" };
+        }
+        if (gameId === "ppt") {
+            const picksColl = roomRef.collection("ppt_picks");
+            const hostUid = String(r.hostUid);
+            const guestUid = String(r.guestUid);
+            const [hostPickSnap, guestPickSnap] = await Promise.all([
+                tx.get(picksColl.doc(hostUid)),
+                tx.get(picksColl.doc(guestUid)),
+            ]);
+            const pickedUids = new Set(r.pptPickedUids ?? []);
+            const hostPickValid = hostPickSnap.exists && pickedUids.has(hostUid);
+            const guestPickValid = guestPickSnap.exists && pickedUids.has(guestUid);
+            if (hostPickSnap.exists && !hostPickValid) {
+                tx.delete(picksColl.doc(hostUid));
+            }
+            if (guestPickSnap.exists && !guestPickValid) {
+                tx.delete(picksColl.doc(guestUid));
+            }
+            if (hostPickValid && guestPickValid) {
+                return { kind: "noop" };
+            }
+            if (!hostPickValid && !guestPickValid) {
+                const strikes = Math.max(0, Number(r.pptConsecutiveEmptyRounds ?? 0));
+                if (strikes >= 1) {
+                    await applyPptVoidBothInactiveInTransaction(tx, roomRef, r);
+                    return { kind: "void", gameId };
+                }
+                tx.update(roomRef, {
+                    phase: "ppt_playing",
+                    status: "playing",
+                    pptPickedUids: [],
+                    pptLastRoundOutcome: "draw",
+                    pptAwaitingBothPicks: true,
+                    pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
+                    pptConsecutiveEmptyRounds: strikes + 1,
+                    timeoutEmptyRounds: strikes + 1,
+                    actionDeadlineAt: nextPvpActionDeadline(),
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                });
+                return { kind: "ppt_round" };
+            }
+            const hostHand = hostPickValid
+                ? String(hostPickSnap.data()?.hand || "")
+                : losingHandAgainst(String(guestPickSnap.data()?.hand || "papel"));
+            const guestHand = guestPickValid
+                ? String(guestPickSnap.data()?.hand || "")
+                : losingHandAgainst(String(hostPickSnap.data()?.hand || "pedra"));
+            const out = pptOutcomeFromHands(hostHand, guestHand);
+            const step = await applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, {
+                hostRef: picksColl.doc(hostUid),
+                guestRef: picksColl.doc(guestUid),
+            });
+            if (step === "match") {
+                return {
+                    kind: "ppt_match",
+                    hostUid,
+                    guestUid,
+                    matchWinner: out === "host_win" ? "host" : "guest",
+                };
+            }
+            return { kind: "ppt_round" };
+        }
+        if (gameId === "quiz") {
+            const answersColl = roomRef.collection("quiz_answers");
+            const hostUid = String(r.hostUid);
+            const guestUid = String(r.guestUid);
+            const [hostAnswerSnap, guestAnswerSnap] = await Promise.all([
+                tx.get(answersColl.doc(hostUid)),
+                tx.get(answersColl.doc(guestUid)),
+            ]);
+            if (hostAnswerSnap.exists && guestAnswerSnap.exists) {
+                return { kind: "noop" };
+            }
+            const questionId = String(r.quizQuestionId ?? "");
+            const question = (0, quizQuestions_1.getQuizQuestionById)(questionId);
+            if (!question) {
+                return { kind: "noop" };
+            }
+            if (!hostAnswerSnap.exists && !guestAnswerSnap.exists) {
+                const strikes = Math.max(0, Number(r.timeoutEmptyRounds ?? 0));
+                if (strikes >= 1) {
+                    await applyGenericPvpTimeoutVoidInTransaction(tx, roomRef, r, {
+                        quizOutcome: "draw",
+                        quizLastRoundWinner: "draw",
+                        quizAnsweredUids: [],
+                        quizRewardsApplied: true,
+                        quizMatchWinner: firestore_2.FieldValue.delete(),
+                        timeoutEmptyRounds: 0,
+                    });
+                    return { kind: "void", gameId };
+                }
+                const nextQuestion = (0, quizQuestions_1.pickQuizQuestion)(Math.random, questionId);
+                tx.update(roomRef, {
+                    status: "playing",
+                    phase: "quiz_playing",
+                    quizRound: Number(r.quizRound ?? 1) + 1,
+                    quizQuestionId: nextQuestion.id,
+                    quizQuestionText: nextQuestion.q,
+                    quizOptions: nextQuestion.options,
+                    quizAnsweredUids: [],
+                    quizLastHostAnswerIndex: null,
+                    quizLastGuestAnswerIndex: null,
+                    quizLastHostCorrect: false,
+                    quizLastGuestCorrect: false,
+                    quizLastHostResponseMs: QUIZ_RESPONSE_MS_CAP,
+                    quizLastGuestResponseMs: QUIZ_RESPONSE_MS_CAP,
+                    quizLastRoundWinner: "draw",
+                    timeoutEmptyRounds: strikes + 1,
+                    actionDeadlineAt: nextPvpActionDeadline(),
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                });
+                return { kind: "quiz_round" };
+            }
+            const hostAnswer = hostAnswerSnap.data();
+            const guestAnswer = guestAnswerSnap.data();
+            const hostAnswerIndex = hostAnswerSnap.exists ? Number(hostAnswer?.answerIndex ?? -1) : -1;
+            const guestAnswerIndex = guestAnswerSnap.exists ? Number(guestAnswer?.answerIndex ?? -1) : -1;
+            const hostResponse = hostAnswerSnap.exists
+                ? clampQuizResponseMs(hostAnswer?.responseTimeMs)
+                : QUIZ_RESPONSE_MS_CAP;
+            const guestResponse = guestAnswerSnap.exists
+                ? clampQuizResponseMs(guestAnswer?.responseTimeMs)
+                : QUIZ_RESPONSE_MS_CAP;
+            const hostCorrect = hostAnswerIndex === question.correctIndex;
+            const guestCorrect = guestAnswerIndex === question.correctIndex;
+            const roundWinner = resolveQuizRoundWinner(hostCorrect, guestCorrect, hostResponse, guestResponse);
+            const nextHostScore = Number(r.quizHostScore ?? 0) + (roundWinner === "host" ? 1 : 0);
+            const nextGuestScore = Number(r.quizGuestScore ?? 0) + (roundWinner === "guest" ? 1 : 0);
+            const target = readQuizTargetScore(r);
+            if ((roundWinner === "host" && nextHostScore >= target) || (roundWinner === "guest" && nextGuestScore >= target)) {
+                const matchWinner = roundWinner;
+                const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...r, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse);
+                tx.delete(answersColl.doc(hostUid));
+                tx.delete(answersColl.doc(guestUid));
+                return { kind: "quiz_match", ...out, hostResponseMs: hostResponse, guestResponseMs: guestResponse };
+            }
+            const nextQuestion = (0, quizQuestions_1.pickQuizQuestion)(Math.random, questionId);
+            tx.delete(answersColl.doc(hostUid));
+            tx.delete(answersColl.doc(guestUid));
+            tx.update(roomRef, {
+                status: "playing",
+                phase: "quiz_playing",
+                quizHostScore: nextHostScore,
+                quizGuestScore: nextGuestScore,
+                quizRound: Number(r.quizRound ?? 1) + 1,
+                quizQuestionId: nextQuestion.id,
+                quizQuestionText: nextQuestion.q,
+                quizOptions: nextQuestion.options,
+                quizAnsweredUids: [],
+                quizLastHostAnswerIndex: hostAnswerIndex,
+                quizLastGuestAnswerIndex: guestAnswerIndex,
+                quizLastHostCorrect: hostCorrect,
+                quizLastGuestCorrect: guestCorrect,
+                quizLastHostResponseMs: hostResponse,
+                quizLastGuestResponseMs: guestResponse,
+                quizLastRoundWinner: roundWinner,
+                timeoutEmptyRounds: 0,
+                actionDeadlineAt: nextPvpActionDeadline(),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return { kind: "quiz_round" };
+        }
+        if (gameId === "reaction_tap") {
+            const resultsColl = roomRef.collection("reaction_results");
+            const hostUid = String(r.hostUid);
+            const guestUid = String(r.guestUid);
+            const [hostResultSnap, guestResultSnap] = await Promise.all([
+                tx.get(resultsColl.doc(hostUid)),
+                tx.get(resultsColl.doc(guestUid)),
+            ]);
+            if (hostResultSnap.exists && guestResultSnap.exists) {
+                return { kind: "noop" };
+            }
+            if (!hostResultSnap.exists && !guestResultSnap.exists) {
+                const strikes = Math.max(0, Number(r.timeoutEmptyRounds ?? 0));
+                if (strikes >= 1) {
+                    await applyGenericPvpTimeoutVoidInTransaction(tx, roomRef, r, {
+                        reactionOutcome: "draw",
+                        reactionWinner: "draw",
+                        reactionLastRoundWinner: "draw",
+                        reactionAnsweredUids: [],
+                        reactionRewardsApplied: true,
+                        reactionMatchWinner: firestore_2.FieldValue.delete(),
+                        timeoutEmptyRounds: 0,
+                    });
+                    return { kind: "void", gameId };
+                }
+                const nextGoLiveAt = nextReactionGoLiveAt();
+                tx.update(roomRef, {
+                    status: "playing",
+                    phase: "reaction_waiting",
+                    reactionRound: Number(r.reactionRound ?? 1) + 1,
+                    reactionGoLiveAt: nextGoLiveAt,
+                    reactionWinner: "draw",
+                    reactionLastRoundWinner: "draw",
+                    reactionHostFalseStart: false,
+                    reactionGuestFalseStart: false,
+                    reactionAnsweredUids: [],
+                    timeoutEmptyRounds: strikes + 1,
+                    actionDeadlineAt: nextPvpActionDeadline(nextGoLiveAt.toMillis()),
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                });
+                return { kind: "reaction_round" };
+            }
+            const hostResult = hostResultSnap.data();
+            const guestResult = guestResultSnap.data();
+            const hostMs = hostResultSnap.exists
+                ? clampReactionResponseMs(hostResult?.reactionMs)
+                : REACTION_RESPONSE_MS_CAP;
+            const guestMs = guestResultSnap.exists
+                ? clampReactionResponseMs(guestResult?.reactionMs)
+                : REACTION_RESPONSE_MS_CAP;
+            const hostFalseStart = hostResultSnap.exists && hostResult?.falseStart === true;
+            const guestFalseStart = guestResultSnap.exists && guestResult?.falseStart === true;
+            const winner = resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs);
+            const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r, hostMs, guestMs, hostFalseStart, guestFalseStart, winner);
+            tx.delete(resultsColl.doc(hostUid));
+            tx.delete(resultsColl.doc(guestUid));
+            return out.completed
+                ? { kind: "reaction_match", ...out, hostMs, guestMs }
+                : { kind: "reaction_round" };
+        }
+        return { kind: "noop" };
+    });
+    if (result.kind === "ppt_match") {
+        await postPptMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner);
+    }
+    else if (result.kind === "quiz_match") {
+        await postQuizMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, result.hostResponseMs, result.guestResponseMs);
+    }
+    else if (result.kind === "reaction_match") {
+        await postReactionTapRanking(roomId, result.hostUid, result.guestUid, result.hostRes, result.guestRes, result.hostMs, result.guestMs);
+    }
+    return result;
+}
+exports.resolvePvpRoomTimeout = (0, https_1.onCall)(async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const roomId = String(request.data?.roomId || "").trim();
+    if (!roomId) {
+        throw new https_1.HttpsError("invalid-argument", "roomId obrigatório.");
+    }
+    const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
+    const result = await resolveExpiredPvpRoom(roomRef, roomId, uid);
+    return { ok: true, kind: result.kind };
 });
 /** Ping de presença na partida PPT; se o oponente ficar sem sinal, vitória por W.O. */
 exports.pvpPptPresence = (0, https_1.onCall)(async (request) => {
@@ -1800,6 +3457,22 @@ async function closeRankingJob(period) {
     // Snapshot + premiação: expandir com consulta ordenada e distribuição por system_configs
     console.log(`closeRanking ${period} tick`);
 }
+/** Backstop server-side: resolve salas PvP expiradas para impedir travas e loops infinitos. */
+exports.reapExpiredPvpRooms = (0, scheduler_1.onSchedule)({ schedule: "* * * * *", timeZone: "America/Sao_Paulo" }, async () => {
+    const snap = await db
+        .collection(COL.gameRooms)
+        .where("actionDeadlineAt", "<=", firestore_2.Timestamp.now())
+        .limit(100)
+        .get();
+    for (const doc of snap.docs) {
+        try {
+            await resolveExpiredPvpRoom(doc.ref, doc.id);
+        }
+        catch (e) {
+            console.error("reapExpiredPvpRooms", doc.id, e);
+        }
+    }
+});
 /** Duas janelas seguidas sem nenhum pick dos dois → anula partida e libera slots (sem pontos). */
 exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ schedule: "* * * * *", timeZone: "America/Sao_Paulo" }, async () => {
     const snap = await db

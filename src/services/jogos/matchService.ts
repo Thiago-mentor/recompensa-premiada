@@ -1,9 +1,9 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { isSparkFreeTier } from "@/lib/firebase/sparkMode";
+import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { callFunction } from "@/services/callables/client";
-import { sparkFinalizeMatch } from "@/services/spark/operations";
+import { sparkFinalizeMatch } from "@/services/spark/matches";
 import type { GameId } from "@/types/game";
 
 export type FinalizeMatchInput = {
@@ -31,7 +31,7 @@ export async function finalizeMatchOnServer(input: FinalizeMatchInput): Promise<
 
   const metadata = { ...(input.detalhes ?? {}), ...(input.metadata ?? {}) };
 
-  if (isSparkFreeTier()) {
+  if (shouldUseSparkFallback()) {
     const r = await sparkFinalizeMatch({
       uid,
       gameId: input.gameId,

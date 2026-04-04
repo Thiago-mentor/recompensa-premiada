@@ -1,9 +1,9 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { isSparkFreeTier } from "@/lib/firebase/sparkMode";
+import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { callFunction } from "@/services/callables/client";
-import { sparkProcessDailyLogin } from "@/services/spark/operations";
+import { sparkProcessDailyLogin } from "@/services/spark/dailyLogin";
 
 export async function processDailyLogin(): Promise<{
   ok: boolean;
@@ -15,7 +15,7 @@ export async function processDailyLogin(): Promise<{
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return { ok: false, error: "Faça login novamente." };
 
-  if (isSparkFreeTier()) {
+  if (shouldUseSparkFallback()) {
     const r = await sparkProcessDailyLogin(uid);
     if (!r.ok) return { ok: false, error: r.error };
     return {

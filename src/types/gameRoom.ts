@@ -45,6 +45,47 @@ export interface GameRoomDocument {
   /** Heartbeat PPT (servidor) — presença na partida */
   pptHostPresenceAt?: Timestamp;
   pptGuestPresenceAt?: Timestamp;
+  /** Quiz PvP */
+  quizHostScore?: number;
+  quizGuestScore?: number;
+  quizTargetScore?: number;
+  quizRound?: number;
+  quizQuestionId?: string;
+  quizQuestionText?: string;
+  quizOptions?: string[];
+  /** UIDs que já responderam a questão atual. */
+  quizAnsweredUids?: string[];
+  quizLastHostAnswerIndex?: number | null;
+  quizLastGuestAnswerIndex?: number | null;
+  quizLastHostCorrect?: boolean;
+  quizLastGuestCorrect?: boolean;
+  quizLastHostResponseMs?: number | null;
+  quizLastGuestResponseMs?: number | null;
+  quizLastRoundWinner?: "host" | "guest" | "draw";
+  quizMatchWinner?: "host" | "guest";
+  quizOutcome?: "host_win" | "guest_win" | "draw";
+  quizRewardsApplied?: boolean;
+  /** Reaction Tap PvP */
+  reactionHostScore?: number;
+  reactionGuestScore?: number;
+  reactionTargetScore?: number;
+  reactionRound?: number;
+  reactionGoLiveAt?: Timestamp;
+  reactionAnsweredUids?: string[];
+  reactionHostMs?: number | null;
+  reactionGuestMs?: number | null;
+  reactionHostFalseStart?: boolean;
+  reactionGuestFalseStart?: boolean;
+  reactionLastRoundWinner?: "host" | "guest" | "draw";
+  reactionMatchWinner?: "host" | "guest";
+  /** Legado / resumo rápido da última rodada. */
+  reactionWinner?: "host" | "guest" | "draw";
+  reactionOutcome?: "host_win" | "guest_win" | "draw";
+  reactionRewardsApplied?: boolean;
+  /** Prazo server-side da jogada/resposta atual. Ao expirar, a sala é resolvida no backend. */
+  actionDeadlineAt?: Timestamp;
+  /** Rodadas seguidas sem nenhuma ação dos dois lados; usado para anti-loop. */
+  timeoutEmptyRounds?: number;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
 }

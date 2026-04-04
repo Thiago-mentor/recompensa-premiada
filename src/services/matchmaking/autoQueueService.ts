@@ -49,3 +49,17 @@ export async function syncPptDuelRefillSchedule(): Promise<void> {
   if (!getFirebaseAuth().currentUser?.uid) return;
   await callFunction("pptSyncDuelRefill", {});
 }
+
+/** Sincroniza timer / recuperação de duelos Quiz (10 min) sem entrar na fila. */
+export async function syncQuizDuelRefillSchedule(): Promise<void> {
+  if (!autoQueueAllowed()) return;
+  if (!getFirebaseAuth().currentUser?.uid) return;
+  await callFunction("quizSyncDuelRefill", {});
+}
+
+/** Sincroniza timer / recuperação de duelos Reaction Tap (10 min) sem entrar na fila. */
+export async function syncReactionDuelRefillSchedule(): Promise<void> {
+  if (!autoQueueAllowed()) return;
+  if (!getFirebaseAuth().currentUser?.uid) return;
+  await callFunction("reactionSyncDuelRefill", {});
+}

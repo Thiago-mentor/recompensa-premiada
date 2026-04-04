@@ -23,7 +23,7 @@ export const firebaseConfig = {
 };
 
 export const firebaseFunctionsRegion =
-  process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION || "southamerica-east1";
+  process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION || "us-central1";
 
 /**
  * ID do banco Firestore no projeto (Console → Firestore → “Adicionar banco de dados”).
@@ -33,6 +33,16 @@ export const firestoreDatabaseId =
   process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID?.trim() || undefined;
 
 export const useFirebaseEmulators = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
+
+export const firebaseEmulatorHost =
+  process.env.NEXT_PUBLIC_FIREBASE_EMULATOR_HOST?.trim() || "127.0.0.1";
+
+export const firebaseEmulatorPorts = {
+  auth: Number(process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT || 9099),
+  firestore: Number(process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_PORT || 8080),
+  functions: Number(process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001),
+  storage: Number(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_EMULATOR_PORT || 9199),
+} as const;
 
 export const appCheckSiteKey = process.env.NEXT_PUBLIC_APPCHECK_SITE_KEY || "";
 

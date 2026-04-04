@@ -96,9 +96,8 @@ export default function LoginPage() {
       </div>
       {firebaseEmulatorsActive ? (
         <AlertBanner tone="info" className="text-sm">
-          <strong className="text-white">Modo emulador:</strong> o login usa só o{" "}
-          <strong className="text-white">Auth emulator</strong> (porta 9099). Contas da nuvem não
-          existem aqui — use <strong className="text-white">Criar conta</strong> com{" "}
+          <strong className="text-white">Modo emulador:</strong> o login usa a base local de Auth.
+          Contas da nuvem não existem aqui; crie uma conta local com{" "}
           <code className="text-white/80">npm run emulators</code> rodando. O botão Google costuma
           falhar no emulator; prefira e-mail e senha.
         </AlertBanner>

@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
-import { isSparkFreeTier } from "@/lib/firebase/sparkMode";
+import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import type { RewardClaim } from "@/types/reward";
 import { callFunction } from "@/services/callables/client";
-import { sparkReviewRewardClaim } from "@/services/spark/operations";
+import { sparkReviewRewardClaim } from "@/services/spark/rewards";
 
 export default function AdminRecompensasPage() {
   const [rows, setRows] = useState<RewardClaim[]>([]);
@@ -26,7 +26,7 @@ export default function AdminRecompensasPage() {
 
   async function review(id: string, status: "aprovado" | "recusado") {
     try {
-      if (isSparkFreeTier()) {
+      if (shouldUseSparkFallback()) {
         const adminUid = getFirebaseAuth().currentUser?.uid;
         if (!adminUid) {
           window.alert("Sessão inválida. Faça login como admin.");

@@ -1,6 +1,6 @@
 import { FirebaseError } from "firebase/app";
-import { isSparkFreeTier } from "./sparkMode";
-import { useFirebaseEmulators } from "./config";
+import { shouldUseSparkFallback } from "./sparkMode";
+import { firebaseEmulatorHost, firebaseEmulatorPorts, useFirebaseEmulators } from "./config";
 
 /**
  * Mensagens legíveis para erros do cliente Firebase (Auth, Functions, etc.).
@@ -18,22 +18,22 @@ export function formatFirebaseError(e: unknown): string {
             isNetworkish
               ? "Não houve resposta do Functions emulator (o SDK costuma reportar isso como erro “interno”). Quase sempre o emulador não está rodando ou a porta 5001 não está acessível."
               : "Não foi possível concluir a chamada ao Functions emulator.",
-            "Deixe um terminal aberto na pasta recompensa-premiada com: npm run emulators — espere listar Functions em 127.0.0.1:5001 e a UI em http://127.0.0.1:4000.",
+            `Deixe um terminal aberto na pasta recompensa-premiada com: npm run emulators — espere listar Functions em ${firebaseEmulatorHost}:${firebaseEmulatorPorts.functions} e a UI em http://127.0.0.1:4000.`,
             "Em outro terminal: npm run dev. Confirme NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true e reinicie o dev server após alterar o .env.",
             "Se o build das functions falhar no início do emulators, corrija os erros do TypeScript em functions/ antes de testar a fila.",
           ].join(" ");
         }
-        if (isSparkFreeTier()) {
+        if (shouldUseSparkFallback()) {
           return [
-            "Uma parte do app ainda chamou Cloud Functions, mas no plano Spark gratuito elas não estão disponíveis sem upgrade (Blaze).",
-            "Confirme NEXT_PUBLIC_SPARK_FREE_TIER=true no .env.local e reinicie o dev server, ou publique as Functions após ativar Blaze.",
+            "Uma parte do app tentou usar Cloud Functions, mas este ambiente ainda está configurado para o fallback legado sem Functions.",
+            "Se o objetivo é usar o fluxo principal do projeto, mantenha NEXT_PUBLIC_SPARK_FREE_TIER=false ou ative os emuladores locais.",
           ].join(" ");
         }
         return [
           "O servidor (Cloud Function) respondeu com erro interno.",
           "Isso costuma acontecer quando as Functions ainda não foram publicadas neste projeto, o Firestore não foi ativado, ou a região não bate com a do .env.local.",
           "→ No PowerShell, na pasta recompensa-premiada: firebase deploy --only functions",
-          "→ Confira se NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION no .env.local é a região onde as functions foram deployadas (ex.: southamerica-east1).",
+          "→ Confira se NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION no .env.local é a região onde as functions foram deployadas (ex.: us-central1).",
         ].join(" ");
       }
       if (code === "functions/not-found") {
@@ -50,12 +50,12 @@ export function formatFirebaseError(e: unknown): string {
 
     if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
       return useFirebaseEmulators
-        ? "E-mail ou senha incorretos no Auth emulator. Contas da produção não existem aqui — crie uma em «Criar conta» com npm run emulators rodando."
+        ? "E-mail ou senha incorretos no Auth emulator. Contas da produção não existem aqui — crie uma conta local com os emuladores rodando."
         : "E-mail ou senha incorretos.";
     }
     if (code === "auth/user-not-found") {
       return useFirebaseEmulators
-        ? "Não há conta com este e-mail no emulator. Use «Criar conta» (com emuladores ligados); login de produção não funciona neste ambiente."
+        ? "Não há conta com este e-mail no emulator. Crie uma conta local com os emuladores ligados; login de produção não funciona neste ambiente."
         : "Não há conta com este e-mail. Use Criar conta.";
     }
     if (code === "auth/too-many-requests") {

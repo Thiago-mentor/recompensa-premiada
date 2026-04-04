@@ -82,7 +82,7 @@ export function CadastroForm() {
       {firebaseEmulatorsActive ? (
         <AlertBanner tone="info" className="text-sm">
           Emuladores ativos: esta conta ficará só no Auth/Firestore locais. Mantenha{" "}
-          <code className="text-white/80">npm run emulators</code> rodando ao cadastrar.
+          <code className="text-white/80">npm run emulators</code> rodando durante o cadastro.
         </AlertBanner>
       ) : null}
       {error ? (

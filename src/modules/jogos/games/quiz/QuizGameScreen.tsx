@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { GameModeSwitcher } from "../../components/GameModeSwitcher";
 import { useGameMatchFlow } from "../../hooks/useGameMatchFlow";
 import { MatchResultModal } from "../../components/MatchResultModal";
 import { RewardToast } from "../../components/RewardToast";
@@ -62,6 +63,7 @@ export function QuizGameScreen() {
 
   return (
     <div className="space-y-4">
+      <GameModeSwitcher currentGameId="quiz" mode="solo" />
       <div>
         <h1 className="text-xl font-bold text-white">Quiz rápido 1×1</h1>
         <p className="text-sm text-white/55">

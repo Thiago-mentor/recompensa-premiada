@@ -1,0 +1,28 @@
+{
+  "files.watcherExclude": {
+    "**/.next/**": true,
+    "**/out/**": true,
+    "**/build/**": true,
+    "**/coverage/**": true,
+    "**/.turbo/**": true,
+    "**/.firebase/**": true,
+    "**/node_modules/**": true,
+    "**/functions/lib/**": true,
+    "**/android/.gradle/**": true,
+    "**/android/.kotlin/**": true,
+    "**/android/app/build/**": true
+  },
+  "search.exclude": {
+    "**/.next/**": true,
+    "**/out/**": true,
+    "**/build/**": true,
+    "**/coverage/**": true,
+    "**/.turbo/**": true,
+    "**/.firebase/**": true,
+    "**/node_modules/**": true,
+    "**/functions/lib/**": true,
+    "**/android/.gradle/**": true,
+    "**/android/.kotlin/**": true,
+    "**/android/app/build/**": true
+  }
+}

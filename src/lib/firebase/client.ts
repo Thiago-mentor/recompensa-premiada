@@ -13,6 +13,8 @@ import { getFunctions, connectFunctionsEmulator, type Functions } from "firebase
 import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from "firebase/app-check";
 import {
   firebaseConfig,
+  firebaseEmulatorHost,
+  firebaseEmulatorPorts,
   firebaseFunctionsRegion,
   firestoreDatabaseId,
   useFirebaseEmulators,
@@ -46,7 +48,7 @@ function wireEmulators(): void {
   const appInstance = getFirebaseApp();
   const s = getStorage(appInstance);
   try {
-    connectStorageEmulator(s, "127.0.0.1", 9199);
+    connectStorageEmulator(s, firebaseEmulatorHost, firebaseEmulatorPorts.storage);
   } catch {
     /* já conectado */
   }
@@ -58,7 +60,11 @@ export function getFirebaseAuth(): Auth {
     auth = getAuth(appInstance);
     if (useFirebaseEmulators && typeof window !== "undefined") {
       try {
-        connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+        connectAuthEmulator(
+          auth,
+          `http://${firebaseEmulatorHost}:${firebaseEmulatorPorts.auth}`,
+          { disableWarnings: true },
+        );
       } catch {
         /* já conectado (ex.: Fast Refresh) */
       }
@@ -77,7 +83,7 @@ export function getFirebaseFirestore(): Firestore {
         : getFirestore(app);
     if (useFirebaseEmulators && typeof window !== "undefined") {
       try {
-        connectFirestoreEmulator(db, "127.0.0.1", 8080);
+        connectFirestoreEmulator(db, firebaseEmulatorHost, firebaseEmulatorPorts.firestore);
       } catch {
         /* já conectado */
       }
@@ -101,7 +107,7 @@ export function getFirebaseFunctions(): Functions {
     functions = getFunctions(appInstance, firebaseFunctionsRegion);
     if (useFirebaseEmulators && typeof window !== "undefined") {
       try {
-        connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+        connectFunctionsEmulator(functions, firebaseEmulatorHost, firebaseEmulatorPorts.functions);
       } catch {
         /* já conectado (ex.: Fast Refresh) */
       }

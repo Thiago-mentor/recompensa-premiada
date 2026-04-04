@@ -65,7 +65,17 @@ service cloud.firestore {
         && (!request.resource.data.keys().hasAny(['pptPvPDuelsRemaining'])
             || request.resource.data.pptPvPDuelsRemaining == resource.data.pptPvPDuelsRemaining)
         && (!request.resource.data.keys().hasAny(['pptPvpDuelsRefillAvailableAt'])
-            || request.resource.data.pptPvpDuelsRefillAvailableAt == resource.data.pptPvpDuelsRefillAvailableAt);
+            || request.resource.data.pptPvpDuelsRefillAvailableAt == resource.data.pptPvpDuelsRefillAvailableAt)
+        // Duelos Quiz e timer de recuperação: só Cloud Functions (Admin SDK)
+        && (!request.resource.data.keys().hasAny(['quizPvPDuelsRemaining'])
+            || request.resource.data.quizPvPDuelsRemaining == resource.data.quizPvPDuelsRemaining)
+        && (!request.resource.data.keys().hasAny(['quizPvpDuelsRefillAvailableAt'])
+            || request.resource.data.quizPvpDuelsRefillAvailableAt == resource.data.quizPvpDuelsRefillAvailableAt)
+        // Duelos Reaction Tap e timer de recuperação: só Cloud Functions (Admin SDK)
+        && (!request.resource.data.keys().hasAny(['reactionPvPDuelsRemaining'])
+            || request.resource.data.reactionPvPDuelsRemaining == resource.data.reactionPvPDuelsRemaining)
+        && (!request.resource.data.keys().hasAny(['reactionPvpDuelsRefillAvailableAt'])
+            || request.resource.data.reactionPvpDuelsRefillAvailableAt == resource.data.reactionPvpDuelsRefillAvailableAt);
     }
 
     function sparkUserCreate(userId) {
