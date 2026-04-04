@@ -1291,15 +1291,23 @@ export const joinAutoMatch = onCall(async (request) => {
     if (roomSnap.exists) {
       const r = roomSnap.data() as {
         status?: string;
+        phase?: string;
         gameId?: string;
         hostUid?: string;
         guestUid?: string;
+        pptRewardsApplied?: boolean;
       };
       const slotGame = slotData.gameId;
       const roomGame = r.gameId;
       const sameGameAsRequest =
         roomGame === gameId && (slotGame === gameId || slotGame === undefined || slotGame === roomGame);
-      const roomActive = r.status === "matched" || r.status === "playing";
+      /** Sala já encerrada mas slot antigo — não reabrir; permite nova fila e novo débito de duelo. */
+      const roomClearlyEnded =
+        r.status === "completed" ||
+        r.phase === "completed" ||
+        Boolean(r.pptRewardsApplied);
+      const roomActive =
+        !roomClearlyEnded && (r.status === "matched" || r.status === "playing");
       const isParticipant = r.hostUid === uid || r.guestUid === uid;
       if (roomActive && sameGameAsRequest && isParticipant) {
         return {
