@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Recompensa Premiada</string>
+    <string name="title_activity_main">Recompensa Premiada</string>
+    <string name="package_name">com.recompensapremiada.app</string>
+    <string name="custom_url_scheme">com.recompensapremiada.app</string>
+</resources>

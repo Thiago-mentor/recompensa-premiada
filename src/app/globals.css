@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+:root {
+  --background: #070712;
+  --foreground: #f4f4f5;
+  --accent: #8b5cf6;
+  --accent2: #d946ef;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: radial-gradient(ellipse 120% 80% at 50% -20%, #2e1064 0%, transparent 55%),
+    radial-gradient(ellipse 80% 50% at 100% 50%, #4c1d95 0%, transparent 45%),
+    var(--background);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  min-height: 100dvh;
+}
+
+/* safe area para PWA / mobile */
+.safe-area-pb {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Arena / matchmaking — microanimações (UI só) */
+@keyframes arena-hud-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes arena-timer-urgent {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(251 191 36 / 0.35);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 24px 4px rgb(251 191 36 / 0.25);
+  }
+}
+
+@keyframes matchmaking-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes matchmaking-ping {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0.5;
+  }
+}
+
+.animate-arena-hud-pulse {
+  animation: arena-hud-pulse 2.5s ease-in-out infinite;
+}
+
+.animate-arena-timer-urgent {
+  animation: arena-timer-urgent 0.85s ease-in-out infinite;
+}
+
+.animate-matchmaking-orbit {
+  animation: matchmaking-orbit 10s linear infinite;
+}
+
+.animate-matchmaking-ping {
+  animation: matchmaking-ping 1.8s ease-in-out infinite;
+}

@@ -1,0 +1,21 @@
+/** Nomes das HTTPS Callable Functions (devem coincidir com `functions/src`) */
+export const CALLABLES = {
+  processDailyLogin: "processDailyLogin",
+  claimMissionReward: "claimMissionReward",
+  processRewardedAd: "processRewardedAd",
+  finalizeMatch: "finalizeMatch",
+  closeDailyRanking: "closeDailyRanking",
+  closeWeeklyRanking: "closeWeeklyRanking",
+  closeMonthlyRanking: "closeMonthlyRanking",
+  processReferralReward: "processReferralReward",
+  requestRewardClaim: "requestRewardClaim",
+  reviewRewardClaim: "reviewRewardClaim",
+  riskAnalysisOnUserEvent: "riskAnalysisOnUserEvent",
+  initializeUserProfile: "initializeUserProfile",
+  joinAutoMatch: "joinAutoMatch",
+  leaveAutoMatch: "leaveAutoMatch",
+  submitPptPick: "submitPptPick",
+  forfeitPvpRoom: "forfeitPvpRoom",
+  pvpPptPresence: "pvpPptPresence",
+  pptSyncDuelRefill: "pptSyncDuelRefill",
+} as const;

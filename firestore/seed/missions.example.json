@@ -1,0 +1,47 @@
+[
+  {
+    "id": "daily_login",
+    "titulo": "Entrar hoje",
+    "descricao": "Faça login e registre sua entrada diária.",
+    "tipo": "diaria",
+    "meta": 1,
+    "recompensaCoins": 30,
+    "recompensaGems": 0,
+    "recompensaXP": 10,
+    "ativa": true,
+    "ordem": 1,
+    "icone": "login",
+    "categoria": "login",
+    "eventKey": "daily_login"
+  },
+  {
+    "id": "watch_3_ads",
+    "titulo": "Assistir 3 anúncios",
+    "descricao": "Complete 3 anúncios recompensados válidos.",
+    "tipo": "diaria",
+    "meta": 3,
+    "recompensaCoins": 80,
+    "recompensaGems": 0,
+    "recompensaXP": 20,
+    "ativa": true,
+    "ordem": 2,
+    "icone": "ad",
+    "categoria": "ads",
+    "eventKey": "watch_ad"
+  },
+  {
+    "id": "play_2_matches",
+    "titulo": "Jogar 2 partidas",
+    "descricao": "Finalize duas partidas em qualquer minijogo.",
+    "tipo": "diaria",
+    "meta": 2,
+    "recompensaCoins": 60,
+    "recompensaGems": 0,
+    "recompensaXP": 15,
+    "ativa": true,
+    "ordem": 3,
+    "icone": "game",
+    "categoria": "jogos",
+    "eventKey": "play_match"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "name": "Recompensa Premiada",
+  "short_name": "Recompensa",
+  "description": "Missões, jogos e recompensas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070712",
+  "theme_color": "#070712",
+  "orientation": "portrait-primary"
+}

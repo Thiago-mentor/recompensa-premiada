@@ -1,0 +1,53 @@
+import type { Timestamp } from "./firestore";
+
+/** Nível de risco anti-fraude */
+export type FraudRiskLevel = "baixo" | "medio" | "alto";
+
+/**
+ * Perfil do usuário em `users/{uid}` — alinhado ao modelo solicitado.
+ * Campos sensíveis (saldos, ranking) só devem ser alterados no backend.
+ */
+export interface UserProfile {
+  uid: string;
+  nome: string;
+  email: string | null;
+  foto: string | null;
+  /** @unique index planejado */
+  username: string;
+  codigoConvite: string;
+  convidadoPor: string | null;
+  coins: number;
+  gems: number;
+  rewardBalance: number;
+  xp: number;
+  level: number;
+  streakAtual: number;
+  melhorStreak: number;
+  ultimaEntradaEm: Timestamp | null;
+  totalAdsAssistidos: number;
+  totalPartidas: number;
+  totalVitorias: number;
+  totalDerrotas: number;
+  scoreRankingDiario: number;
+  scoreRankingSemanal: number;
+  scoreRankingMensal: number;
+  banido: boolean;
+  riscoFraude: FraudRiskLevel;
+  /** Indicação validada (ex.: convidado cumpriu ação mínima) */
+  referralBonusGranted?: boolean;
+  criadoEm: Timestamp;
+  atualizadoEm: Timestamp;
+  /** Timestamps de fim de cooldown por `gameId` (Functions / Spark). */
+  gameCooldownUntil?: Record<string, Timestamp | unknown>;
+  matchBurst?: { windowStart: Timestamp; count: number };
+  /** Duelos PPT restantes antes de assistir anúncio (escrita só no servidor). */
+  pptPvPDuelsRemaining?: number;
+  /** Quando (Firestore) os duelos podem voltar a 3 só com o tempo (10 min). */
+  pptPvpDuelsRefillAvailableAt?: Timestamp | null;
+}
+
+/** Payload permitido na criação inicial (cliente ou função) */
+export type UserProfileCreateInput = Pick<
+  UserProfile,
+  "uid" | "nome" | "email" | "foto" | "username" | "codigoConvite" | "convidadoPor"
+>;
