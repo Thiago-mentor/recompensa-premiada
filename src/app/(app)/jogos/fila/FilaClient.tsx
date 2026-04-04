@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FirebaseError } from "firebase/app";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
@@ -21,7 +21,11 @@ import type { MultiplayerSlotDocument } from "@/types/gameRoom";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 import { formatFirebaseError } from "@/lib/firebase/errors";
-import { PPT_DEFAULT_DUEL_CHARGES, PPT_REFILL_WAIT_MS } from "@/lib/constants/pptPvp";
+import {
+  PPT_DEFAULT_DUEL_CHARGES,
+  PPT_DUEL_CHARGES_MAX_STACK,
+  PPT_REFILL_WAIT_MS,
+} from "@/lib/constants/pptPvp";
 import { runPptDuelRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
 
 function formatCountdownMs(remainingMs: number): string {
@@ -29,6 +33,14 @@ function formatCountdownMs(remainingMs: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
+/** Firestore pode devolver número ou string; antes só aceitávamos `number`, e a UI caía no default (3). */
+function parsePptDuelsRemaining(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.min(PPT_DUEL_CHARGES_MAX_STACK, Math.floor(n));
 }
 
 const OPTIONS: { id: GameId; label: string; short: string }[] = [
@@ -51,6 +63,7 @@ export function FilaClient() {
   const [pptRefillAtMs, setPptRefillAtMs] = useState<number | null>(null);
   const [adBusy, setAdBusy] = useState(false);
   const [pptClock, setPptClock] = useState(0);
+  const refillAppliedAfterDeadlineRef = useRef(false);
 
   const queueUnavailable = !autoQueueAllowed();
 
@@ -78,9 +91,8 @@ export function FilaClient() {
         return;
       }
       const data = snap.data();
-      const v = data?.pptPvPDuelsRemaining;
-      const n = typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null;
-      setPptDuelsLeft(n ?? PPT_DEFAULT_DUEL_CHARGES);
+      const parsed = parsePptDuelsRemaining(data?.pptPvPDuelsRemaining);
+      setPptDuelsLeft(parsed ?? PPT_DEFAULT_DUEL_CHARGES);
       const refAt = data?.pptPvpDuelsRefillAvailableAt as { toMillis?: () => number } | undefined;
       setPptRefillAtMs(
         refAt && typeof refAt.toMillis === "function" ? refAt.toMillis() : null,
@@ -107,9 +119,16 @@ export function FilaClient() {
   }, [pptWaitingRefill]);
 
   useEffect(() => {
-    if (gameId !== "ppt" || pptDuelsLeft !== 0 || pptRefillAtMs === null) return;
+    if (gameId !== "ppt" || pptDuelsLeft !== 0 || pptRefillAtMs === null) {
+      refillAppliedAfterDeadlineRef.current = false;
+      return;
+    }
     if (Date.now() < pptRefillAtMs) return;
-    void syncPptDuelRefillSchedule().catch(() => undefined);
+    if (refillAppliedAfterDeadlineRef.current) return;
+    refillAppliedAfterDeadlineRef.current = true;
+    void syncPptDuelRefillSchedule().catch(() => {
+      refillAppliedAfterDeadlineRef.current = false;
+    });
   }, [gameId, pptDuelsLeft, pptRefillAtMs, pptClock]);
 
   const pptCanEnterQueue =
@@ -277,7 +296,8 @@ export function FilaClient() {
                 {pptDuelsLeft}
               </p>
               <p className="mt-1 text-[11px] text-white/45">
-                Cada partida consome 1 duelo. Sem duelos: anúncio (+3) ou espere{" "}
+                1 duelo é descontado ao <span className="text-white/60">emparelhar</span> (ao entrar na
+                sala). Sem duelos: anúncio (+3) ou espere{" "}
                 {Math.round(PPT_REFILL_WAIT_MS / 60000)} min para +3.
               </p>
               {pptDuelsLeft < 1 ? (
