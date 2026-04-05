@@ -9,3 +9,13 @@ runConfig:
   minInstances: 0
   maxInstances: 100
   concurrency: 80
+
+# O cliente DEVE usar a mesma região do deploy das callables (functions/src/index.ts → southamerica-east1).
+# Se no App Hosting (Console) existir NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION=us-central1, o app chama o URL errado
+# e aparecem 400/429 em joinAutoMatch / leaveAutoMatch.
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION
+    value: southamerica-east1
+    availability:
+      - BUILD
+      - RUNTIME

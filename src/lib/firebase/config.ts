@@ -22,8 +22,30 @@ export const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-export const firebaseFunctionsRegion =
-  process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION || "southamerica-east1";
+const FUNCTIONS_REGION_DEFAULT = "southamerica-east1";
+
+/**
+ * Região das callables (`getFunctions`). Deve coincidir com o deploy em `functions/` (FUNCTIONS_REGION / padrão sa-east1).
+ * No App Hosting, variáveis do Console podem definir `us-central1` por engano — isso gera 400/429 contra endpoints errados.
+ */
+function resolveFirebaseFunctionsRegion(): string {
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
+  const fromEnv = process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION?.trim();
+  const normalized = fromEnv?.toLowerCase();
+
+  if (projectId === "premios-14238" && normalized === "us-central1") {
+    if (typeof window !== "undefined") {
+      console.warn(
+        "[Firebase] NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION=us-central1 não se aplica a este projeto; usando southamerica-east1.",
+      );
+    }
+    return FUNCTIONS_REGION_DEFAULT;
+  }
+
+  return fromEnv || FUNCTIONS_REGION_DEFAULT;
+}
+
+export const firebaseFunctionsRegion = resolveFirebaseFunctionsRegion();
 
 /**
  * ID do banco Firestore no projeto (Console → Firestore → “Adicionar banco de dados”).

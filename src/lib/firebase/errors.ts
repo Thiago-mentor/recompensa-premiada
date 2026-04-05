@@ -27,7 +27,7 @@ export function formatFirebaseError(e: unknown): string {
           "O servidor (Cloud Function) respondeu com erro interno.",
           "Isso costuma acontecer quando as Functions ainda não foram publicadas neste projeto, o Firestore não foi ativado, ou a região não bate com a do .env.local.",
           "→ No PowerShell, na pasta recompensa-premiada: firebase deploy --only functions",
-          "→ Confira se NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION no .env.local é a região onde as functions foram deployadas (ex.: us-central1).",
+          "→ Confira se NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION no .env.local / App Hosting é a região do deploy (neste projeto: southamerica-east1).",
         ].join(" ");
       }
       if (code === "functions/not-found") {
