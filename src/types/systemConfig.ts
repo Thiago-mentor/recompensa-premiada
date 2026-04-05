@@ -45,6 +45,8 @@ export interface SystemEconomyConfig {
   conversionCoinsPerGemBuy?: number;
   /** PR pagos por cada TICKET na conversão TICKET → PR; `0` desativa a venda. */
   conversionCoinsPerGemSell?: number;
+  /** Quantos pontos CASH equivalem a R$ 1,00 no cálculo de saque (≥ 1). */
+  cashPointsPerReal?: number;
   /** Segundos para responder em cada PvP (servidor usa no `actionDeadlineAt`). */
   pvpChoiceSeconds?: Partial<{
     ppt: number;

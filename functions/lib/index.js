@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.processReferralReward = exports.reviewRewardClaim = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
+exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.processReferralReward = exports.convertCurrency = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
@@ -346,6 +346,9 @@ async function getEconomy() {
     const rawOverrides = d.matchRewardOverrides && typeof d.matchRewardOverrides === "object"
         ? d.matchRewardOverrides
         : {};
+    const rawBuy = Math.floor(Number(d.conversionCoinsPerGemBuy));
+    const rawSell = Math.floor(Number(d.conversionCoinsPerGemSell));
+    const rawCash = Math.floor(Number(d.cashPointsPerReal));
     return {
         rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
         dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
@@ -356,6 +359,12 @@ async function getEconomy() {
         matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
         streakTable: (0, streakEconomy_1.normalizeStreakTable)(d.streakTable),
         pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
+        /** PR por ticket ao comprar TICKET com PR (mín. 1). */
+        conversionCoinsPerGemBuy: Number.isFinite(rawBuy) && rawBuy >= 1 ? rawBuy : 500,
+        /** PR por ticket ao vender TICKET; 0 = desligado. */
+        conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
+        /** Pontos CASH por R$ 1,00 (ex.: 100 → 100 pts = R$ 1). */
+        cashPointsPerReal: Number.isFinite(rawCash) && rawCash >= 1 ? rawCash : 100,
     };
 }
 function normalizeRewardOverride(value) {
@@ -1643,8 +1652,8 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const codigoConvite = request.data?.codigoConvite
         ? String(request.data.codigoConvite).toUpperCase()
         : null;
-    if (nome.length < 2 || username.length < 3) {
-        throw new https_1.HttpsError("invalid-argument", "Nome ou username inválidos.");
+    if (nome.length < 2 || username.length < 3 || username.length > 10) {
+        throw new https_1.HttpsError("invalid-argument", "Nome ou username inválidos. Username: 3 a 10 caracteres (a-z, 0-9, _).");
     }
     const userRef = db.doc(`${COL.users}/${uid}`);
     const existing = await userRef.get();
@@ -1792,7 +1801,7 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             moeda: "gems",
             valor: reward.gems,
             saldoApos: newGems,
-            descricao: "Login diário / streak (gems)",
+            descricao: "Login diário / streak (TICKET)",
             referenciaId: todayKey,
         });
     }
@@ -1826,7 +1835,7 @@ async function bumpWatchAdMissions(uid) {
     }
 }
 /**
- * Recompensa por anúncio: moedas (placement padrão) ou +3 duelos PvP específicos.
+ * Recompensa por anúncio: PR (placement padrão) ou +3 duelos PvP específicos.
  * Limite diário compartilhado; só o servidor altera saldos / duelos.
  */
 exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -2195,6 +2204,73 @@ exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
     });
     return { claimId: ref.id };
 });
+const ADMIN_GRANT_ECONOMY_MAX = 5000000;
+exports.adminGrantEconomy = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const adminUid = request.auth?.uid;
+    assertAuthed(adminUid);
+    await assertAdmin(adminUid);
+    const lookup = String(request.data?.lookup || "username").toLowerCase();
+    const value = String(request.data?.value || "").trim();
+    const kind = String(request.data?.kind || "");
+    const amount = Math.floor(Number(request.data?.amount));
+    if (!["username", "uid"].includes(lookup)) {
+        throw new https_1.HttpsError("invalid-argument", "lookup deve ser username ou uid.");
+    }
+    if (!value) {
+        throw new https_1.HttpsError("invalid-argument", "Informe username ou UID.");
+    }
+    if (!["coins", "gems", "rewardBalance"].includes(kind)) {
+        throw new https_1.HttpsError("invalid-argument", "kind inválido: coins (PR), gems (TICKET) ou rewardBalance (CASH).");
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || amount > ADMIN_GRANT_ECONOMY_MAX) {
+        throw new https_1.HttpsError("invalid-argument", "Quantidade inválida.");
+    }
+    let targetUid = "";
+    if (lookup === "uid") {
+        const ref = db.doc(`${COL.users}/${value}`);
+        const s = await ref.get();
+        if (!s.exists)
+            throw new https_1.HttpsError("not-found", "UID não encontrado em users.");
+        targetUid = value;
+    }
+    else {
+        const un = value.toLowerCase().replace(/^@/, "");
+        const q = await db.collection(COL.users).where("username", "==", un).limit(1).get();
+        if (q.empty)
+            throw new https_1.HttpsError("not-found", "Username não encontrado.");
+        targetUid = q.docs[0].id;
+    }
+    const userRef = db.doc(`${COL.users}/${targetUid}`);
+    const uSnap = await userRef.get();
+    if (!uSnap.exists)
+        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+    const u = uSnap.data();
+    if (u.banido)
+        throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+    const field = kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
+    const before = kind === "coins"
+        ? Number(u.coins ?? 0)
+        : kind === "gems"
+            ? Number(u.gems ?? 0)
+            : Number(u.rewardBalance ?? 0);
+    const after = before + amount;
+    await userRef.update({
+        [field]: firestore_2.FieldValue.increment(amount),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+    const moeda = kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
+    const label = kind === "coins" ? "PR" : kind === "gems" ? "TICKET" : "CASH";
+    await addWalletTx({
+        userId: targetUid,
+        tipo: "bonus_admin",
+        moeda,
+        valor: amount,
+        saldoApos: after,
+        descricao: `Crédito admin: +${amount} ${label}`,
+        referenciaId: adminUid,
+    });
+    return { ok: true, targetUid, field, newBalance: after };
+});
 exports.reviewRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
@@ -2249,6 +2325,115 @@ exports.reviewRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         });
     }
     return { ok: true };
+});
+const CONVERT_MAX_UNITS_PER_CALL = 10000;
+exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const direction = String(request.data?.direction || "");
+    const amount = Math.floor(Number(request.data?.amount));
+    if (direction !== "coins_to_gems" && direction !== "gems_to_coins") {
+        throw new https_1.HttpsError("invalid-argument", "Direção inválida (use coins_to_gems ou gems_to_coins).");
+    }
+    if (!Number.isFinite(amount) || amount < 1 || amount > CONVERT_MAX_UNITS_PER_CALL) {
+        throw new https_1.HttpsError("invalid-argument", "Quantidade inválida.");
+    }
+    const economy = await getEconomy();
+    const coinsPerGemBuy = economy.conversionCoinsPerGemBuy;
+    const coinsPerGemSell = economy.conversionCoinsPerGemSell;
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const out = await db.runTransaction(async (tx) => {
+        const uSnap = await tx.get(userRef);
+        if (!uSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const u = uSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const coins = Number(u.coins ?? 0);
+        const gems = Number(u.gems ?? 0);
+        if (direction === "coins_to_gems") {
+            const cost = amount * coinsPerGemBuy;
+            if (!Number.isSafeInteger(cost) || cost < 1) {
+                throw new https_1.HttpsError("failed-precondition", "Taxa de conversão inválida.");
+            }
+            if (coins < cost)
+                throw new https_1.HttpsError("failed-precondition", "PR insuficientes.");
+            const newCoins = coins - cost;
+            const newGems = gems + amount;
+            tx.update(userRef, {
+                coins: firestore_2.FieldValue.increment(-cost),
+                gems: firestore_2.FieldValue.increment(amount),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            return {
+                direction: "coins_to_gems",
+                cost,
+                gemsBought: amount,
+                newCoins,
+                newGems,
+            };
+        }
+        if (coinsPerGemSell < 1) {
+            throw new https_1.HttpsError("failed-precondition", "Conversão de TICKET para PR está desativada (ajuste conversionCoinsPerGemSell na economia).");
+        }
+        const payout = amount * coinsPerGemSell;
+        if (!Number.isSafeInteger(payout) || payout < 1) {
+            throw new https_1.HttpsError("failed-precondition", "Taxa de conversão inválida.");
+        }
+        if (gems < amount)
+            throw new https_1.HttpsError("failed-precondition", "Saldo de TICKET insuficiente.");
+        const newCoins = coins + payout;
+        const newGems = gems - amount;
+        tx.update(userRef, {
+            coins: firestore_2.FieldValue.increment(payout),
+            gems: firestore_2.FieldValue.increment(-amount),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return {
+            direction: "gems_to_coins",
+            payout,
+            gemsSold: amount,
+            newCoins,
+            newGems,
+        };
+    });
+    if (out.direction === "coins_to_gems") {
+        await addWalletTx({
+            userId: uid,
+            tipo: "conversao",
+            moeda: "coins",
+            valor: -out.cost,
+            saldoApos: out.newCoins,
+            descricao: `Conversão: ${out.cost} PR → ${out.gemsBought} TICKET`,
+        });
+        await addWalletTx({
+            userId: uid,
+            tipo: "conversao",
+            moeda: "gems",
+            valor: out.gemsBought,
+            saldoApos: out.newGems,
+            descricao: `Conversão: +${out.gemsBought} TICKET`,
+        });
+    }
+    else if (out.direction === "gems_to_coins") {
+        await addWalletTx({
+            userId: uid,
+            tipo: "conversao",
+            moeda: "gems",
+            valor: -out.gemsSold,
+            saldoApos: out.newGems,
+            descricao: `Conversão: ${out.gemsSold} TICKET → ${out.payout} PR`,
+        });
+        await addWalletTx({
+            userId: uid,
+            tipo: "conversao",
+            moeda: "coins",
+            valor: out.payout,
+            saldoApos: out.newCoins,
+            descricao: `Conversão: +${out.payout} PR`,
+        });
+    }
+    return { ok: true, ...out };
 });
 exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;

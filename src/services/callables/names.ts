@@ -24,4 +24,5 @@ export const CALLABLES = {
   quizSyncDuelRefill: "quizSyncDuelRefill",
   reactionSyncDuelRefill: "reactionSyncDuelRefill",
   convertCurrency: "convertCurrency",
+  adminGrantEconomy: "adminGrantEconomy",
 } as const;

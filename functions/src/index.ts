@@ -353,6 +353,7 @@ async function getEconomy() {
       : {};
   const rawBuy = Math.floor(Number(d.conversionCoinsPerGemBuy));
   const rawSell = Math.floor(Number(d.conversionCoinsPerGemSell));
+  const rawCash = Math.floor(Number(d.cashPointsPerReal));
   return {
     rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
     dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
@@ -369,6 +370,8 @@ async function getEconomy() {
     conversionCoinsPerGemBuy: Number.isFinite(rawBuy) && rawBuy >= 1 ? rawBuy : 500,
     /** PR por ticket ao vender TICKET; 0 = desligado. */
     conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
+    /** Pontos CASH por R$ 1,00 (ex.: 100 → 100 pts = R$ 1). */
+    cashPointsPerReal: Number.isFinite(rawCash) && rawCash >= 1 ? rawCash : 100,
   };
 }
 
@@ -2609,6 +2612,80 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   });
 
   return { claimId: ref.id };
+});
+
+const ADMIN_GRANT_ECONOMY_MAX = 5_000_000;
+
+export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const adminUid = request.auth?.uid;
+  assertAuthed(adminUid);
+  await assertAdmin(adminUid);
+
+  const lookup = String(request.data?.lookup || "username").toLowerCase();
+  const value = String(request.data?.value || "").trim();
+  const kind = String(request.data?.kind || "") as "coins" | "gems" | "rewardBalance";
+  const amount = Math.floor(Number(request.data?.amount));
+
+  if (!["username", "uid"].includes(lookup)) {
+    throw new HttpsError("invalid-argument", "lookup deve ser username ou uid.");
+  }
+  if (!value) {
+    throw new HttpsError("invalid-argument", "Informe username ou UID.");
+  }
+  if (!["coins", "gems", "rewardBalance"].includes(kind)) {
+    throw new HttpsError("invalid-argument", "kind inválido: coins (PR), gems (TICKET) ou rewardBalance (CASH).");
+  }
+  if (!Number.isFinite(amount) || amount <= 0 || amount > ADMIN_GRANT_ECONOMY_MAX) {
+    throw new HttpsError("invalid-argument", "Quantidade inválida.");
+  }
+
+  let targetUid = "";
+  if (lookup === "uid") {
+    const ref = db.doc(`${COL.users}/${value}`);
+    const s = await ref.get();
+    if (!s.exists) throw new HttpsError("not-found", "UID não encontrado em users.");
+    targetUid = value;
+  } else {
+    const un = value.toLowerCase().replace(/^@/, "");
+    const q = await db.collection(COL.users).where("username", "==", un).limit(1).get();
+    if (q.empty) throw new HttpsError("not-found", "Username não encontrado.");
+    targetUid = q.docs[0].id;
+  }
+
+  const userRef = db.doc(`${COL.users}/${targetUid}`);
+  const uSnap = await userRef.get();
+  if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
+  const u = uSnap.data()!;
+  if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
+
+  const field = kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
+  const before =
+    kind === "coins"
+      ? Number(u.coins ?? 0)
+      : kind === "gems"
+        ? Number(u.gems ?? 0)
+        : Number(u.rewardBalance ?? 0);
+  const after = before + amount;
+
+  await userRef.update({
+    [field]: FieldValue.increment(amount),
+    atualizadoEm: FieldValue.serverTimestamp(),
+  });
+
+  const moeda: "coins" | "gems" | "rewardBalance" =
+    kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
+  const label = kind === "coins" ? "PR" : kind === "gems" ? "TICKET" : "CASH";
+  await addWalletTx({
+    userId: targetUid,
+    tipo: "bonus_admin",
+    moeda,
+    valor: amount,
+    saldoApos: after,
+    descricao: `Crédito admin: +${amount} ${label}`,
+    referenciaId: adminUid,
+  });
+
+  return { ok: true, targetUid, field, newBalance: after };
 });
 
 export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
