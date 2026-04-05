@@ -14,7 +14,7 @@ export const cadastroSchema = z
     username: z
       .string()
       .min(3, "Mínimo 3 caracteres")
-      .max(24, "No máximo 24 caracteres")
+      .max(10, "No máximo 10 caracteres")
       .regex(/^[a-z0-9_]+$/, "Apenas letras minúsculas, números e _"),
     email: z.string().email("E-mail inválido"),
     password: z.string().min(6, "Mínimo 6 caracteres"),

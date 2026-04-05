@@ -1980,8 +1980,11 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
     ? String(request.data.codigoConvite).toUpperCase()
     : null;
 
-  if (nome.length < 2 || username.length < 3) {
-    throw new HttpsError("invalid-argument", "Nome ou username inválidos.");
+  if (nome.length < 2 || username.length < 3 || username.length > 10) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Nome ou username inválidos. Username: 3 a 10 caracteres (a-z, 0-9, _).",
+    );
   }
 
   const userRef = db.doc(`${COL.users}/${uid}`);
