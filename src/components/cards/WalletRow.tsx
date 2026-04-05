@@ -13,6 +13,7 @@ const tipoLabel: Record<WalletTransaction["tipo"], string> = {
   referral: "Convite",
   ajuste: "Ajuste",
   resgate: "Resgate",
+  conversao: "Conversão",
 };
 
 export function WalletRow({ tx }: { tx: WalletTransaction }) {

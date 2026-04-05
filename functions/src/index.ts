@@ -351,6 +351,8 @@ async function getEconomy() {
     d.matchRewardOverrides && typeof d.matchRewardOverrides === "object"
       ? (d.matchRewardOverrides as Record<string, Record<string, unknown>>)
       : {};
+  const rawBuy = Math.floor(Number(d.conversionCoinsPerGemBuy));
+  const rawSell = Math.floor(Number(d.conversionCoinsPerGemSell));
   return {
     rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
     dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
@@ -363,6 +365,10 @@ async function getEconomy() {
     matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
     streakTable: normalizeStreakTable(d.streakTable),
     pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
+    /** Moedas por gem ao comprar gems com moedas (mín. 1). */
+    conversionCoinsPerGemBuy: Number.isFinite(rawBuy) && rawBuy >= 1 ? rawBuy : 500,
+    /** Moedas por gem ao vender gems; 0 = desligado. */
+    conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
   };
 }
 
@@ -2659,6 +2665,123 @@ export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   }
 
   return { ok: true };
+});
+
+const CONVERT_MAX_UNITS_PER_CALL = 10_000;
+
+export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+  const direction = String(request.data?.direction || "");
+  const amount = Math.floor(Number(request.data?.amount));
+  if (direction !== "coins_to_gems" && direction !== "gems_to_coins") {
+    throw new HttpsError("invalid-argument", "Direção inválida (use coins_to_gems ou gems_to_coins).");
+  }
+  if (!Number.isFinite(amount) || amount < 1 || amount > CONVERT_MAX_UNITS_PER_CALL) {
+    throw new HttpsError("invalid-argument", "Quantidade inválida.");
+  }
+
+  const economy = await getEconomy();
+  const coinsPerGemBuy = economy.conversionCoinsPerGemBuy;
+  const coinsPerGemSell = economy.conversionCoinsPerGemSell;
+
+  const userRef = db.doc(`${COL.users}/${uid}`);
+
+  const out = await db.runTransaction(async (tx) => {
+    const uSnap = await tx.get(userRef);
+    if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
+    const u = uSnap.data()!;
+    if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
+
+    const coins = Number(u.coins ?? 0);
+    const gems = Number(u.gems ?? 0);
+
+    if (direction === "coins_to_gems") {
+      const cost = amount * coinsPerGemBuy;
+      if (!Number.isSafeInteger(cost) || cost < 1) {
+        throw new HttpsError("failed-precondition", "Taxa de conversão inválida.");
+      }
+      if (coins < cost) throw new HttpsError("failed-precondition", "Moedas insuficientes.");
+      const newCoins = coins - cost;
+      const newGems = gems + amount;
+      tx.update(userRef, {
+        coins: FieldValue.increment(-cost),
+        gems: FieldValue.increment(amount),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+      return {
+        direction: "coins_to_gems" as const,
+        cost,
+        gemsBought: amount,
+        newCoins,
+        newGems,
+      };
+    }
+
+    if (coinsPerGemSell < 1) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Conversão de gems para moedas está desativada (ajuste conversionCoinsPerGemSell na economia).",
+      );
+    }
+    const payout = amount * coinsPerGemSell;
+    if (!Number.isSafeInteger(payout) || payout < 1) {
+      throw new HttpsError("failed-precondition", "Taxa de conversão inválida.");
+    }
+    if (gems < amount) throw new HttpsError("failed-precondition", "Gems insuficientes.");
+    const newCoins = coins + payout;
+    const newGems = gems - amount;
+    tx.update(userRef, {
+      coins: FieldValue.increment(payout),
+      gems: FieldValue.increment(-amount),
+      atualizadoEm: FieldValue.serverTimestamp(),
+    });
+    return {
+      direction: "gems_to_coins" as const,
+      payout,
+      gemsSold: amount,
+      newCoins,
+      newGems,
+    };
+  });
+
+  if (out.direction === "coins_to_gems") {
+    await addWalletTx({
+      userId: uid,
+      tipo: "conversao",
+      moeda: "coins",
+      valor: -out.cost,
+      saldoApos: out.newCoins,
+      descricao: `Conversão: ${out.cost} moedas → ${out.gemsBought} gem(s)`,
+    });
+    await addWalletTx({
+      userId: uid,
+      tipo: "conversao",
+      moeda: "gems",
+      valor: out.gemsBought,
+      saldoApos: out.newGems,
+      descricao: `Conversão: +${out.gemsBought} gem(s)`,
+    });
+  } else if (out.direction === "gems_to_coins") {
+    await addWalletTx({
+      userId: uid,
+      tipo: "conversao",
+      moeda: "gems",
+      valor: -out.gemsSold,
+      saldoApos: out.newGems,
+      descricao: `Conversão: ${out.gemsSold} gem(s) → ${out.payout} moedas`,
+    });
+    await addWalletTx({
+      userId: uid,
+      tipo: "conversao",
+      moeda: "coins",
+      valor: out.payout,
+      saldoApos: out.newCoins,
+      descricao: `Conversão: +${out.payout} moedas`,
+    });
+  }
+
+  return { ok: true, ...out };
 });
 
 export const processReferralReward = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {

@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeWalletTransactions } from "@/services/carteira/walletService";
+import { fetchConversionRates } from "@/services/carteira/conversionRates";
+import { convertCurrency } from "@/services/carteira/convertCurrency";
 import { StatCard } from "@/components/cards/StatCard";
 import { WalletRow } from "@/components/cards/WalletRow";
+import { Button } from "@/components/ui/Button";
+import { AlertBanner } from "@/components/feedback/AlertBanner";
 import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
+import { formatFirebaseError } from "@/lib/firebase/errors";
 import { Coins, Gem, Sparkles } from "lucide-react";
 
 const filtros: (WalletTransactionType | "todos")[] = [
@@ -16,18 +21,59 @@ const filtros: (WalletTransactionType | "todos")[] = [
   "vitoria",
   "ranking",
   "referral",
+  "conversao",
 ];
 
 export default function CarteiraPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [rows, setRows] = useState<WalletTransaction[]>([]);
   const [filtro, setFiltro] = useState<(typeof filtros)[number]>("todos");
+  const [rates, setRates] = useState<{ coinsPerGemBuy: number; coinsPerGemSell: number } | null>(null);
+  const [gemsToBuy, setGemsToBuy] = useState("1");
+  const [gemsToSell, setGemsToSell] = useState("1");
+  const [convertBusy, setConvertBusy] = useState<"buy" | "sell" | null>(null);
+  const [convertMsg, setConvertMsg] = useState<string | null>(null);
+  const [convertErr, setConvertErr] = useState<string | null>(null);
+
+  const loadRates = useCallback(() => {
+    void fetchConversionRates().then(setRates).catch(() => setRates({ coinsPerGemBuy: 500, coinsPerGemSell: 0 }));
+  }, []);
+
+  useEffect(() => {
+    loadRates();
+  }, [loadRates]);
 
   useEffect(() => {
     if (!user) return;
     const tipo = filtro === "todos" ? null : filtro;
     return subscribeWalletTransactions(user.uid, { pageSize: 50, tipo }, setRows);
   }, [user, filtro]);
+
+  async function handleConvert(direction: "coins_to_gems" | "gems_to_coins") {
+    setConvertErr(null);
+    setConvertMsg(null);
+    const raw = direction === "coins_to_gems" ? gemsToBuy : gemsToSell;
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 1) {
+      setConvertErr("Informe uma quantidade inteira ≥ 1.");
+      return;
+    }
+    setConvertBusy(direction === "coins_to_gems" ? "buy" : "sell");
+    try {
+      await convertCurrency(direction, n);
+      setConvertMsg(
+        direction === "coins_to_gems"
+          ? `Você comprou ${n} gem(s).`
+          : `Você trocou ${n} gem(s) por moedas.`,
+      );
+      await refreshProfile();
+      loadRates();
+    } catch (e: unknown) {
+      setConvertErr(formatFirebaseError(e));
+    } finally {
+      setConvertBusy(null);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -42,6 +88,94 @@ export default function CarteiraPage() {
           icon={Sparkles}
         />
       </div>
+
+      <section className="space-y-3 rounded-2xl border border-violet-400/25 bg-gradient-to-b from-violet-950/40 to-slate-950/90 p-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Converter moedas e gems</h2>
+          <p className="mt-1 text-xs text-white/55">
+            Taxas definidas na economia do app. A conversão é feita no servidor; cada troca gera linhas no
+            extrato (tipo &quot;Conversão&quot;).
+          </p>
+        </div>
+        {convertErr ? (
+          <AlertBanner tone="error" className="text-sm">
+            {convertErr}
+          </AlertBanner>
+        ) : null}
+        {convertMsg ? (
+          <AlertBanner tone="info" className="text-sm">
+            {convertMsg}
+          </AlertBanner>
+        ) : null}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-cyan-400/20 bg-black/25 p-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-cyan-200/80">Moedas → gems</p>
+            <p className="mt-1 text-sm text-white/60">
+              Custo:{" "}
+              <span className="font-semibold text-white">
+                {rates?.coinsPerGemBuy ?? "…"} moedas / gem
+              </span>
+            </p>
+            <label className="mt-3 block text-xs text-white/45" htmlFor="gems-to-buy">
+              Quantas gems deseja receber?
+            </label>
+            <input
+              id="gems-to-buy"
+              inputMode="numeric"
+              className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-white"
+              value={gemsToBuy}
+              onChange={(e) => setGemsToBuy(e.target.value.replace(/\D/g, "") || "0")}
+            />
+            <Button
+              type="button"
+              variant="arena"
+              size="lg"
+              className="mt-3 w-full"
+              disabled={convertBusy !== null || !user}
+              onClick={() => void handleConvert("coins_to_gems")}
+            >
+              {convertBusy === "buy" ? "Convertendo…" : "Converter"}
+            </Button>
+          </div>
+          <div className="rounded-xl border border-fuchsia-400/20 bg-black/25 p-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200/80">Gems → moedas</p>
+            {rates && rates.coinsPerGemSell < 1 ? (
+              <p className="mt-2 text-sm text-amber-200/90">
+                Troca de gems por moedas está desligada no painel admin (taxa = 0).
+              </p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-white/60">
+                  Você recebe:{" "}
+                  <span className="font-semibold text-white">
+                    {rates?.coinsPerGemSell ?? "…"} moedas / gem
+                  </span>
+                </p>
+                <label className="mt-3 block text-xs text-white/45" htmlFor="gems-to-sell">
+                  Quantas gems deseja trocar?
+                </label>
+                <input
+                  id="gems-to-sell"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-white"
+                  value={gemsToSell}
+                  onChange={(e) => setGemsToSell(e.target.value.replace(/\D/g, "") || "0")}
+                />
+                <Button
+                  type="button"
+                  variant="arena"
+                  size="lg"
+                  className="mt-3 w-full"
+                  disabled={convertBusy !== null || !user || (rates?.coinsPerGemSell ?? 0) < 1}
+                  onClick={() => void handleConvert("gems_to_coins")}
+                >
+                  {convertBusy === "sell" ? "Convertendo…" : "Converter"}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </section>
       <div>
         <p className="mb-2 text-sm font-medium text-white/80">Filtrar extrato</p>
         <div className="flex flex-wrap gap-2">

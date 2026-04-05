@@ -33,6 +33,8 @@ export default function AdminConfigPage() {
   const [pvpSecPpt, setPvpSecPpt] = useState("10");
   const [pvpSecQuiz, setPvpSecQuiz] = useState("10");
   const [pvpSecReaction, setPvpSecReaction] = useState("10");
+  const [convBuy, setConvBuy] = useState("500");
+  const [convSell, setConvSell] = useState("0");
   const [streakRows, setStreakRows] = useState<StreakRewardTier[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -60,6 +62,8 @@ export default function AdminConfigPage() {
         setPvpSecPpt(String(pcs.ppt));
         setPvpSecQuiz(String(pcs.quiz));
         setPvpSecReaction(String(pcs.reaction_tap));
+        if (typeof d.conversionCoinsPerGemBuy === "number") setConvBuy(String(d.conversionCoinsPerGemBuy));
+        if (typeof d.conversionCoinsPerGemSell === "number") setConvSell(String(d.conversionCoinsPerGemSell));
         setStreakRows(normalizeStreakTable(d.streakTable));
       } catch {
         /* ignore */
@@ -95,6 +99,8 @@ export default function AdminConfigPage() {
             quiz: clampPvpChoiceSeconds(pvpSecQuiz, 10),
             reaction_tap: clampPvpChoiceSeconds(pvpSecReaction, 10),
           },
+          conversionCoinsPerGemBuy: Math.max(1, Math.floor(Number(convBuy)) || 500),
+          conversionCoinsPerGemSell: Math.max(0, Math.floor(Number(convSell)) || 0),
           streakTable: streakRows
             .map((r) => ({
               dia: Math.max(1, Math.floor(Number(r.dia)) || 1),
@@ -245,6 +251,27 @@ export default function AdminConfigPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
+        <h2 className="text-lg font-semibold text-white">Conversão moedas ↔ gems (carteira)</h2>
+        <p className="text-xs text-slate-400">
+          <strong className="text-white">Comprar gems:</strong> quanto o jogador paga em moedas por cada gem.{" "}
+          <strong className="text-white">Vender gems:</strong> quantas moedas ele recebe por gem; use{" "}
+          <strong className="text-white">0</strong> para desativar a troca gems → moedas.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Moedas cobradas por gem (compra)"
+            value={convBuy}
+            onChange={setConvBuy}
+          />
+          <Field
+            label="Moedas pagas por gem (venda; 0 = off)"
+            value={convSell}
+            onChange={setConvSell}
+          />
+        </div>
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">

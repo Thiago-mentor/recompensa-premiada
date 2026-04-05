@@ -23,4 +23,5 @@ export const CALLABLES = {
   pptSyncDuelRefill: "pptSyncDuelRefill",
   quizSyncDuelRefill: "quizSyncDuelRefill",
   reactionSyncDuelRefill: "reactionSyncDuelRefill",
+  convertCurrency: "convertCurrency",
 } as const;

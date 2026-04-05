@@ -11,7 +11,8 @@ export type WalletTransactionType =
   | "ranking"
   | "referral"
   | "ajuste"
-  | "resgate";
+  | "resgate"
+  | "conversao";
 
 export type WalletCurrency = "coins" | "gems" | "rewardBalance";
 
