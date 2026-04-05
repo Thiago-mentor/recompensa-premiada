@@ -764,42 +764,6 @@ function quizRevealSameCardRows(
   );
 }
 
-/** Fim de partida: mesma estética do cartão de alternativas (sem segundo bloco verde separado). */
-function quizMatchEndRevealBlock(room: GameRoomDocument, isHost: boolean): ReactNode {
-  const hadMatchVictor =
-    room.quizMatchWinner === "host" ||
-    room.quizMatchWinner === "guest" ||
-    room.quizOutcome === "host_win" ||
-    room.quizOutcome === "guest_win";
-  if (!hadMatchVictor) {
-    return null;
-  }
-  if (
-    !room.quizLastRevealOptions?.length ||
-    typeof room.quizLastRevealCorrectIndex !== "number" ||
-    !room.quizLastRoundWinner
-  ) {
-    return null;
-  }
-  const myPick = isHost ? room.quizLastHostAnswerIndex : room.quizLastGuestAnswerIndex;
-  const youWrong = isHost ? room.quizLastHostCorrect === false : room.quizLastGuestCorrect === false;
-  return (
-    <div className="space-y-2 rounded-2xl border border-white/10 bg-black/20 px-3 py-3 sm:px-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Última rodada</p>
-      {room.quizLastRevealQuestionText ? (
-        <p className="text-sm font-bold text-white sm:text-base">{room.quizLastRevealQuestionText}</p>
-      ) : null}
-      {quizRevealSameCardRows(
-        room.quizLastRevealOptions,
-        room.quizLastRevealCorrectIndex,
-        typeof myPick === "number" ? myPick : null,
-        youWrong,
-        `match-reveal-${room.quizRound ?? 0}`,
-      )}
-    </div>
-  );
-}
-
 function reactionRoundHeadline(room: GameRoomDocument, isHost: boolean): {
   title: string;
   tone: "emerald" | "rose" | "amber";
@@ -1991,23 +1955,20 @@ export function SalaClient({ roomId }: { roomId: string }) {
           {isQuiz && matchDone ? (
             <div ref={quizMatchFinalScrollRef} className="scroll-mt-8 space-y-3">
               {quizWinnerResolved ? (
-                <div className="space-y-3">
-                  <ResultSummaryPanel
-                    gameLabel="Quiz rápido"
-                    title={quizYouWonMatch ? "Você venceu o quiz!" : "O oponente venceu o quiz."}
-                    victory={quizYouWonMatch}
-                    myName={myDisplayName}
-                    opponentName={opponentNome}
-                    myScore={myQuizPts}
-                    oppScore={oppQuizPts}
-                    primaryLine="Partida encerrada."
-                    secondaryLine={null}
-                    tertiaryLine={null}
-                    rankingPoints={rewardSummary?.ranking}
-                    rewardCoins={rewardSummary?.coins}
-                  />
-                  {quizMatchEndRevealBlock(room, isHost)}
-                </div>
+                <ResultSummaryPanel
+                  gameLabel="Quiz rápido"
+                  title={quizYouWonMatch ? "Você venceu o quiz!" : "O oponente venceu o quiz."}
+                  victory={quizYouWonMatch}
+                  myName={myDisplayName}
+                  opponentName={opponentNome}
+                  myScore={myQuizPts}
+                  oppScore={oppQuizPts}
+                  primaryLine="Partida encerrada."
+                  secondaryLine={null}
+                  tertiaryLine={null}
+                  rankingPoints={rewardSummary?.ranking}
+                  rewardCoins={rewardSummary?.coins}
+                />
               ) : null}
               {quizEndedNoWinner ? (
                 <ResultSummaryPanel
