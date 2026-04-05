@@ -31,10 +31,11 @@ export default function RecompensasPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-white">Premiação</h1>
       <p className="text-sm text-white/60">
-        Saldo controlado: <strong className="text-white">{profile?.rewardBalance ?? 0}</strong>
+        CASH disponível: <strong className="text-white">{profile?.rewardBalance ?? 0}</strong>
       </p>
       <p className="text-xs text-white/45">
-        Sem PIX automático: apenas solicitação, aprovação admin e histórico em{" "}
+        O valor em CASH pode ser convertido em reais na análise do resgate (taxa definida por vocês). Sem PIX
+        automático: solicitação, aprovação admin e histórico em{" "}
         <code className="text-violet-300">reward_claims</code>.
       </p>
       {msg ? (

@@ -365,9 +365,9 @@ async function getEconomy() {
     matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
     streakTable: normalizeStreakTable(d.streakTable),
     pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
-    /** PR por gem ao comprar gems com PR (mín. 1). */
+    /** PR por ticket ao comprar TICKET com PR (mín. 1). */
     conversionCoinsPerGemBuy: Number.isFinite(rawBuy) && rawBuy >= 1 ? rawBuy : 500,
-    /** PR por gem ao vender gems; 0 = desligado. */
+    /** PR por ticket ao vender TICKET; 0 = desligado. */
     conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
   };
 }
@@ -2145,7 +2145,7 @@ export const processDailyLogin = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
       moeda: "gems",
       valor: reward.gems,
       saldoApos: newGems,
-      descricao: "Login diário / streak (gems)",
+      descricao: "Login diário / streak (TICKET)",
       referenciaId: todayKey,
     });
   }
@@ -2721,14 +2721,14 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
     if (coinsPerGemSell < 1) {
       throw new HttpsError(
         "failed-precondition",
-        "Conversão de gems para PR está desativada (ajuste conversionCoinsPerGemSell na economia).",
+        "Conversão de TICKET para PR está desativada (ajuste conversionCoinsPerGemSell na economia).",
       );
     }
     const payout = amount * coinsPerGemSell;
     if (!Number.isSafeInteger(payout) || payout < 1) {
       throw new HttpsError("failed-precondition", "Taxa de conversão inválida.");
     }
-    if (gems < amount) throw new HttpsError("failed-precondition", "Gems insuficientes.");
+    if (gems < amount) throw new HttpsError("failed-precondition", "Saldo de TICKET insuficiente.");
     const newCoins = coins + payout;
     const newGems = gems - amount;
     tx.update(userRef, {
@@ -2752,7 +2752,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       moeda: "coins",
       valor: -out.cost,
       saldoApos: out.newCoins,
-      descricao: `Conversão: ${out.cost} PR → ${out.gemsBought} gem(s)`,
+      descricao: `Conversão: ${out.cost} PR → ${out.gemsBought} TICKET`,
     });
     await addWalletTx({
       userId: uid,
@@ -2760,7 +2760,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       moeda: "gems",
       valor: out.gemsBought,
       saldoApos: out.newGems,
-      descricao: `Conversão: +${out.gemsBought} gem(s)`,
+      descricao: `Conversão: +${out.gemsBought} TICKET`,
     });
   } else if (out.direction === "gems_to_coins") {
     await addWalletTx({
@@ -2769,7 +2769,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       moeda: "gems",
       valor: -out.gemsSold,
       saldoApos: out.newGems,
-      descricao: `Conversão: ${out.gemsSold} gem(s) → ${out.payout} PR`,
+      descricao: `Conversão: ${out.gemsSold} TICKET → ${out.payout} PR`,
     });
     await addWalletTx({
       userId: uid,

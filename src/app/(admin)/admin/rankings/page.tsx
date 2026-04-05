@@ -192,7 +192,7 @@ function PrizeCard({
                 onChange={(value) => onChange(index, "coins", value)}
               />
               <SmallField
-                label="Gems"
+                label="TICKET"
                 value={String(row.gems)}
                 onChange={(value) => onChange(index, "gems", value)}
               />

@@ -213,7 +213,7 @@ export default function AdminConfigPage() {
                   }}
                 />
                 <Field
-                  label="Gems"
+                  label="TICKET (streak)"
                   value={String(row.gems)}
                   onChange={(v) => {
                     const n = Math.max(0, Math.floor(Number(v)) || 0);
@@ -254,20 +254,20 @@ export default function AdminConfigPage() {
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-        <h2 className="text-lg font-semibold text-white">Conversão PR ↔ gems (carteira)</h2>
+        <h2 className="text-lg font-semibold text-white">Conversão PR ↔ TICKET (carteira)</h2>
         <p className="text-xs text-slate-400">
-          <strong className="text-white">Comprar gems:</strong> quanto o jogador paga em PR por cada gem.{" "}
-          <strong className="text-white">Vender gems:</strong> quanto PR ele recebe por gem; use{" "}
-          <strong className="text-white">0</strong> para desativar a troca gems → PR.
+          <strong className="text-white">Comprar TICKET:</strong> quanto PR o jogador paga por cada ticket.{" "}
+          <strong className="text-white">Vender TICKET:</strong> quanto PR ele recebe por ticket; use{" "}
+          <strong className="text-white">0</strong> para desativar a troca TICKET → PR.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            label="PR cobrados por gem (compra)"
+            label="PR cobrados por ticket (compra)"
             value={convBuy}
             onChange={setConvBuy}
           />
           <Field
-            label="PR pagos por gem (venda; 0 = off)"
+            label="PR pagos por ticket (venda; 0 = off)"
             value={convSell}
             onChange={setConvSell}
           />

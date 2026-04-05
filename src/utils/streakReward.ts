@@ -59,7 +59,7 @@ export function formatStreakRewardShort(r: {
 }): string {
   const bits: string[] = [];
   if (r.coins > 0) bits.push(`+${r.coins} PR`);
-  if (r.gems > 0) bits.push(`+${r.gems} gems`);
+  if (r.gems > 0) bits.push(`+${r.gems} TICKET`);
   if (r.tipoBonus === "bau") bits.push("baú");
   if (r.tipoBonus === "especial") bits.push("especial");
   return bits.length > 0 ? bits.join(" · ") : "só sequência";

@@ -16,8 +16,11 @@ export interface UserProfile {
   username: string;
   codigoConvite: string;
   convidadoPor: string | null;
+  /** PR — vitórias e economia dos jogos (exibido como “PR”). */
   coins: number;
+  /** TICKET — sorteios / entradas (exibido como “TICKET”; campo Firestore legado `gems`). */
   gems: number;
+  /** CASH — saldo para saque; conversão em R$ no fluxo de resgate (exibido como “CASH”). */
   rewardBalance: number;
   xp: number;
   level: number;

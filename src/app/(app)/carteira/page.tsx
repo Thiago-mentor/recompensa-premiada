@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
 import { formatFirebaseError } from "@/lib/firebase/errors";
-import { Coins, Gem, Sparkles } from "lucide-react";
+import { Banknote, Coins, Ticket } from "lucide-react";
 
 const filtros: (WalletTransactionType | "todos")[] = [
   "todos",
@@ -63,8 +63,8 @@ export default function CarteiraPage() {
       await convertCurrency(direction, n);
       setConvertMsg(
         direction === "coins_to_gems"
-          ? `Você comprou ${n} gem(s).`
-          : `Você trocou ${n} gem(s) por PR.`,
+          ? `Você comprou ${n} ticket(s).`
+          : `Você trocou ${n} ticket(s) por PR.`,
       );
       await refreshProfile();
       loadRates();
@@ -80,21 +80,25 @@ export default function CarteiraPage() {
       <h1 className="text-2xl font-bold text-white">Carteira</h1>
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="PR" value={profile ? String(profile.coins) : "—"} icon={Coins} />
-        <StatCard label="Gems" value={profile ? String(profile.gems) : "—"} icon={Gem} />
+        <StatCard label="TICKET" value={profile ? String(profile.gems) : "—"} icon={Ticket} />
         <StatCard
           className="col-span-2"
-          label="Saldo prêmio"
+          label="CASH"
           value={profile ? String(profile.rewardBalance) : "—"}
-          icon={Sparkles}
+          icon={Banknote}
         />
       </div>
 
       <section className="space-y-3 rounded-2xl border border-violet-400/25 bg-gradient-to-b from-violet-950/40 to-slate-950/90 p-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Converter PR e gems</h2>
+          <h2 className="text-lg font-semibold text-white">Converter PR e TICKET</h2>
           <p className="mt-1 text-xs text-white/55">
-            Taxas definidas na economia do app. A conversão é feita no servidor; cada troca gera linhas no
-            extrato (tipo &quot;Conversão&quot;).
+            PR recompensa vitórias nos jogos; TICKET será usado nos sorteios. Taxas na economia; cada troca
+            gera linhas no extrato (&quot;Conversão&quot;).
+          </p>
+          <p className="mt-2 text-xs text-white/45">
+            CASH acumula para saque — a conversão em reais (PIX) pode ser feita na hora do resgate, conforme
+            a taxa que vocês definirem.
           </p>
         </div>
         {convertErr ? (
@@ -109,15 +113,15 @@ export default function CarteiraPage() {
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-cyan-400/20 bg-black/25 p-3">
-            <p className="text-xs font-bold uppercase tracking-widest text-cyan-200/80">PR → gems</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-cyan-200/80">PR → TICKET</p>
             <p className="mt-1 text-sm text-white/60">
               Custo:{" "}
               <span className="font-semibold text-white">
-                {rates?.coinsPerGemBuy ?? "…"} PR / gem
+                {rates?.coinsPerGemBuy ?? "…"} PR / ticket
               </span>
             </p>
             <label className="mt-3 block text-xs text-white/45" htmlFor="gems-to-buy">
-              Quantas gems deseja receber?
+              Quantos tickets deseja receber?
             </label>
             <input
               id="gems-to-buy"
@@ -138,21 +142,21 @@ export default function CarteiraPage() {
             </Button>
           </div>
           <div className="rounded-xl border border-fuchsia-400/20 bg-black/25 p-3">
-            <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200/80">Gems → PR</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200/80">TICKET → PR</p>
             {rates && rates.coinsPerGemSell < 1 ? (
               <p className="mt-2 text-sm text-amber-200/90">
-                Troca de gems por PR está desligada no painel admin (taxa = 0).
+                Troca de TICKET por PR está desligada no painel admin (taxa = 0).
               </p>
             ) : (
               <>
                 <p className="mt-1 text-sm text-white/60">
                   Você recebe:{" "}
                   <span className="font-semibold text-white">
-                    {rates?.coinsPerGemSell ?? "…"} PR / gem
+                    {rates?.coinsPerGemSell ?? "…"} PR / ticket
                   </span>
                 </p>
                 <label className="mt-3 block text-xs text-white/45" htmlFor="gems-to-sell">
-                  Quantas gems deseja trocar?
+                  Quantos tickets deseja trocar?
                 </label>
                 <input
                   id="gems-to-sell"

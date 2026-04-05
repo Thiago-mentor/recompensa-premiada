@@ -198,7 +198,7 @@ export function DailyRewardModal({
                     <span className="block text-[9px] font-bold opacity-90">PR</span>
                     {s.gems > 0 ? (
                       <span className="mt-0.5 block text-[9px] font-bold text-fuchsia-200">
-                        +{s.gems} gems
+                        +{s.gems} TICKET
                       </span>
                     ) : null}
                   </p>

@@ -45,7 +45,7 @@ export function MissionCard({
       </p>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-amber-100/90">
         <span>+{mission.recompensaCoins} PR</span>
-        {mission.recompensaGems > 0 ? <span>+{mission.recompensaGems} gems</span> : null}
+        {mission.recompensaGems > 0 ? <span>+{mission.recompensaGems} TICKET</span> : null}
         <span>+{mission.recompensaXP} XP</span>
       </div>
       {mission.concluida && !mission.recompensaResgatada ? (

@@ -2,8 +2,8 @@ import type { WalletCurrency, WalletTransaction } from "@/types/wallet";
 
 const moedaDisplay: Record<WalletCurrency, string> = {
   coins: "PR",
-  gems: "gems",
-  rewardBalance: "prêmio",
+  gems: "TICKET",
+  rewardBalance: "CASH",
 };
 import { cn } from "@/lib/utils/cn";
 

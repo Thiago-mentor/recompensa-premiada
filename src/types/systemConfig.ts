@@ -41,9 +41,9 @@ export interface SystemEconomyConfig {
   referralBonusConvidado: number;
   limiteDiarioAds: number;
   limiteDiarioCoins: number;
-  /** PR cobrados por cada gem na conversão PR → gems (≥ 1). */
+  /** PR cobrados por cada TICKET na conversão PR → TICKET (campo técnico: `gems` no perfil). */
   conversionCoinsPerGemBuy?: number;
-  /** PR pagos por cada gem na conversão gems → PR; `0` desativa a venda de gems. */
+  /** PR pagos por cada TICKET na conversão TICKET → PR; `0` desativa a venda. */
   conversionCoinsPerGemSell?: number;
   /** Segundos para responder em cada PvP (servidor usa no `actionDeadlineAt`). */
   pvpChoiceSeconds?: Partial<{

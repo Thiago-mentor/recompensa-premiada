@@ -23,7 +23,7 @@ import {
   staggerContainer,
   staggerItem,
 } from "@/components/arena/ArenaShell";
-import { Coins, Gem, Sparkles, TrendingUp } from "lucide-react";
+import { Banknote, Coins, Ticket, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { getDailyRewardUiState } from "@/utils/dailyRewardUiState";
@@ -126,11 +126,11 @@ export default function HomePage() {
           value={profile ? String(profile.coins) : "—"}
           icon={Coins}
         />
-        <StatCard label="Gems" value={profile ? String(profile.gems) : "—"} icon={Gem} />
+        <StatCard label="TICKET" value={profile ? String(profile.gems) : "—"} icon={Ticket} />
         <StatCard
-          label="Prêmios (saldo)"
+          label="CASH"
           value={profile ? String(profile.rewardBalance) : "—"}
-          icon={Sparkles}
+          icon={Banknote}
         />
         <StatCard
           label="Ranking hoje"

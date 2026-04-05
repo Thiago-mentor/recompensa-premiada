@@ -45,7 +45,7 @@ export function DailyStreakCard({
       </div>
       <p className="mt-2 text-xs text-white/55">
         Colete <strong className="text-white/70">uma vez por dia</strong>. Dias seguidos mantêm a
-        sequência; pular um dia zera. Marcos com gems/baú vêm da configuração da economia.
+        sequência; pular um dia zera. Marcos com TICKET/baú vêm da configuração da economia.
       </p>
       {milestoneLine ? (
         <p className="mt-2 text-xs leading-relaxed text-orange-100/75">{milestoneLine}</p>
