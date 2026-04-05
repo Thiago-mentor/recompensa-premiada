@@ -2273,6 +2273,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
             <section
               className="relative space-y-3 overflow-hidden rounded-[1.35rem] border border-fuchsia-400/25 bg-gradient-to-b from-violet-950/55 via-slate-950/95 to-cyan-950/25 p-3 shadow-[0_0_48px_-14px_rgba(217,70,239,0.28)] sm:space-y-5 sm:rounded-[1.9rem] sm:p-6"
               aria-label="Quiz rápido"
+              data-quiz-sala-ui="pvp-rules-2026-04"
             >
               <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
               <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
