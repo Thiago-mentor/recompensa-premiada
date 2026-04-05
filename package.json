@@ -10,6 +10,9 @@
     "reset:daily-login": "node scripts/reset-daily-streak.cjs",
     "grant-admin": "node scripts/grant-admin-claims.cjs",
     "emulators": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions,storage",
+    "deploy:firestore-rules": "firebase deploy --only firestore:rules",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:apphosting": "npx -y firebase-tools@latest apphosting:rollouts:create recompensa-premiada --project premios-14238 --git-branch main --force",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android"
   },

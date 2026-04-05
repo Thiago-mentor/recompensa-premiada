@@ -1,4 +1,19 @@
 {
+  "apphosting": {
+    "backendId": "recompensa-premiada",
+    "rootDir": "/",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "functions/node_modules",
+      ".next",
+      "android",
+      "ios",
+      "capacitor.config.*"
+    ]
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"

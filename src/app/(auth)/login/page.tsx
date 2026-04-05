@@ -98,8 +98,12 @@ export default function LoginPage() {
         <AlertBanner tone="info" className="text-sm">
           <strong className="text-white">Modo emulador:</strong> o login usa a base local de Auth.
           Contas da nuvem não existem aqui; crie uma conta local com{" "}
-          <code className="text-white/80">npm run emulators</code> rodando. O botão Google costuma
-          falhar no emulator; prefira e-mail e senha.
+          <code className="text-white/80">npm run emulators</code> rodando{" "}
+          <strong className="text-white">na pasta do projeto</strong>{" "}
+          <code className="text-white/80">recompensa-premiada</code> (onde está o{" "}
+          <code className="text-white/80">package.json</code>
+          ). Em <code className="text-white/80">htdocs</code> sozinho o comando falha e o Functions
+          emulator não sobe. O botão Google costuma falhar no emulator; prefira e-mail e senha.
         </AlertBanner>
       ) : null}
       {error ? (

@@ -81,8 +81,13 @@ export function CadastroForm() {
       </div>
       {firebaseEmulatorsActive ? (
         <AlertBanner tone="info" className="text-sm">
-          Emuladores ativos: esta conta ficará só no Auth/Firestore locais. Mantenha{" "}
-          <code className="text-white/80">npm run emulators</code> rodando durante o cadastro.
+          Emuladores ativos: esta conta ficará só no Auth/Firestore locais. Rode{" "}
+          <code className="text-white/80">npm run emulators</code> na pasta{" "}
+          <code className="text-white/80">recompensa-premiada</code> e deixe o terminal aberto. Se aparecer{" "}
+          <strong className="text-white">port taken</strong>, feche a outra instância dos emuladores. O cadastro
+          chama a Function <code className="text-white/80">initializeUserProfile</code> na mesma região do{" "}
+          <code className="text-white/80">.env.local</code> (<code className="text-white/80">NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION</code>
+          ).
         </AlertBanner>
       ) : null}
       {error ? (

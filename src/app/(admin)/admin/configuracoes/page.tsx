@@ -56,7 +56,7 @@ export default function AdminConfigPage() {
         if (typeof d.gameEntryCost?.reaction_tap === "number") {
           setReactionEntryCost(String(d.gameEntryCost.reaction_tap));
         }
-        const pcs = parsePvpChoiceSeconds(d.pvpChoiceSeconds);
+        const pcs = parsePvpChoiceSeconds(d);
         setPvpSecPpt(String(pcs.ppt));
         setPvpSecQuiz(String(pcs.quiz));
         setPvpSecReaction(String(pcs.reaction_tap));
@@ -106,7 +106,9 @@ export default function AdminConfigPage() {
         },
         { merge: true },
       );
-      setMsg("Economia salva. Premiações de ranking ficam na aba Rankings.");
+      setMsg(
+        "Economia salva. Premiações de ranking ficam na aba Rankings. Em produção: se o tempo do quiz ou a lógica do servidor não mudarem, publique as Cloud Functions (firebase deploy --only functions) e as regras do Firestore (firebase deploy --only firestore:rules). Com emuladores, reinicie-os após npm run build em functions/.",
+      );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao salvar");
     }

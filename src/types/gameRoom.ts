@@ -65,6 +65,8 @@ export interface GameRoomDocument {
   /** Rodada recém-resolvida: opções e índice correto (para exibir a resposta certa em verde). */
   quizLastRevealOptions?: string[];
   quizLastRevealCorrectIndex?: number;
+  /** Enunciado da questão da revelação (a rodada que acabou; evita misturar com a próxima pergunta). */
+  quizLastRevealQuestionText?: string;
   quizMatchWinner?: "host" | "guest";
   quizOutcome?: "host_win" | "guest_win" | "draw";
   quizRewardsApplied?: boolean;

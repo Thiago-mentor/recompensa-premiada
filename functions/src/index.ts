@@ -116,6 +116,11 @@ const MULTIPLAYER_CALLABLE_OPTS = {
   minInstances: MULTIPLAYER_FUNCTIONS_MIN_INSTANCES,
 } as const;
 
+/** Callables gerais (perfil, login, etc.) — mesma região do cliente (`NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION`). */
+const DEFAULT_CALLABLE_OPTS = {
+  region: MULTIPLAYER_FUNCTIONS_REGION,
+} as const;
+
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
 const PPT_DUEL_CHARGES_PER_AD = 3;
@@ -770,6 +775,7 @@ async function applyQuizMatchCompletionInTransaction(
   guestResponseMs: number,
   quizRevealOptions: string[],
   quizRevealCorrectIndex: number,
+  quizRevealQuestionText: string,
 ) {
   const hostUid = String(r.hostUid);
   const guestUid = String(r.guestUid);
@@ -919,6 +925,7 @@ async function applyQuizMatchCompletionInTransaction(
     quizLastRoundWinner: matchWinner,
     quizLastRevealOptions: quizRevealOptions,
     quizLastRevealCorrectIndex: quizRevealCorrectIndex,
+    quizLastRevealQuestionText: quizRevealQuestionText,
     quizMatchWinner: matchWinner,
     quizOutcome: outcome,
     quizRewardsApplied: true,
@@ -1960,7 +1967,7 @@ async function applyPptRoundResultInTransaction(
   return "match";
 }
 
-export const initializeUserProfile = onCall(async (request) => {
+export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const nome = String(request.data?.nome || "").trim();
@@ -2053,7 +2060,7 @@ export const initializeUserProfile = onCall(async (request) => {
   return { ok: true, codigoConvite: codigo };
 });
 
-export const processDailyLogin = onCall(async (request) => {
+export const processDailyLogin = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const economy = await getEconomy();
@@ -2172,7 +2179,7 @@ async function bumpWatchAdMissions(uid: string) {
  * Recompensa por anúncio: moedas (placement padrão) ou +3 duelos PvP específicos.
  * Limite diário compartilhado; só o servidor altera saldos / duelos.
  */
-export const processRewardedAd = onCall(async (request) => {
+export const processRewardedAd = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const placementId = String(request.data?.placementId || "default");
@@ -2375,7 +2382,7 @@ export const processRewardedAd = onCall(async (request) => {
   return { coins };
 });
 
-export const finalizeMatch = onCall(async (request) => {
+export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const gameId = request.data?.gameId as GameId;
@@ -2505,7 +2512,7 @@ export const finalizeMatch = onCall(async (request) => {
   };
 });
 
-export const claimMissionReward = onCall(async (request) => {
+export const claimMissionReward = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const missionId = String(request.data?.missionId || "");
@@ -2560,7 +2567,7 @@ export const claimMissionReward = onCall(async (request) => {
   return { ok: true };
 });
 
-export const requestRewardClaim = onCall(async (request) => {
+export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const valor = Number(request.data?.valor);
@@ -2595,7 +2602,7 @@ export const requestRewardClaim = onCall(async (request) => {
   return { claimId: ref.id };
 });
 
-export const reviewRewardClaim = onCall(async (request) => {
+export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   await assertAdmin(uid);
@@ -2651,7 +2658,7 @@ export const reviewRewardClaim = onCall(async (request) => {
   return { ok: true };
 });
 
-export const processReferralReward = onCall(async (request) => {
+export const processReferralReward = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   // MVP: marcar ação mínima cumprida; bônus real após validações adicionais
@@ -3184,7 +3191,7 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
 });
 
 /** Agenda ou aplica recuperação de duelos por tempo (10 min); não entra na fila. */
-export const pptSyncDuelRefill = onCall(async (req) => {
+export const pptSyncDuelRefill = onCall(DEFAULT_CALLABLE_OPTS, async (req) => {
   const uid = req.auth?.uid;
   assertAuthed(uid);
   await tryApplyPptTimedRefillForUser(uid);
@@ -3192,7 +3199,7 @@ export const pptSyncDuelRefill = onCall(async (req) => {
 });
 
 /** Agenda ou aplica recuperação de duelos Quiz por tempo (10 min); não entra na fila. */
-export const quizSyncDuelRefill = onCall(async (req) => {
+export const quizSyncDuelRefill = onCall(DEFAULT_CALLABLE_OPTS, async (req) => {
   const uid = req.auth?.uid;
   assertAuthed(uid);
   await tryApplyQuizTimedRefillForUser(uid);
@@ -3200,14 +3207,14 @@ export const quizSyncDuelRefill = onCall(async (req) => {
 });
 
 /** Agenda ou aplica recuperação de duelos Reaction Tap por tempo (10 min); não entra na fila. */
-export const reactionSyncDuelRefill = onCall(async (req) => {
+export const reactionSyncDuelRefill = onCall(DEFAULT_CALLABLE_OPTS, async (req) => {
   const uid = req.auth?.uid;
   assertAuthed(uid);
   await tryApplyReactionTimedRefillForUser(uid);
   return { ok: true as const };
 });
 
-export const leaveAutoMatch = onCall(async (request) => {
+export const leaveAutoMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const gameId = request.data?.gameId as GameId;
@@ -3604,6 +3611,7 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
         guestResponse,
         question.options,
         question.correctIndex,
+        question.q,
       );
       return {
         status: "completed" as const,
@@ -3641,6 +3649,7 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
       quizLastRoundWinner: roundWinner,
       quizLastRevealOptions: question.options,
       quizLastRevealCorrectIndex: question.correctIndex,
+      quizLastRevealQuestionText: question.q,
       timeoutEmptyRounds: 0,
       actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizSubmitWindowMs),
       atualizadoEm: FieldValue.serverTimestamp(),
@@ -4038,6 +4047,13 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
             quizRewardsApplied: true,
             quizMatchWinner: FieldValue.delete(),
             timeoutEmptyRounds: 0,
+            quizLastRevealOptions: FieldValue.delete(),
+            quizLastRevealCorrectIndex: FieldValue.delete(),
+            quizLastRevealQuestionText: FieldValue.delete(),
+            quizLastHostAnswerIndex: FieldValue.delete(),
+            quizLastGuestAnswerIndex: FieldValue.delete(),
+            quizLastHostCorrect: FieldValue.delete(),
+            quizLastGuestCorrect: FieldValue.delete(),
           });
           return { kind: "void" as const, gameId };
         }
@@ -4100,6 +4116,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           guestResponse,
           question.options,
           question.correctIndex,
+          question.q,
         );
         tx.delete(answersColl.doc(hostUid));
         tx.delete(answersColl.doc(guestUid));
@@ -4127,6 +4144,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         quizLastRoundWinner: roundWinner,
         quizLastRevealOptions: question.options,
         quizLastRevealCorrectIndex: question.correctIndex,
+        quizLastRevealQuestionText: question.q,
         timeoutEmptyRounds: 0,
         actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
         atualizadoEm: FieldValue.serverTimestamp(),
@@ -4309,7 +4327,7 @@ export const pvpPptPresence = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) 
   return { ok: true, kind: out.kind };
 });
 
-export const riskAnalysisOnUserEvent = onCall(async (request) => {
+export const riskAnalysisOnUserEvent = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const tipo = String(request.data?.tipo || "evento").slice(0, 120);

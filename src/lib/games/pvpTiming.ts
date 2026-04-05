@@ -18,8 +18,19 @@ export function clampPvpChoiceSeconds(n: unknown, fallback: number): number {
   return Math.min(120, Math.max(3, v));
 }
 
+/**
+ * Aceita o mapa `pvpChoiceSeconds` ou o documento inteiro de economia (`system_configs/economy`),
+ * para não depender de quem chama extrair o campo.
+ */
 export function parsePvpChoiceSeconds(raw: unknown): PvpChoiceSecondsConfig {
-  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const root = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const nested = root.pvpChoiceSeconds;
+  const o =
+    nested && typeof nested === "object"
+      ? (nested as Record<string, unknown>)
+      : Object.keys(root).some((k) => k === "ppt" || k === "quiz" || k === "reaction_tap")
+        ? root
+        : {};
   return {
     ppt: clampPvpChoiceSeconds(o.ppt, DEFAULT_PVP_CHOICE_SECONDS.ppt),
     quiz: clampPvpChoiceSeconds(o.quiz, DEFAULT_PVP_CHOICE_SECONDS.quiz),

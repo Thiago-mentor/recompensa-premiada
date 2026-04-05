@@ -116,6 +116,10 @@ const MULTIPLAYER_CALLABLE_OPTS = {
     region: MULTIPLAYER_FUNCTIONS_REGION,
     minInstances: MULTIPLAYER_FUNCTIONS_MIN_INSTANCES,
 };
+/** Callables gerais (perfil, login, etc.) — mesma região do cliente (`NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION`). */
+const DEFAULT_CALLABLE_OPTS = {
+    region: MULTIPLAYER_FUNCTIONS_REGION,
+};
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
 const PPT_DUEL_CHARGES_PER_AD = 3;
@@ -641,7 +645,7 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
 }
-async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponseMs, guestResponseMs, quizRevealOptions, quizRevealCorrectIndex) {
+async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponseMs, guestResponseMs, quizRevealOptions, quizRevealCorrectIndex, quizRevealQuestionText) {
     const hostUid = String(r.hostUid);
     const guestUid = String(r.guestUid);
     const hostScore = Number(r.quizHostScore ?? 0);
@@ -781,6 +785,7 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
         quizLastRoundWinner: matchWinner,
         quizLastRevealOptions: quizRevealOptions,
         quizLastRevealCorrectIndex: quizRevealCorrectIndex,
+        quizLastRevealQuestionText: quizRevealQuestionText,
         quizMatchWinner: matchWinner,
         quizOutcome: outcome,
         quizRewardsApplied: true,
@@ -1626,7 +1631,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
     }, { merge: true });
     return "match";
 }
-exports.initializeUserProfile = (0, https_1.onCall)(async (request) => {
+exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const nome = String(request.data?.nome || "").trim();
@@ -1711,7 +1716,7 @@ exports.initializeUserProfile = (0, https_1.onCall)(async (request) => {
     });
     return { ok: true, codigoConvite: codigo };
 });
-exports.processDailyLogin = (0, https_1.onCall)(async (request) => {
+exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const economy = await getEconomy();
@@ -1824,7 +1829,7 @@ async function bumpWatchAdMissions(uid) {
  * Recompensa por anúncio: moedas (placement padrão) ou +3 duelos PvP específicos.
  * Limite diário compartilhado; só o servidor altera saldos / duelos.
  */
-exports.processRewardedAd = (0, https_1.onCall)(async (request) => {
+exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const placementId = String(request.data?.placementId || "default");
@@ -2002,7 +2007,7 @@ exports.processRewardedAd = (0, https_1.onCall)(async (request) => {
     await bumpWatchAdMissions(uid);
     return { coins };
 });
-exports.finalizeMatch = (0, https_1.onCall)(async (request) => {
+exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const gameId = request.data?.gameId;
@@ -2109,7 +2114,7 @@ exports.finalizeMatch = (0, https_1.onCall)(async (request) => {
         normalizedScore: economy.normalizedScore,
     };
 });
-exports.claimMissionReward = (0, https_1.onCall)(async (request) => {
+exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const missionId = String(request.data?.missionId || "");
@@ -2158,7 +2163,7 @@ exports.claimMissionReward = (0, https_1.onCall)(async (request) => {
     }
     return { ok: true };
 });
-exports.requestRewardClaim = (0, https_1.onCall)(async (request) => {
+exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const valor = Number(request.data?.valor);
@@ -2190,7 +2195,7 @@ exports.requestRewardClaim = (0, https_1.onCall)(async (request) => {
     });
     return { claimId: ref.id };
 });
-exports.reviewRewardClaim = (0, https_1.onCall)(async (request) => {
+exports.reviewRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     await assertAdmin(uid);
@@ -2245,7 +2250,7 @@ exports.reviewRewardClaim = (0, https_1.onCall)(async (request) => {
     }
     return { ok: true };
 });
-exports.processReferralReward = (0, https_1.onCall)(async (request) => {
+exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     // MVP: marcar ação mínima cumprida; bônus real após validações adicionais
@@ -2709,27 +2714,27 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     }
 });
 /** Agenda ou aplica recuperação de duelos por tempo (10 min); não entra na fila. */
-exports.pptSyncDuelRefill = (0, https_1.onCall)(async (req) => {
+exports.pptSyncDuelRefill = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req) => {
     const uid = req.auth?.uid;
     assertAuthed(uid);
     await tryApplyPptTimedRefillForUser(uid);
     return { ok: true };
 });
 /** Agenda ou aplica recuperação de duelos Quiz por tempo (10 min); não entra na fila. */
-exports.quizSyncDuelRefill = (0, https_1.onCall)(async (req) => {
+exports.quizSyncDuelRefill = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req) => {
     const uid = req.auth?.uid;
     assertAuthed(uid);
     await tryApplyQuizTimedRefillForUser(uid);
     return { ok: true };
 });
 /** Agenda ou aplica recuperação de duelos Reaction Tap por tempo (10 min); não entra na fila. */
-exports.reactionSyncDuelRefill = (0, https_1.onCall)(async (req) => {
+exports.reactionSyncDuelRefill = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req) => {
     const uid = req.auth?.uid;
     assertAuthed(uid);
     await tryApplyReactionTimedRefillForUser(uid);
     return { ok: true };
 });
-exports.leaveAutoMatch = (0, https_1.onCall)(async (request) => {
+exports.leaveAutoMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const gameId = request.data?.gameId;
@@ -3021,7 +3026,7 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
         const target = readQuizTargetScore(room);
         if ((roundWinner === "host" && nextHostScore >= target) || (roundWinner === "guest" && nextGuestScore >= target)) {
             const matchWinner = roundWinner;
-            const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...room, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse, question.options, question.correctIndex);
+            const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...room, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse, question.options, question.correctIndex, question.q);
             return {
                 status: "completed",
                 matchWinner,
@@ -3056,6 +3061,7 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
             quizLastRoundWinner: roundWinner,
             quizLastRevealOptions: question.options,
             quizLastRevealCorrectIndex: question.correctIndex,
+            quizLastRevealQuestionText: question.q,
             timeoutEmptyRounds: 0,
             actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizSubmitWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
@@ -3361,6 +3367,13 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                         quizRewardsApplied: true,
                         quizMatchWinner: firestore_2.FieldValue.delete(),
                         timeoutEmptyRounds: 0,
+                        quizLastRevealOptions: firestore_2.FieldValue.delete(),
+                        quizLastRevealCorrectIndex: firestore_2.FieldValue.delete(),
+                        quizLastRevealQuestionText: firestore_2.FieldValue.delete(),
+                        quizLastHostAnswerIndex: firestore_2.FieldValue.delete(),
+                        quizLastGuestAnswerIndex: firestore_2.FieldValue.delete(),
+                        quizLastHostCorrect: firestore_2.FieldValue.delete(),
+                        quizLastGuestCorrect: firestore_2.FieldValue.delete(),
                     });
                     return { kind: "void", gameId };
                 }
@@ -3404,7 +3417,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
             const target = readQuizTargetScore(r);
             if ((roundWinner === "host" && nextHostScore >= target) || (roundWinner === "guest" && nextGuestScore >= target)) {
                 const matchWinner = roundWinner;
-                const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...r, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse, question.options, question.correctIndex);
+                const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...r, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse, question.options, question.correctIndex, question.q);
                 tx.delete(answersColl.doc(hostUid));
                 tx.delete(answersColl.doc(guestUid));
                 return { kind: "quiz_match", ...out, hostResponseMs: hostResponse, guestResponseMs: guestResponse };
@@ -3431,6 +3444,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 quizLastRoundWinner: roundWinner,
                 quizLastRevealOptions: question.options,
                 quizLastRevealCorrectIndex: question.correctIndex,
+                quizLastRevealQuestionText: question.q,
                 timeoutEmptyRounds: 0,
                 actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
@@ -3570,7 +3584,7 @@ exports.pvpPptPresence = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (r
     }
     return { ok: true, kind: out.kind };
 });
-exports.riskAnalysisOnUserEvent = (0, https_1.onCall)(async (request) => {
+exports.riskAnalysisOnUserEvent = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const tipo = String(request.data?.tipo || "evento").slice(0, 120);

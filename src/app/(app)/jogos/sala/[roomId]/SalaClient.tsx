@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
@@ -26,6 +26,9 @@ import { AnimatePresence, motion } from "framer-motion";
 
 const PPT_HANDS = ["pedra", "papel", "tesoura"] as const;
 type PptHand = (typeof PPT_HANDS)[number];
+
+/** Tempo para exibir o resultado da rodada antes de abrir a próxima pergunta (sem toque). */
+const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1800;
 
 /** Padrão de segundos para UI; valores reais vêm de `system_configs/economy.pvpChoiceSeconds`. */
 
@@ -686,7 +689,91 @@ function quizRoundSummary(room: GameRoomDocument): string | null {
   return null;
 }
 
-function quizLastRoundRevealBlock(room: GameRoomDocument, isHost: boolean): ReactNode {
+function quizOptionArraysEqual(a?: string[], b?: string[]): boolean {
+  if (!a?.length && !b?.length) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((v, i) => v === b[i]);
+}
+
+/**
+ * Entre rodadas o Firestore já traz a próxima pergunta em `quizOptions`, mas a revelação é da rodada anterior.
+ * A UI mostra primeiro só o resultado; a pergunta nova ocupa o mesmo painel após um breve intervalo (automático).
+ */
+function quizInterstitialRevealActive(room: GameRoomDocument): boolean {
+  const answered = room.quizAnsweredUids?.length ?? 0;
+  if (answered !== 0) return false;
+  if (!room.quizLastRevealOptions?.length || typeof room.quizLastRevealCorrectIndex !== "number") {
+    return false;
+  }
+  if (!room.quizLastRoundWinner) return false;
+  return !quizOptionArraysEqual(room.quizLastRevealOptions, room.quizOptions ?? []);
+}
+
+function quizRevealSameCardRows(
+  options: string[],
+  correctIndex: number,
+  myPickIndex: number | null | undefined,
+  youWrong: boolean,
+  keyPrefix: string,
+): ReactNode {
+  return (
+    <div className="space-y-2">
+      {youWrong ? (
+        <p className="text-sm font-medium text-emerald-100/95">
+          Você errou nesta rodada. A alternativa certa está em{" "}
+          <span className="font-semibold text-emerald-300">verde</span>.
+        </p>
+      ) : null}
+      <div className="grid gap-2 sm:gap-3">
+        {options.map((option, index) => {
+          const isCorrect = index === correctIndex;
+          const wasMyPick = typeof myPickIndex === "number" && myPickIndex === index;
+          return (
+            <div
+              key={`${keyPrefix}-${index}`}
+              className={cn(
+                "group relative flex items-center gap-2 overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold sm:rounded-[1.35rem] sm:px-5 sm:py-4",
+                isCorrect
+                  ? "border-emerald-400/75 bg-emerald-500/20 text-emerald-50 shadow-[0_0_24px_-8px_rgba(52,211,153,0.45)]"
+                  : wasMyPick
+                    ? "border-fuchsia-400/50 bg-fuchsia-500/12 text-white"
+                    : "border-white/10 bg-black/25 text-white/70",
+              )}
+            >
+              <span
+                className={cn(
+                  "relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-black",
+                  isCorrect
+                    ? "border-emerald-300/60 bg-emerald-950/40 text-emerald-100"
+                    : "border-white/15 bg-black/30 text-white/80",
+                )}
+              >
+                {String.fromCharCode(65 + index)}
+              </span>
+              <span className="relative flex-1">{option}</span>
+              {isCorrect ? (
+                <span className="relative text-[9px] font-bold uppercase tracking-widest text-emerald-200/90">
+                  Correta
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Fim de partida: mesma estética do cartão de alternativas (sem segundo bloco verde separado). */
+function quizMatchEndRevealBlock(room: GameRoomDocument, isHost: boolean): ReactNode {
+  const hadMatchVictor =
+    room.quizMatchWinner === "host" ||
+    room.quizMatchWinner === "guest" ||
+    room.quizOutcome === "host_win" ||
+    room.quizOutcome === "guest_win";
+  if (!hadMatchVictor) {
+    return null;
+  }
   if (
     !room.quizLastRevealOptions?.length ||
     typeof room.quizLastRevealCorrectIndex !== "number" ||
@@ -694,38 +781,21 @@ function quizLastRoundRevealBlock(room: GameRoomDocument, isHost: boolean): Reac
   ) {
     return null;
   }
-  const youCorrect = isHost ? room.quizLastHostCorrect === true : room.quizLastGuestCorrect === true;
+  const myPick = isHost ? room.quizLastHostAnswerIndex : room.quizLastGuestAnswerIndex;
+  const youWrong = isHost ? room.quizLastHostCorrect === false : room.quizLastGuestCorrect === false;
   return (
-    <div className="space-y-2 rounded-2xl border border-emerald-400/35 bg-emerald-950/40 px-3 py-3 sm:px-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-200/90">
-        Resposta correta da rodada
-      </p>
-      {youCorrect === false ? (
-        <p className="text-sm font-semibold text-emerald-100">
-          Você errou. A alternativa certa está em <span className="text-emerald-300">verde</span>.
-        </p>
+    <div className="space-y-2 rounded-2xl border border-white/10 bg-black/20 px-3 py-3 sm:px-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Última rodada</p>
+      {room.quizLastRevealQuestionText ? (
+        <p className="text-sm font-bold text-white sm:text-base">{room.quizLastRevealQuestionText}</p>
       ) : null}
-      <ul className="space-y-1.5">
-        {room.quizLastRevealOptions.map((opt, index) => {
-          const isCorrect = index === room.quizLastRevealCorrectIndex;
-          return (
-            <li
-              key={`reveal-${room.quizRound}-${index}`}
-              className={cn(
-                "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm",
-                isCorrect
-                  ? "border-emerald-400/70 bg-emerald-500/20 font-semibold text-emerald-100"
-                  : "border-white/10 bg-black/20 text-white/75",
-              )}
-            >
-              <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current text-[11px] font-black opacity-90">
-                {String.fromCharCode(65 + index)}
-              </span>
-              <span>{opt}</span>
-            </li>
-          );
-        })}
-      </ul>
+      {quizRevealSameCardRows(
+        room.quizLastRevealOptions,
+        room.quizLastRevealCorrectIndex,
+        typeof myPick === "number" ? myPick : null,
+        youWrong,
+        `match-reveal-${room.quizRound ?? 0}`,
+      )}
     </div>
   );
 }
@@ -816,6 +886,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const [reactionClock, setReactionClock] = useState(() => Date.now());
   const [quizSecondsLeft, setQuizSecondsLeft] = useState<number>(DEFAULT_PVP_CHOICE_SECONDS.quiz);
   const [quizTimeoutAnswer, setQuizTimeoutAnswer] = useState(false);
+  /** Intersticial: só mostra a pergunta nova no mesmo painel depois que o jogador confirma o resultado. */
+  const [quizRevealDismissedKey, setQuizRevealDismissedKey] = useState<string | null>(null);
   const [forfeitBusy, setForfeitBusy] = useState(false);
   const [highlightHand, setHighlightHand] = useState<PptHand | null>(null);
   const quizStartedAtRef = useRef<number>(Date.now());
@@ -827,6 +899,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const timeoutFiredRef = useRef(false);
   const pptSubmitLockedRef = useRef(false);
   const matchDoneRef = useRef(false);
+  const quizMatchFinalScrollRef = useRef<HTMLDivElement>(null);
+  const prevQuizMatchDoneRef = useRef(false);
   const timeoutResolveKeyRef = useRef("");
   const pptLeaveGen = useRef(0);
   const [roundFlash, setRoundFlash] = useState<RoundFlashPayload | null>(null);
@@ -840,21 +914,21 @@ export function SalaClient({ roomId }: { roomId: string }) {
   pvpChoiceSecRef.current = pvpChoiceSec;
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const db = getFirebaseFirestore();
-        const s = await getDoc(doc(db, COLLECTIONS.systemConfigs, "economy"));
-        if (!s.exists() || cancelled) return;
-        const d = s.data();
-        setPvpChoiceSec(parsePvpChoiceSeconds(d?.pvpChoiceSeconds));
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    const db = getFirebaseFirestore();
+    const ref = doc(db, COLLECTIONS.systemConfigs, "economy");
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return;
+        setPvpChoiceSec(parsePvpChoiceSeconds(snap.data()));
+      },
+      (err) => {
+        console.error(
+          "[PvP] Não foi possível ler system_configs/economy (tempo de resposta). Verifique login, regras do Firestore e deploy.",
+          err,
+        );
+      },
+    );
   }, []);
 
   useEffect(() => {
@@ -885,6 +959,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     prevMyPickDoneRef.current = false;
     reactionStartPerfRef.current = null;
     timeoutResolveKeyRef.current = "";
+    prevQuizMatchDoneRef.current = false;
   }, [roomId]);
 
   useEffect(() => {
@@ -1098,6 +1173,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const isPpt = room?.gameId === "ppt";
   const isQuiz = room?.gameId === "quiz";
   const isReaction = room?.gameId === "reaction_tap";
+
+  useEffect(() => {
+    if (!isQuiz || !matchDone) {
+      if (!matchDone) prevQuizMatchDoneRef.current = false;
+      return;
+    }
+    if (!prevQuizMatchDoneRef.current) {
+      queueMicrotask(() => {
+        quizMatchFinalScrollRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+    prevQuizMatchDoneRef.current = true;
+  }, [isQuiz, matchDone]);
   const picked = room ? new Set(room.pptPickedUids ?? []) : new Set<string>();
   const myPickDone = !!(uid && picked.has(uid));
   const showPptPlay = !!(isPpt && !matchDone && uid);
@@ -1118,6 +1206,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
     room?.actionDeadlineAt && typeof room.actionDeadlineAt.toMillis === "function"
       ? room.actionDeadlineAt.toMillis()
       : null;
+
+  /** Resultado da rodada já veio do servidor; não usar o prazo da *próxima* pergunta como contagem regressiva aqui. */
+  const quizInterstitialForTimer =
+    !!room && room.gameId === "quiz" && !matchDone && quizInterstitialRevealActive(room);
 
   useEffect(() => {
     if (!showPptPlay || matchDone || actionDeadlineAtMs == null) return;
@@ -1172,6 +1264,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
       setQuizSecondsLeft(pvpChoiceSec.quiz);
       return;
     }
+    if (quizInterstitialForTimer) {
+      setQuizSecondsLeft(pvpChoiceSec.quiz);
+      return;
+    }
     if (actionDeadlineAtMs == null) {
       setQuizSecondsLeft(pvpChoiceSec.quiz);
       return;
@@ -1205,6 +1301,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     uid,
     myQuizAnswered,
     matchDone,
+    quizInterstitialForTimer,
     actionDeadlineAtMs,
     quizOptionCount,
     pvpChoiceSec.quiz,
@@ -1365,6 +1462,26 @@ export function SalaClient({ roomId }: { roomId: string }) {
     };
   }, [inLiveReactionMatch, roomId]);
 
+  const quizRevealGateKey =
+    room != null &&
+    room.gameId === "quiz" &&
+    !matchDone &&
+    quizInterstitialRevealActive(room)
+      ? `${room.quizRound ?? 0}:${String(room.quizQuestionId ?? "")}`
+      : null;
+
+  useEffect(() => {
+    if (quizRevealGateKey == null) {
+      setQuizRevealDismissedKey(null);
+      return;
+    }
+    setQuizRevealDismissedKey((prev) => (prev === quizRevealGateKey ? prev : null));
+    const id = window.setTimeout(() => {
+      setQuizRevealDismissedKey(quizRevealGateKey);
+    }, QUIZ_REVEAL_AUTO_ADVANCE_MS);
+    return () => window.clearTimeout(id);
+  }, [quizRevealGateKey]);
+
   const confirmForfeit = useCallback(async () => {
     if (!uid || forfeitBusy || matchDoneRef.current) return;
     if (!window.confirm("Desistir? Você perde a partida e o oponente vence.")) return;
@@ -1446,9 +1563,39 @@ export function SalaClient({ roomId }: { roomId: string }) {
       : null;
   const quizQuestion = room.quizQuestionText ?? "";
   const quizOptions = room.quizOptions ?? [];
+  const quizInterstitialReveal = !matchDone && isQuiz && quizInterstitialRevealActive(room);
+  const interstitialRevealCorrectIndex =
+    quizInterstitialReveal && typeof room.quizLastRevealCorrectIndex === "number"
+      ? room.quizLastRevealCorrectIndex
+      : null;
+  const quizRevealBlocking =
+    !!quizInterstitialReveal &&
+    interstitialRevealCorrectIndex != null &&
+    (room.quizLastRevealOptions?.length ?? 0) > 0 &&
+    quizRevealGateKey != null &&
+    quizRevealDismissedKey !== quizRevealGateKey;
+  const myLastQuizRoundPick = isHost ? room.quizLastHostAnswerIndex : room.quizLastGuestAnswerIndex;
+  const quizYouWrongLastRound =
+    !!quizInterstitialReveal &&
+    (isHost ? room.quizLastHostCorrect === false : room.quizLastGuestCorrect === false);
+  /** Ninguém respondeu a rodada atual ainda — não mostrar “Em espera” para o oponente. */
+  const oppQuizStatusLabel = oppQuizAnswered
+    ? "Ja respondeu"
+    : quizAnswered.size === 0
+      ? "Ainda decidindo"
+      : "Em espera";
+  /** Vencedor explícito ou inferido de `quizOutcome` (legado / campo ausente após void). */
+  const quizWinnerResolved: "host" | "guest" | undefined =
+    room.quizMatchWinner ??
+    (room.quizOutcome === "host_win"
+      ? "host"
+      : room.quizOutcome === "guest_win"
+        ? "guest"
+        : undefined);
   const quizYouWonMatch =
-    !!room.quizMatchWinner &&
-    ((room.quizMatchWinner === "host" && isHost) || (room.quizMatchWinner === "guest" && !isHost));
+    !!quizWinnerResolved &&
+    ((quizWinnerResolved === "host" && isHost) || (quizWinnerResolved === "guest" && !isHost));
+  const quizEndedNoWinner = !!(isQuiz && matchDone && !quizWinnerResolved);
   const reactionYouWonMatch =
     !!room.reactionMatchWinner &&
     ((room.reactionMatchWinner === "host" && isHost) || (room.reactionMatchWinner === "guest" && !isHost));
@@ -1471,7 +1618,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     ((room.pptMatchWinner === "host" && isHost) || (room.pptMatchWinner === "guest" && !isHost));
   const rewardSummary = matchDone
     ? (() => {
-        if (isQuiz && room.quizMatchWinner) {
+        if (isQuiz && quizWinnerResolved) {
           const result = quizYouWonMatch ? "vitoria" : "derrota";
           const eco = resolveMatchEconomy("quiz", result, 0, {
             responseTimeMs: Number(myQuizResponseMs ?? 8000),
@@ -1499,12 +1646,18 @@ export function SalaClient({ roomId }: { roomId: string }) {
     secondsLeft <= 3 ? "rgb(248 113 113)" : secondsLeft <= 6 ? "rgb(251 191 36)" : "rgb(34 211 238)";
   const battleCopy = isQuiz
     ? matchDone
-      ? {
-          title: quizYouWonMatch ? "Fim de quiz" : "Quiz encerrado",
-          subtitle: quizYouWonMatch
-            ? "Você fechou a partida no conhecimento."
-            : "A disputa terminou. Da próxima, busque mais precisão.",
-        }
+      ? quizEndedNoWinner
+        ? {
+            title: "Quiz encerrado",
+            subtitle:
+              "Partida finalizada sem vencedor (inatividade dupla ou encerramento sem desempate). Veja o placar abaixo.",
+          }
+        : {
+            title: quizYouWonMatch ? "Fim de quiz" : "Quiz encerrado",
+            subtitle: quizYouWonMatch
+              ? "Você fechou a partida no conhecimento."
+              : "A disputa terminou. Da próxima, busque mais precisão.",
+          }
       : myQuizAnswered
         ? {
             title: "Resposta travada",
@@ -1835,23 +1988,45 @@ export function SalaClient({ roomId }: { roomId: string }) {
             />
           ) : null}
 
-          {isQuiz && matchDone && room.quizMatchWinner ? (
-            <div className="space-y-3">
-              <ResultSummaryPanel
-                gameLabel="Quiz rápido"
-                title={quizYouWonMatch ? "Você venceu o quiz!" : "O oponente venceu o quiz."}
-                victory={quizYouWonMatch}
-                myName={myDisplayName}
-                opponentName={opponentNome}
-                myScore={myQuizPts}
-                oppScore={oppQuizPts}
-                primaryLine="Partida encerrada."
-                secondaryLine={null}
-                tertiaryLine={null}
-                rankingPoints={rewardSummary?.ranking}
-                rewardCoins={rewardSummary?.coins}
-              />
-              {quizLastRoundRevealBlock(room, isHost)}
+          {isQuiz && matchDone ? (
+            <div ref={quizMatchFinalScrollRef} className="scroll-mt-8 space-y-3">
+              {quizWinnerResolved ? (
+                <div className="space-y-3">
+                  <ResultSummaryPanel
+                    gameLabel="Quiz rápido"
+                    title={quizYouWonMatch ? "Você venceu o quiz!" : "O oponente venceu o quiz."}
+                    victory={quizYouWonMatch}
+                    myName={myDisplayName}
+                    opponentName={opponentNome}
+                    myScore={myQuizPts}
+                    oppScore={oppQuizPts}
+                    primaryLine="Partida encerrada."
+                    secondaryLine={null}
+                    tertiaryLine={null}
+                    rankingPoints={rewardSummary?.ranking}
+                    rewardCoins={rewardSummary?.coins}
+                  />
+                  {quizMatchEndRevealBlock(room, isHost)}
+                </div>
+              ) : null}
+              {quizEndedNoWinner ? (
+                <ResultSummaryPanel
+                  gameLabel="Quiz rápido"
+                  title="Sem vencedor"
+                  victory={false}
+                  myName={myDisplayName}
+                  opponentName={opponentNome}
+                  myScore={myQuizPts}
+                  oppScore={oppQuizPts}
+                  primaryLine={
+                    room.quizOutcome === "draw"
+                      ? "Partida anulada ou encerrada em empate — sem premiação de vitória."
+                      : "Partida encerrada. O placar final está registrado acima."
+                  }
+                  secondaryLine={null}
+                  tertiaryLine={null}
+                />
+              ) : null}
             </div>
           ) : null}
 
@@ -2106,7 +2281,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
               <div className="relative flex items-start justify-between gap-2 sm:gap-3">
                 <div>
                   <p className="pt-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-fuchsia-300/75 sm:pt-1 sm:text-[10px] sm:tracking-[0.35em]">
-                    {myQuizAnswered ? "Resposta travada" : "Pergunta da rodada"}
+                    {quizRevealBlocking
+                      ? "Resultado da rodada"
+                      : myQuizAnswered
+                        ? "Resposta travada"
+                        : "Pergunta da rodada"}
                   </p>
                   <p className="mt-1 hidden max-w-[11rem] text-xs text-white/55 sm:block sm:mt-2 sm:max-w-sm sm:text-sm">
                     Ponto só se um acertar e o outro errar. Se os dois acertarem ou os dois errarem, a rodada
@@ -2114,45 +2293,60 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   </p>
                   <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-2 py-1 text-[8px] font-bold uppercase tracking-[0.18em] text-white/60 sm:mt-3 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-[10px] sm:tracking-[0.28em]">
                     <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-300 shadow-[0_0_10px_rgba(244,114,182,0.75)]" />
-                    {myQuizAnswered ? "aguardando fechamento" : "escolha rapida"}
+                    {quizRevealBlocking
+                      ? "próxima automática"
+                      : myQuizAnswered
+                        ? "aguardando fechamento"
+                        : "escolha rapida"}
                   </div>
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <div
                     className={cn(
                       "relative flex h-[4rem] w-[4rem] shrink-0 items-center justify-center rounded-full border-[3px] bg-slate-950/95 sm:h-[5.5rem] sm:w-[5.5rem]",
-                      myQuizAnswered
-                        ? "border-cyan-400/55"
-                        : quizSecondsLeft <= 3
-                          ? "animate-arena-timer-urgent border-red-400/70"
-                          : quizSecondsLeft <= 6
-                            ? "border-amber-400/65"
-                            : "border-cyan-400/55",
+                      quizInterstitialReveal
+                        ? "border-emerald-400/55"
+                        : myQuizAnswered
+                          ? "border-cyan-400/55"
+                          : quizSecondsLeft <= 3
+                            ? "animate-arena-timer-urgent border-red-400/70"
+                            : quizSecondsLeft <= 6
+                              ? "border-amber-400/65"
+                              : "border-cyan-400/55",
                     )}
                     style={{
-                      background: `conic-gradient(${
-                        myQuizAnswered
-                          ? "rgb(34 211 238)"
-                          : quizSecondsLeft <= 3
-                            ? "rgb(248 113 113)"
-                            : quizSecondsLeft <= 6
-                              ? "rgb(251 191 36)"
-                              : "rgb(34 211 238)"
-                      } ${
-                        ((myQuizAnswered ? pvpChoiceSec.quiz : quizSecondsLeft) /
-                          Math.max(pvpChoiceSec.quiz, 1)) *
-                        360
-                      }deg, rgb(15 23 42 / 0.92) 0deg)`,
+                      background: quizInterstitialReveal
+                        ? "conic-gradient(rgb(52 211 153 / 0.55) 360deg, rgb(15 23 42 / 0.92) 0deg)"
+                        : `conic-gradient(${
+                            myQuizAnswered
+                              ? "rgb(34 211 238)"
+                              : quizSecondsLeft <= 3
+                                ? "rgb(248 113 113)"
+                                : quizSecondsLeft <= 6
+                                  ? "rgb(251 191 36)"
+                                  : "rgb(34 211 238)"
+                          } ${
+                            ((myQuizAnswered ? pvpChoiceSec.quiz : quizSecondsLeft) /
+                              Math.max(pvpChoiceSec.quiz, 1)) *
+                            360
+                          }deg, rgb(15 23 42 / 0.92) 0deg)`,
                     }}
                   >
                     <div className="absolute inset-1.5 flex flex-col items-center justify-center rounded-full bg-slate-950/95 ring-1 ring-white/10 sm:inset-2.5">
                       <span className="text-[8px] font-bold uppercase tracking-widest text-white/30">
-                        Tempo
+                        {quizInterstitialReveal ? "Rodada" : "Tempo"}
                       </span>
-                      <span className="font-mono text-xl font-black tabular-nums text-cyan-200 sm:text-3xl">
-                        {myQuizAnswered ? "OK" : quizSecondsLeft}
+                      <span
+                        className={cn(
+                          "font-mono text-xl font-black tabular-nums sm:text-3xl",
+                          quizInterstitialReveal ? "text-emerald-200" : "text-cyan-200",
+                        )}
+                      >
+                        {quizInterstitialReveal ? "OK" : myQuizAnswered ? "OK" : quizSecondsLeft}
                       </span>
-                      <span className="text-[9px] text-white/25">{myQuizAnswered ? "env." : "s"}</span>
+                      <span className="text-[9px] text-white/25">
+                        {quizInterstitialReveal ? "resolv." : myQuizAnswered ? "env." : "s"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -2191,67 +2385,100 @@ export function SalaClient({ roomId }: { roomId: string }) {
                       {oppQuizPts}
                     </span>
                     <span className="text-[9px] font-bold uppercase tracking-wide text-white/55 sm:text-[10px]">
-                      {oppQuizAnswered ? "Ja respondeu" : "Em espera"}
+                      {oppQuizStatusLabel}
                     </span>
                   </div>
                 </PptPlayCardFrame>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-sm font-bold text-white sm:px-4 sm:py-4 sm:text-base">
-                {quizQuestion || "Aguarde a próxima pergunta..."}
-              </div>
-
-              {quizRoundHint ? (
-                <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/10 px-3 py-2.5 text-sm text-fuchsia-100/90 sm:px-4">
-                  {quizRoundHint}
-                </div>
-              ) : null}
-
-              {quizLastRoundRevealBlock(room, isHost)}
-
-              {quizErr && !quizTimeoutAnswer ? (
-                <AlertBanner tone="error" className="text-sm">
-                  {quizErr}
-                </AlertBanner>
-              ) : null}
-              {quizTimeoutAnswer ? (
-                <p className="text-center text-[10px] font-bold uppercase tracking-widest text-amber-300/90">
-                  Tempo zerado: resposta automatica enviada
-                </p>
-              ) : null}
-
-              <div className="grid gap-2 sm:gap-3">
-                {quizOptions.map((option, index) => {
-                  const selected = quizSelected === index;
-                  return (
-                    <button
-                      key={`${room.quizQuestionId}-${index}`}
-                      type="button"
-                      disabled={quizSending || myQuizAnswered || matchDone}
-                      onClick={() => void submitQuiz(index)}
-                      className={cn(
-                        "group relative overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold transition-all duration-200 sm:rounded-[1.35rem] sm:px-5 sm:py-4",
-                        "bg-gradient-to-b from-white/[0.08] to-slate-950/90 text-white",
-                        "hover:-translate-y-0.5 hover:border-fuchsia-300/45 hover:shadow-[0_12px_30px_-16px_rgba(217,70,239,0.45)]",
-                        "disabled:pointer-events-none disabled:opacity-55",
-                        selected ? "border-fuchsia-300/60 bg-fuchsia-500/12" : "border-white/10",
+              <div className="space-y-4 border-t border-white/10 pt-3 sm:space-y-4 sm:pt-4">
+                {quizRevealBlocking ? (
+                  <div className="space-y-3 sm:space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-200/90">
+                        Rodada anterior
+                      </p>
+                      <p className="text-xs text-white/70 sm:text-sm">
+                        {room.quizLastRevealQuestionText?.trim() || "—"}
+                      </p>
+                      {quizRevealSameCardRows(
+                        room.quizLastRevealOptions!,
+                        interstitialRevealCorrectIndex!,
+                        typeof myLastQuizRoundPick === "number" ? myLastQuizRoundPick : null,
+                        quizYouWrongLastRound,
+                        `interstitial-${room.quizRound ?? 0}-${room.quizQuestionId ?? "q"}`,
                       )}
+                    </div>
+                    {quizRoundHint ? (
+                      <div className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-500/10 px-3 py-2 text-sm text-fuchsia-100/90">
+                        {quizRoundHint}
+                      </div>
+                    ) : null}
+                    <p className="text-center text-[10px] text-white/45">
+                      A próxima pergunta abre sozinha em poucos segundos. O tempo da rodada só conta depois disso.
+                    </p>
+                    <button
+                      type="button"
+                      className="mx-auto block text-center text-[10px] font-semibold uppercase tracking-widest text-fuchsia-300/80 underline decoration-fuchsia-400/40 underline-offset-2 hover:text-fuchsia-200"
+                      onClick={() => {
+                        if (quizRevealGateKey) setQuizRevealDismissedKey(quizRevealGateKey);
+                      }}
                     >
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-fuchsia-500/6 via-transparent to-cyan-500/6 opacity-80" />
-                      <span className="relative mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/20 text-[11px] font-black">
-                        {String.fromCharCode(65 + index)}
-                      </span>
-                      <span className="relative">{option}</span>
+                      Avançar agora
                     </button>
-                  );
-                })}
-              </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm font-bold leading-snug text-white sm:text-base">
+                      {quizQuestion || "Aguarde a próxima pergunta..."}
+                    </p>
 
-              {myQuizAnswered ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-white/65">
-                  Resposta travada. Aguarde o servidor resolver a rodada e liberar a próxima pergunta.
-                </div>
-              ) : null}
+                    {quizErr && !quizTimeoutAnswer ? (
+                      <AlertBanner tone="error" className="mt-3 text-sm">
+                        {quizErr}
+                      </AlertBanner>
+                    ) : null}
+                    {quizTimeoutAnswer ? (
+                      <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-widest text-amber-300/90">
+                        Tempo zerado: resposta automatica enviada
+                      </p>
+                    ) : null}
+
+                    <div className="mt-3 grid gap-2 sm:mt-4 sm:gap-3">
+                      {quizOptions.map((option, index) => {
+                        const selected = quizSelected === index;
+                        return (
+                          <button
+                            key={`${room.quizQuestionId}-${index}`}
+                            type="button"
+                            disabled={quizSending || myQuizAnswered || matchDone}
+                            onClick={() => void submitQuiz(index)}
+                            className={cn(
+                              "group relative overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold transition-all duration-200 sm:rounded-[1.35rem] sm:px-5 sm:py-4",
+                              "bg-gradient-to-b from-white/[0.08] to-slate-950/90 text-white",
+                              "hover:-translate-y-0.5 hover:border-fuchsia-300/45 hover:shadow-[0_12px_30px_-16px_rgba(217,70,239,0.45)]",
+                              "disabled:pointer-events-none disabled:opacity-55",
+                              selected ? "border-fuchsia-300/60 bg-fuchsia-500/12" : "border-white/10",
+                            )}
+                          >
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-fuchsia-500/6 via-transparent to-cyan-500/6 opacity-80" />
+                            <span className="relative mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/20 text-[11px] font-black">
+                              {String.fromCharCode(65 + index)}
+                            </span>
+                            <span className="relative">{option}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {myQuizAnswered ? (
+                      <p className="mt-3 border-t border-white/10 pt-3 text-center text-xs text-white/55 sm:mt-4 sm:pt-4">
+                        Resposta travada. Aguarde o servidor resolver a rodada e liberar a próxima pergunta.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </section>
           ) : null}
 

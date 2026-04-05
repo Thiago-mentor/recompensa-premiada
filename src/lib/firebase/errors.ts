@@ -20,6 +20,7 @@ export function formatFirebaseError(e: unknown): string {
             `Deixe um terminal aberto na pasta recompensa-premiada com: npm run emulators — espere listar Functions em ${firebaseEmulatorHost}:${firebaseEmulatorPorts.functions} e a UI em http://127.0.0.1:4000.`,
             "Em outro terminal: npm run dev. Confirme NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true e reinicie o dev server após alterar o .env.",
             "Se o build das functions falhar no início do emulators, corrija os erros do TypeScript em functions/ antes de testar a fila.",
+            "Se o terminal mostrar port taken em 9099/8080/9199/5001, já existe outro `npm run emulators` (ou processo) usando a porta — feche essa janela ou mate o PID (PowerShell: netstat -ano | findstr :9099).",
           ].join(" ");
         }
         return [
