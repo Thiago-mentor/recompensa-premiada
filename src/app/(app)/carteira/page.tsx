@@ -64,7 +64,7 @@ export default function CarteiraPage() {
       setConvertMsg(
         direction === "coins_to_gems"
           ? `Você comprou ${n} gem(s).`
-          : `Você trocou ${n} gem(s) por moedas.`,
+          : `Você trocou ${n} gem(s) por PR.`,
       );
       await refreshProfile();
       loadRates();
@@ -79,7 +79,7 @@ export default function CarteiraPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-white">Carteira</h1>
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Moedas" value={profile ? String(profile.coins) : "—"} icon={Coins} />
+        <StatCard label="PR" value={profile ? String(profile.coins) : "—"} icon={Coins} />
         <StatCard label="Gems" value={profile ? String(profile.gems) : "—"} icon={Gem} />
         <StatCard
           className="col-span-2"
@@ -91,7 +91,7 @@ export default function CarteiraPage() {
 
       <section className="space-y-3 rounded-2xl border border-violet-400/25 bg-gradient-to-b from-violet-950/40 to-slate-950/90 p-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Converter moedas e gems</h2>
+          <h2 className="text-lg font-semibold text-white">Converter PR e gems</h2>
           <p className="mt-1 text-xs text-white/55">
             Taxas definidas na economia do app. A conversão é feita no servidor; cada troca gera linhas no
             extrato (tipo &quot;Conversão&quot;).
@@ -109,11 +109,11 @@ export default function CarteiraPage() {
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-cyan-400/20 bg-black/25 p-3">
-            <p className="text-xs font-bold uppercase tracking-widest text-cyan-200/80">Moedas → gems</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-cyan-200/80">PR → gems</p>
             <p className="mt-1 text-sm text-white/60">
               Custo:{" "}
               <span className="font-semibold text-white">
-                {rates?.coinsPerGemBuy ?? "…"} moedas / gem
+                {rates?.coinsPerGemBuy ?? "…"} PR / gem
               </span>
             </p>
             <label className="mt-3 block text-xs text-white/45" htmlFor="gems-to-buy">
@@ -138,17 +138,17 @@ export default function CarteiraPage() {
             </Button>
           </div>
           <div className="rounded-xl border border-fuchsia-400/20 bg-black/25 p-3">
-            <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200/80">Gems → moedas</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200/80">Gems → PR</p>
             {rates && rates.coinsPerGemSell < 1 ? (
               <p className="mt-2 text-sm text-amber-200/90">
-                Troca de gems por moedas está desligada no painel admin (taxa = 0).
+                Troca de gems por PR está desligada no painel admin (taxa = 0).
               </p>
             ) : (
               <>
                 <p className="mt-1 text-sm text-white/60">
                   Você recebe:{" "}
                   <span className="font-semibold text-white">
-                    {rates?.coinsPerGemSell ?? "…"} moedas / gem
+                    {rates?.coinsPerGemSell ?? "…"} PR / gem
                   </span>
                 </p>
                 <label className="mt-3 block text-xs text-white/45" htmlFor="gems-to-sell">

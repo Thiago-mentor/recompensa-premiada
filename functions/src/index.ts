@@ -365,9 +365,9 @@ async function getEconomy() {
     matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
     streakTable: normalizeStreakTable(d.streakTable),
     pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
-    /** Moedas por gem ao comprar gems com moedas (mín. 1). */
+    /** PR por gem ao comprar gems com PR (mín. 1). */
     conversionCoinsPerGemBuy: Number.isFinite(rawBuy) && rawBuy >= 1 ? rawBuy : 500,
-    /** Moedas por gem ao vender gems; 0 = desligado. */
+    /** PR por gem ao vender gems; 0 = desligado. */
     conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
   };
 }
@@ -2185,7 +2185,7 @@ async function bumpWatchAdMissions(uid: string) {
 }
 
 /**
- * Recompensa por anúncio: moedas (placement padrão) ou +3 duelos PvP específicos.
+ * Recompensa por anúncio: PR (placement padrão) ou +3 duelos PvP específicos.
  * Limite diário compartilhado; só o servidor altera saldos / duelos.
  */
 export const processRewardedAd = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -2701,7 +2701,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       if (!Number.isSafeInteger(cost) || cost < 1) {
         throw new HttpsError("failed-precondition", "Taxa de conversão inválida.");
       }
-      if (coins < cost) throw new HttpsError("failed-precondition", "Moedas insuficientes.");
+      if (coins < cost) throw new HttpsError("failed-precondition", "PR insuficientes.");
       const newCoins = coins - cost;
       const newGems = gems + amount;
       tx.update(userRef, {
@@ -2721,7 +2721,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
     if (coinsPerGemSell < 1) {
       throw new HttpsError(
         "failed-precondition",
-        "Conversão de gems para moedas está desativada (ajuste conversionCoinsPerGemSell na economia).",
+        "Conversão de gems para PR está desativada (ajuste conversionCoinsPerGemSell na economia).",
       );
     }
     const payout = amount * coinsPerGemSell;
@@ -2752,7 +2752,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       moeda: "coins",
       valor: -out.cost,
       saldoApos: out.newCoins,
-      descricao: `Conversão: ${out.cost} moedas → ${out.gemsBought} gem(s)`,
+      descricao: `Conversão: ${out.cost} PR → ${out.gemsBought} gem(s)`,
     });
     await addWalletTx({
       userId: uid,
@@ -2769,7 +2769,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       moeda: "gems",
       valor: -out.gemsSold,
       saldoApos: out.newGems,
-      descricao: `Conversão: ${out.gemsSold} gem(s) → ${out.payout} moedas`,
+      descricao: `Conversão: ${out.gemsSold} gem(s) → ${out.payout} PR`,
     });
     await addWalletTx({
       userId: uid,
@@ -2777,7 +2777,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       moeda: "coins",
       valor: out.payout,
       saldoApos: out.newCoins,
-      descricao: `Conversão: +${out.payout} moedas`,
+      descricao: `Conversão: +${out.payout} PR`,
     });
   }
 

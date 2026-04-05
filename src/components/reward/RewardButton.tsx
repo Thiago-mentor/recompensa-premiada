@@ -16,7 +16,7 @@ export function RewardButton({
       disabled={loading}
     >
       <Play className="h-5 w-5" />
-      {loading ? "Carregando anúncio…" : "Assistir anúncio e ganhar moedas"}
+      {loading ? "Carregando anúncio…" : "Assistir anúncio e ganhar PR"}
     </Button>
   );
 }

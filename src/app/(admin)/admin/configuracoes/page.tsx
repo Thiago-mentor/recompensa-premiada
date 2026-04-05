@@ -133,10 +133,10 @@ export default function AdminConfigPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
           <h2 className="text-lg font-semibold text-white">Recompensas e limites</h2>
-          <Field label="Moedas por anúncio" value={rewardAd} onChange={setRewardAd} />
+          <Field label="PR por anúncio" value={rewardAd} onChange={setRewardAd} />
           <Field label="Bônus login diário" value={dailyBonus} onChange={setDailyBonus} />
           <Field label="Limite diário de ads" value={limiteAds} onChange={setLimiteAds} />
-          <Field label="Limite diário de coins" value={limiteCoins} onChange={setLimiteCoins} />
+          <Field label="Limite diário de PR" value={limiteCoins} onChange={setLimiteCoins} />
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
@@ -158,7 +158,7 @@ export default function AdminConfigPage() {
             <p className="mt-1 max-w-2xl text-xs text-slate-400">
               A recompensa do dia usa o marco cujo <strong>dia</strong> coincide com a sequência atual
               (ex.: no 7º dia seguido aplica a linha &quot;7&quot;). Nos outros dias vale o campo{" "}
-              <strong>Bônus login diário</strong> (só moedas).
+              <strong>Bônus login diário</strong> (só PR).
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -205,7 +205,7 @@ export default function AdminConfigPage() {
                   }}
                 />
                 <Field
-                  label="Coins"
+                  label="PR"
                   value={String(row.coins)}
                   onChange={(v) => {
                     const n = Math.max(0, Math.floor(Number(v)) || 0);
@@ -254,20 +254,20 @@ export default function AdminConfigPage() {
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-        <h2 className="text-lg font-semibold text-white">Conversão moedas ↔ gems (carteira)</h2>
+        <h2 className="text-lg font-semibold text-white">Conversão PR ↔ gems (carteira)</h2>
         <p className="text-xs text-slate-400">
-          <strong className="text-white">Comprar gems:</strong> quanto o jogador paga em moedas por cada gem.{" "}
-          <strong className="text-white">Vender gems:</strong> quantas moedas ele recebe por gem; use{" "}
-          <strong className="text-white">0</strong> para desativar a troca gems → moedas.
+          <strong className="text-white">Comprar gems:</strong> quanto o jogador paga em PR por cada gem.{" "}
+          <strong className="text-white">Vender gems:</strong> quanto PR ele recebe por gem; use{" "}
+          <strong className="text-white">0</strong> para desativar a troca gems → PR.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            label="Moedas cobradas por gem (compra)"
+            label="PR cobrados por gem (compra)"
             value={convBuy}
             onChange={setConvBuy}
           />
           <Field
-            label="Moedas pagas por gem (venda; 0 = off)"
+            label="PR pagos por gem (venda; 0 = off)"
             value={convSell}
             onChange={setConvSell}
           />

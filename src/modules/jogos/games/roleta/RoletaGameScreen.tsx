@@ -41,7 +41,7 @@ export function RoletaGameScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-white">Roleta de coins</h1>
+        <h1 className="text-xl font-bold text-white">Roleta de PR</h1>
         <p className="text-sm text-white/55">
           A animação é só visual — o valor real vem da Cloud Function.
         </p>

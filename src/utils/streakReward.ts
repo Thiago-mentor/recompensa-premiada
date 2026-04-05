@@ -58,7 +58,7 @@ export function formatStreakRewardShort(r: {
   tipoBonus: StreakRewardTier["tipoBonus"];
 }): string {
   const bits: string[] = [];
-  if (r.coins > 0) bits.push(`+${r.coins} coins`);
+  if (r.coins > 0) bits.push(`+${r.coins} PR`);
   if (r.gems > 0) bits.push(`+${r.gems} gems`);
   if (r.tipoBonus === "bau") bits.push("baú");
   if (r.tipoBonus === "especial") bits.push("especial");

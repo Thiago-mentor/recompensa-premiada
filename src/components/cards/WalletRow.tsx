@@ -1,4 +1,10 @@
-import type { WalletTransaction } from "@/types/wallet";
+import type { WalletCurrency, WalletTransaction } from "@/types/wallet";
+
+const moedaDisplay: Record<WalletCurrency, string> = {
+  coins: "PR",
+  gems: "gems",
+  rewardBalance: "prêmio",
+};
 import { cn } from "@/lib/utils/cn";
 
 const tipoLabel: Record<WalletTransaction["tipo"], string> = {
@@ -23,7 +29,7 @@ export function WalletRow({ tx }: { tx: WalletTransaction }) {
       <div className="min-w-0">
         <p className="font-medium text-white truncate">{tx.descricao}</p>
         <p className="text-xs text-white/50">
-          {tipoLabel[tx.tipo]} · {tx.moeda}
+          {tipoLabel[tx.tipo]} · {moedaDisplay[tx.moeda] ?? tx.moeda}
         </p>
       </div>
       <span

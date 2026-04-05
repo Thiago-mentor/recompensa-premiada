@@ -122,7 +122,7 @@ export default function HomePage() {
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard
-          label="Moedas"
+          label="PR"
           value={profile ? String(profile.coins) : "—"}
           icon={Coins}
         />
@@ -271,7 +271,7 @@ export default function HomePage() {
           <GameCard
             href={`${ROUTES.jogos}/roleta`}
             title="Roleta"
-            subtitle="Prêmios em coins"
+            subtitle="Prêmios em PR"
             className="h-full justify-center"
           />
         </motion.div>

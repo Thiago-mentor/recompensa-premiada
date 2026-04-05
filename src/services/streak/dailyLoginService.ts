@@ -21,7 +21,7 @@ function formatDailyLoginSuccess(d: {
   tipoBonus?: string;
 }): string {
   const parts: string[] = [];
-  if (d.coins > 0) parts.push(`+${d.coins} coins`);
+  if (d.coins > 0) parts.push(`+${d.coins} PR`);
   if (d.gems && d.gems > 0) parts.push(`+${d.gems} gems`);
   if (d.tipoBonus === "bau") parts.push("Marco: baú especial");
   if (d.tipoBonus === "especial") parts.push("Marco: bônus especial");

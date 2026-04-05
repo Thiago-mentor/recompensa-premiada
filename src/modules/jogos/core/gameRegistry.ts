@@ -45,7 +45,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
   {
     id: "roleta",
     slug: "roleta",
-    title: "Roleta de coins",
+    title: "Roleta de PR",
     subtitle: "Prêmio definido no servidor · tabela ponderada",
     href: `${ROUTES.jogos}/roleta`,
     cooldownSec: GAME_COOLDOWN_SEC.roleta,

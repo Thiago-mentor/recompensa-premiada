@@ -506,7 +506,7 @@ function ResultSummaryPanel({
               ) : null}
               {rewardCoins != null ? (
                 <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/85 shadow-[0_0_18px_-8px_rgba(251,191,36,0.55)]">
-                  +{rewardCoins} moedas
+                  +{rewardCoins} PR
                 </span>
               ) : null}
             </div>
@@ -1770,7 +1770,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                       +{rewardSummary.ranking} ranking
                     </span>
                     <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[0.18em] text-amber-100/80 sm:px-2 sm:text-[8px] sm:tracking-[0.25em]">
-                      +{rewardSummary.coins} moedas
+                      +{rewardSummary.coins} PR
                     </span>
                   </div>
                 ) : (
@@ -1793,7 +1793,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     +{rewardSummary.ranking} ranking
                   </span>
                   <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-2 py-1 text-[8px] font-bold uppercase tracking-[0.16em] text-amber-100/80">
-                    +{rewardSummary.coins} moedas
+                    +{rewardSummary.coins} PR
                   </span>
                 </div>
               ) : (

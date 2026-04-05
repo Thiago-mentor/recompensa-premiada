@@ -77,7 +77,7 @@ export function MatchHistoryList({ className }: { className?: string }) {
               </span>
               <span className="w-full text-[11px] text-white/45 sm:w-auto sm:text-right">
                 score {m.score}
-                {m.rewardCoins != null ? ` · +${m.rewardCoins} coins` : ""}
+                {m.rewardCoins != null ? ` · +${m.rewardCoins} PR` : ""}
               </span>
             </motion.li>
           ))}

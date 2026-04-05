@@ -117,7 +117,7 @@ export async function runRewardedAdFlow(): Promise<{
   return {
     ok: true,
     coins: server.coins,
-    message: `+${server.coins ?? 0} moedas creditadas!`,
+    message: `+${server.coins ?? 0} PR creditados!`,
   };
 }
 

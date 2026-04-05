@@ -45,7 +45,7 @@ export function useGameMatchFlow() {
           error: null,
         });
         if ((r.rewardCoins ?? 0) > 0) {
-          setToast({ message: `+${r.rewardCoins} coins creditados` });
+          setToast({ message: `+${r.rewardCoins} PR creditados` });
         }
       } else {
         setModal({

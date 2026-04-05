@@ -108,7 +108,7 @@ export default function AdminJogosPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Recompensas por jogo</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Configure overrides de moedas e ranking por resultado. Se deixar um campo vazio, o jogo
+          Configure overrides de PR e ranking por resultado. Se deixar um campo vazio, o jogo
           continua usando o cálculo padrão atual.
         </p>
       </div>
@@ -128,7 +128,7 @@ export default function AdminJogosPage() {
 
             <div className="grid gap-3">
               <SmallField
-                label="Vitória · moedas"
+                label="Vitória · PR"
                 value={form[game.id].winCoins}
                 onChange={(value) => updateField(game.id, "winCoins", value)}
               />
@@ -138,7 +138,7 @@ export default function AdminJogosPage() {
                 onChange={(value) => updateField(game.id, "winRankingPoints", value)}
               />
               <SmallField
-                label="Empate · moedas"
+                label="Empate · PR"
                 value={form[game.id].drawCoins}
                 onChange={(value) => updateField(game.id, "drawCoins", value)}
               />
@@ -148,7 +148,7 @@ export default function AdminJogosPage() {
                 onChange={(value) => updateField(game.id, "drawRankingPoints", value)}
               />
               <SmallField
-                label="Derrota · moedas"
+                label="Derrota · PR"
                 value={form[game.id].lossCoins}
                 onChange={(value) => updateField(game.id, "lossCoins", value)}
               />
