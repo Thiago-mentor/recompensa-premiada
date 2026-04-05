@@ -16,7 +16,6 @@ export { RewardToast } from "./components/RewardToast";
 export { CooldownTimer } from "./components/CooldownTimer";
 export { MatchHistoryList } from "./components/MatchHistoryList";
 export { PptGameScreen } from "./games/ppt/PptGameScreen";
-export { QuizGameScreen } from "./games/quiz/QuizGameScreen";
 export { ReactionGameScreen } from "./games/reaction/ReactionGameScreen";
 export { RoletaGameScreen } from "./games/roleta/RoletaGameScreen";
 export { BauGameScreen } from "./games/bau/BauGameScreen";

@@ -62,6 +62,9 @@ export interface GameRoomDocument {
   quizLastHostResponseMs?: number | null;
   quizLastGuestResponseMs?: number | null;
   quizLastRoundWinner?: "host" | "guest" | "draw";
+  /** Rodada recém-resolvida: opções e índice correto (para exibir a resposta certa em verde). */
+  quizLastRevealOptions?: string[];
+  quizLastRevealCorrectIndex?: number;
   quizMatchWinner?: "host" | "guest";
   quizOutcome?: "host_win" | "guest_win" | "draw";
   quizRewardsApplied?: boolean;

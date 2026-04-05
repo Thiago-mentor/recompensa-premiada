@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import type { StreakRewardTier, SystemEconomyConfig } from "@/types/systemConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
+import { clampPvpChoiceSeconds, parsePvpChoiceSeconds } from "@/lib/games/pvpTiming";
 
 const ECONOMY_ID = "economy";
 
@@ -29,6 +30,9 @@ export default function AdminConfigPage() {
   const [pptEntryCost, setPptEntryCost] = useState("0");
   const [quizEntryCost, setQuizEntryCost] = useState("0");
   const [reactionEntryCost, setReactionEntryCost] = useState("0");
+  const [pvpSecPpt, setPvpSecPpt] = useState("10");
+  const [pvpSecQuiz, setPvpSecQuiz] = useState("10");
+  const [pvpSecReaction, setPvpSecReaction] = useState("10");
   const [streakRows, setStreakRows] = useState<StreakRewardTier[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -52,6 +56,10 @@ export default function AdminConfigPage() {
         if (typeof d.gameEntryCost?.reaction_tap === "number") {
           setReactionEntryCost(String(d.gameEntryCost.reaction_tap));
         }
+        const pcs = parsePvpChoiceSeconds(d.pvpChoiceSeconds);
+        setPvpSecPpt(String(pcs.ppt));
+        setPvpSecQuiz(String(pcs.quiz));
+        setPvpSecReaction(String(pcs.reaction_tap));
         setStreakRows(normalizeStreakTable(d.streakTable));
       } catch {
         /* ignore */
@@ -81,6 +89,11 @@ export default function AdminConfigPage() {
             ppt: Number(pptEntryCost),
             quiz: Number(quizEntryCost),
             reaction_tap: Number(reactionEntryCost),
+          },
+          pvpChoiceSeconds: {
+            ppt: clampPvpChoiceSeconds(pvpSecPpt, 10),
+            quiz: clampPvpChoiceSeconds(pvpSecQuiz, 10),
+            reaction_tap: clampPvpChoiceSeconds(pvpSecReaction, 10),
           },
           streakTable: streakRows
             .map((r) => ({
@@ -238,6 +251,24 @@ export default function AdminConfigPage() {
           <Field label="PPT" value={pptEntryCost} onChange={setPptEntryCost} />
           <Field label="Quiz" value={quizEntryCost} onChange={setQuizEntryCost} />
           <Field label="Reaction" value={reactionEntryCost} onChange={setReactionEntryCost} />
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-amber-400/20 bg-amber-950/20 p-4">
+        <h2 className="text-lg font-semibold text-white">Tempo para responder (PvP)</h2>
+        <p className="text-xs text-slate-400">
+          Janela em segundos para cada jogador enviar jogada ou resposta. O servidor usa o mesmo valor no
+          prazo da rodada (entre <strong className="text-white">3</strong> e{" "}
+          <strong className="text-white">120</strong> s). Salve após alterar.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field
+            label="PPT (pedra/papel/tesoura)"
+            value={pvpSecPpt}
+            onChange={setPvpSecPpt}
+          />
+          <Field label="Quiz 1v1" value={pvpSecQuiz} onChange={setPvpSecQuiz} />
+          <Field label="Reaction tap" value={pvpSecReaction} onChange={setPvpSecReaction} />
         </div>
       </section>
 

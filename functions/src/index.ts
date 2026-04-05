@@ -53,13 +53,52 @@ const PPT_MATCH_TARGET_POINTS = 5;
 const QUIZ_MATCH_TARGET_POINTS = 5;
 const REACTION_MATCH_TARGET_POINTS = 5;
 const QUIZ_RESPONSE_MS_CAP = 30_000;
-const QUIZ_FAST_ANSWER_TIE_MS = 120;
+
+const DEFAULT_PVP_CHOICE_SEC = { ppt: 10, quiz: 10, reaction_tap: 10 } as const;
+
+function clampPvpChoiceSec(raw: unknown, fallback: number): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(120, Math.max(3, n));
+}
+
+function parsePvpChoiceSecondsFromDoc(d: Record<string, unknown>): {
+  ppt: number;
+  quiz: number;
+  reaction_tap: number;
+} {
+  const pcs = d.pvpChoiceSeconds;
+  const o = pcs && typeof pcs === "object" ? (pcs as Record<string, unknown>) : {};
+  return {
+    ppt: clampPvpChoiceSec(o.ppt, DEFAULT_PVP_CHOICE_SEC.ppt),
+    quiz: clampPvpChoiceSec(o.quiz, DEFAULT_PVP_CHOICE_SEC.quiz),
+    reaction_tap: clampPvpChoiceSec(o.reaction_tap, DEFAULT_PVP_CHOICE_SEC.reaction_tap),
+  };
+}
+
+function pvpChoiceWindowMs(
+  secs: { ppt: number; quiz: number; reaction_tap: number },
+  gameId: GameId,
+): number {
+  const s =
+    gameId === "ppt"
+      ? secs.ppt
+      : gameId === "quiz"
+        ? secs.quiz
+        : gameId === "reaction_tap"
+          ? secs.reaction_tap
+          : secs.ppt;
+  return s * 1000;
+}
+
+function pvpActionDeadlineTs(fromMs: number, windowMs: number): Timestamp {
+  return Timestamp.fromMillis(fromMs + windowMs);
+}
 const REACTION_WAIT_MIN_MS = 1800;
 const REACTION_WAIT_MAX_MS = 3400;
 const REACTION_RESPONSE_MS_CAP = 9999;
 const REACTION_FALSE_START_MS = 9999;
 const REACTION_TIE_MS = 18;
-const PVP_ACTION_WINDOW_MS = 10_000;
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -302,7 +341,7 @@ async function assertAdmin(uid: string) {
 
 async function getEconomy() {
   const snap = await db.doc(`${COL.systemConfigs}/economy`).get();
-  const d = snap.data() || {};
+  const d = (snap.data() || {}) as Record<string, unknown>;
   const rawOverrides =
     d.matchRewardOverrides && typeof d.matchRewardOverrides === "object"
       ? (d.matchRewardOverrides as Record<string, Record<string, unknown>>)
@@ -318,6 +357,7 @@ async function getEconomy() {
       typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
     matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
     streakTable: normalizeStreakTable(d.streakTable),
+    pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
   };
 }
 
@@ -527,10 +567,6 @@ function millisFromFirestoreTime(v: unknown): number {
   return 0;
 }
 
-function nextPvpActionDeadline(fromMs = Date.now()): Timestamp {
-  return Timestamp.fromMillis(fromMs + PVP_ACTION_WINDOW_MS);
-}
-
 function losingHandAgainst(winnerHand: string): "pedra" | "papel" | "tesoura" {
   if (winnerHand === "pedra") return "tesoura";
   if (winnerHand === "papel") return "pedra";
@@ -595,18 +631,16 @@ function clampQuizResponseMs(raw: unknown): number {
   return Math.max(0, Math.min(QUIZ_RESPONSE_MS_CAP, Math.floor(ms)));
 }
 
+/** Ponto só se um acerta e o outro erra. Ambos certos ou ambos errados → empate (sem desempate por tempo). */
 function resolveQuizRoundWinner(
   hostCorrect: boolean,
   guestCorrect: boolean,
-  hostResponseMs: number,
-  guestResponseMs: number,
+  _hostResponseMs: number,
+  _guestResponseMs: number,
 ): "host" | "guest" | "draw" {
   if (hostCorrect && !guestCorrect) return "host";
-  if (guestCorrect && !hostCorrect) return "guest";
-  if (!hostCorrect && !guestCorrect) return "draw";
-  const diff = hostResponseMs - guestResponseMs;
-  if (Math.abs(diff) <= QUIZ_FAST_ANSWER_TIE_MS) return "draw";
-  return diff < 0 ? "host" : "guest";
+  if (!hostCorrect && guestCorrect) return "guest";
+  return "draw";
 }
 
 async function postQuizMatchRankingFromWinner(
@@ -734,6 +768,8 @@ async function applyQuizMatchCompletionInTransaction(
   guestCorrect: boolean,
   hostResponseMs: number,
   guestResponseMs: number,
+  quizRevealOptions: string[],
+  quizRevealCorrectIndex: number,
 ) {
   const hostUid = String(r.hostUid);
   const guestUid = String(r.guestUid);
@@ -881,6 +917,8 @@ async function applyQuizMatchCompletionInTransaction(
     quizLastHostResponseMs: hostResponseMs,
     quizLastGuestResponseMs: guestResponseMs,
     quizLastRoundWinner: matchWinner,
+    quizLastRevealOptions: quizRevealOptions,
+    quizLastRevealCorrectIndex: quizRevealCorrectIndex,
     quizMatchWinner: matchWinner,
     quizOutcome: outcome,
     quizRewardsApplied: true,
@@ -1094,6 +1132,7 @@ async function applyReactionMatchCompletionInTransaction(
   hostFalseStart: boolean,
   guestFalseStart: boolean,
   winner: "host" | "guest" | "draw",
+  reactionWindowMs: number,
 ) {
   const hostUid = String(r.hostUid);
   const guestUid = String(r.guestUid);
@@ -1121,7 +1160,7 @@ async function applyReactionMatchCompletionInTransaction(
       reactionGoLiveAt: nextGoLiveAt,
       reactionAnsweredUids: [],
       timeoutEmptyRounds: 0,
-      actionDeadlineAt: nextPvpActionDeadline(nextGoLiveAt.toMillis()),
+      actionDeadlineAt: pvpActionDeadlineTs(nextGoLiveAt.toMillis(), reactionWindowMs),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
     return {
@@ -1336,6 +1375,8 @@ async function applyReactionForfeitInTransaction(
   const guestMs = winner === "guest" ? 1 : REACTION_FALSE_START_MS;
   const hostFalseStart = forfeitedByUid === hostUid;
   const guestFalseStart = forfeitedByUid === guestUid;
+  const econForfeitReaction = await getEconomy();
+  const reactionWinMsForfeit = pvpChoiceWindowMs(econForfeitReaction.pvpChoiceSeconds, "reaction_tap");
   const out = await applyReactionMatchCompletionInTransaction(
     tx,
     roomRef,
@@ -1362,6 +1403,7 @@ async function applyReactionForfeitInTransaction(
     hostFalseStart,
     guestFalseStart,
     winner,
+    reactionWinMsForfeit,
   );
   return { ...out, winner, hostMs, guestMs };
 }
@@ -1699,6 +1741,7 @@ async function applyPptRoundResultInTransaction(
   hostHand: string,
   guestHand: string,
   out: "host_win" | "guest_win" | "draw",
+  pptWindowMs: number,
   pickRefs?: { hostRef: DocumentReference; guestRef: DocumentReference },
 ): Promise<"round" | "match"> {
   const hostUid = String(r.hostUid);
@@ -1723,7 +1766,7 @@ async function applyPptRoundResultInTransaction(
       pptRoundStartedAt: FieldValue.serverTimestamp(),
       pptConsecutiveEmptyRounds: 0,
       timeoutEmptyRounds: 0,
-      actionDeadlineAt: nextPvpActionDeadline(),
+      actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptWindowMs),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
     return "round";
@@ -1749,7 +1792,7 @@ async function applyPptRoundResultInTransaction(
       pptRoundStartedAt: FieldValue.serverTimestamp(),
       pptConsecutiveEmptyRounds: 0,
       timeoutEmptyRounds: 0,
-      actionDeadlineAt: nextPvpActionDeadline(),
+      actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptWindowMs),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
     return "round";
@@ -2804,6 +2847,11 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
   const partnerId = partnerDoc.id;
   const roomRef = db.collection(COL.gameRooms).doc();
 
+  const econMatch = await getEconomy();
+  const pptMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "ppt");
+  const quizMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "quiz");
+  const reactionMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "reaction_tap");
+
   try {
     const result = await db.runTransaction(async (tx) => {
       const selfW = coll.doc(uid);
@@ -2951,8 +2999,11 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
       const reactionGoLiveAt = gameId === "reaction_tap" ? nextReactionGoLiveAt() : null;
       const initialActionDeadlineAt =
         gameId === "reaction_tap" && reactionGoLiveAt
-          ? nextPvpActionDeadline(reactionGoLiveAt.toMillis())
-          : nextPvpActionDeadline();
+          ? pvpActionDeadlineTs(reactionGoLiveAt.toMillis(), reactionMatchWinMs)
+          : pvpActionDeadlineTs(
+              Date.now(),
+              gameId === "ppt" ? pptMatchWinMs : gameId === "quiz" ? quizMatchWinMs : reactionMatchWinMs,
+            );
       tx.set(roomRef, {
         id: roomRef.id,
         gameId,
@@ -3234,6 +3285,9 @@ export const submitPptPick = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
     throw new HttpsError("permission-denied", "Conta suspensa.");
   }
 
+  const econPpt = await getEconomy();
+  const pptPickWindowMs = pvpChoiceWindowMs(econPpt.pvpChoiceSeconds, "ppt");
+
   /**
    * Uma única transação: grava a jogada do caller e, se o oponente já tiver jogado, resolve a rodada.
    * Evita corrida entre dois submits quase simultâneos (pick órfão + "já escolheu" para sempre).
@@ -3311,7 +3365,7 @@ export const submitPptPick = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
     const hostHand = uid === hostUid ? hand : String(hPSnap.data()?.hand ?? "");
     const guestHand = uid === guestUid ? hand : String(gPSnap.data()?.hand ?? "");
     const out = pptOutcomeFromHands(hostHand, guestHand);
-    return applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, {
+    return applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, pptPickWindowMs, {
       hostRef: hPref,
       guestRef: gPref,
     });
@@ -3443,6 +3497,9 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
   const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
   const answersColl = roomRef.collection("quiz_answers");
 
+  const econQuizSubmit = await getEconomy();
+  const quizSubmitWindowMs = pvpChoiceWindowMs(econQuizSubmit.pvpChoiceSeconds, "quiz");
+
   const result = await db.runTransaction(async (tx) => {
     const roomSnap = await tx.get(roomRef);
     if (!roomSnap.exists) {
@@ -3545,6 +3602,8 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
         guestCorrect,
         hostResponse,
         guestResponse,
+        question.options,
+        question.correctIndex,
       );
       return {
         status: "completed" as const,
@@ -3580,8 +3639,10 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
       quizLastHostResponseMs: hostResponse,
       quizLastGuestResponseMs: guestResponse,
       quizLastRoundWinner: roundWinner,
+      quizLastRevealOptions: question.options,
+      quizLastRevealCorrectIndex: question.correctIndex,
       timeoutEmptyRounds: 0,
-      actionDeadlineAt: nextPvpActionDeadline(),
+      actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizSubmitWindowMs),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
 
@@ -3627,6 +3688,9 @@ export const submitReactionTap = onCall(MULTIPLAYER_CALLABLE_OPTS, async (reques
 
   const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
   const resultsColl = roomRef.collection("reaction_results");
+
+  const econReactionSubmit = await getEconomy();
+  const reactionSubmitWindowMs = pvpChoiceWindowMs(econReactionSubmit.pvpChoiceSeconds, "reaction_tap");
 
   const result = await db.runTransaction(async (tx) => {
     const roomSnap = await tx.get(roomRef);
@@ -3715,6 +3779,7 @@ export const submitReactionTap = onCall(MULTIPLAYER_CALLABLE_OPTS, async (reques
       hostFalseStart,
       guestFalseStart,
       winner,
+      reactionSubmitWindowMs,
     );
     tx.delete(otherResultRef);
     return out.completed
@@ -3845,6 +3910,11 @@ export const forfeitPvpRoom = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) 
 });
 
 async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string, actorUid?: string) {
+  const econTimeout = await getEconomy();
+  const pptTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "ppt");
+  const quizTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "quiz");
+  const reactionTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "reaction_tap");
+
   const result = await db.runTransaction(async (tx) => {
     const rs = await tx.get(roomRef);
     if (!rs.exists) {
@@ -3905,7 +3975,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           pptRoundStartedAt: FieldValue.serverTimestamp(),
           pptConsecutiveEmptyRounds: strikes + 1,
           timeoutEmptyRounds: strikes + 1,
-          actionDeadlineAt: nextPvpActionDeadline(),
+          actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptTimeoutMs),
           atualizadoEm: FieldValue.serverTimestamp(),
         });
         return { kind: "ppt_round" as const };
@@ -3917,10 +3987,20 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         ? String(guestPickSnap.data()?.hand || "")
         : losingHandAgainst(String(hostPickSnap.data()?.hand || "pedra"));
       const out = pptOutcomeFromHands(hostHand, guestHand);
-      const step = await applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, {
-        hostRef: picksColl.doc(hostUid),
-        guestRef: picksColl.doc(guestUid),
-      });
+      const step = await applyPptRoundResultInTransaction(
+        tx,
+        roomRef,
+        roomId,
+        r,
+        hostHand,
+        guestHand,
+        out,
+        pptTimeoutMs,
+        {
+          hostRef: picksColl.doc(hostUid),
+          guestRef: picksColl.doc(guestUid),
+        },
+      );
       if (step === "match") {
         return {
           kind: "ppt_match" as const,
@@ -3978,7 +4058,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           quizLastGuestResponseMs: QUIZ_RESPONSE_MS_CAP,
           quizLastRoundWinner: "draw",
           timeoutEmptyRounds: strikes + 1,
-          actionDeadlineAt: nextPvpActionDeadline(),
+          actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
           atualizadoEm: FieldValue.serverTimestamp(),
         });
         return { kind: "quiz_round" as const };
@@ -4018,6 +4098,8 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           guestCorrect,
           hostResponse,
           guestResponse,
+          question.options,
+          question.correctIndex,
         );
         tx.delete(answersColl.doc(hostUid));
         tx.delete(answersColl.doc(guestUid));
@@ -4043,8 +4125,10 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         quizLastHostResponseMs: hostResponse,
         quizLastGuestResponseMs: guestResponse,
         quizLastRoundWinner: roundWinner,
+        quizLastRevealOptions: question.options,
+        quizLastRevealCorrectIndex: question.correctIndex,
         timeoutEmptyRounds: 0,
-        actionDeadlineAt: nextPvpActionDeadline(),
+        actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
         atualizadoEm: FieldValue.serverTimestamp(),
       });
       return { kind: "quiz_round" as const };
@@ -4087,7 +4171,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           reactionGuestFalseStart: false,
           reactionAnsweredUids: [],
           timeoutEmptyRounds: strikes + 1,
-          actionDeadlineAt: nextPvpActionDeadline(nextGoLiveAt.toMillis()),
+          actionDeadlineAt: pvpActionDeadlineTs(nextGoLiveAt.toMillis(), reactionTimeoutMs),
           atualizadoEm: FieldValue.serverTimestamp(),
         });
         return { kind: "reaction_round" as const };
@@ -4113,6 +4197,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         hostFalseStart,
         guestFalseStart,
         winner,
+        reactionTimeoutMs,
       );
       tx.delete(resultsColl.doc(hostUid));
       tx.delete(resultsColl.doc(guestUid));

@@ -1,13 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES, routeJogosFilaBuscar } from "@/lib/constants/routes";
 import { resolveMatchEconomy } from "@/lib/games/gameEconomy";
+import {
+  DEFAULT_PVP_CHOICE_SECONDS,
+  parsePvpChoiceSeconds,
+  type PvpChoiceSecondsConfig,
+} from "@/lib/games/pvpTiming";
 import type { GameRoomDocument } from "@/types/gameRoom";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
@@ -22,9 +27,7 @@ import { AnimatePresence, motion } from "framer-motion";
 const PPT_HANDS = ["pedra", "papel", "tesoura"] as const;
 type PptHand = (typeof PPT_HANDS)[number];
 
-/** Tempo para escolher na rodada (cliente); ao zerar, envia jogada aleatória. */
-const PPT_CHOICE_SECONDS = 10;
-const QUIZ_CHOICE_SECONDS = 10;
+/** Padrão de segundos para UI; valores reais vêm de `system_configs/economy.pvpChoiceSeconds`. */
 
 function handLabel(h: string) {
   if (h === "pedra") return "Pedra";
@@ -664,25 +667,67 @@ function quizRoundSummary(room: GameRoomDocument): string | null {
 
   const hostCorrect = room.quizLastHostCorrect === true;
   const guestCorrect = room.quizLastGuestCorrect === true;
-  const bothCorrect = hostCorrect && guestCorrect;
   const winnerName = winner === "host" ? room.hostNome : winner === "guest" ? room.guestNome : "";
 
   if (winner === "draw") {
-    if (bothCorrect) {
-      return "Os dois acertaram ao mesmo tempo. Rodada empatada.";
+    if (hostCorrect && guestCorrect) {
+      return "Os dois acertaram. Rodada empatada — ninguém marca ponto.";
     }
-    return "Ninguem pontuou nesta rodada.";
-  }
-
-  if (bothCorrect && winnerName) {
-    return `${winnerName} escolheu primeiro e levou o ponto.`;
+    if (!hostCorrect && !guestCorrect) {
+      return "Os dois erraram. Rodada empatada — ninguém marca ponto.";
+    }
+    return "Rodada empatada — ninguém marca ponto.";
   }
 
   if (winnerName) {
-    return `${winnerName} acertou e marcou 1 ponto.`;
+    return `${winnerName} marcou o ponto (acertou e o adversário errou).`;
   }
 
   return null;
+}
+
+function quizLastRoundRevealBlock(room: GameRoomDocument, isHost: boolean): ReactNode {
+  if (
+    !room.quizLastRevealOptions?.length ||
+    typeof room.quizLastRevealCorrectIndex !== "number" ||
+    !room.quizLastRoundWinner
+  ) {
+    return null;
+  }
+  const youCorrect = isHost ? room.quizLastHostCorrect === true : room.quizLastGuestCorrect === true;
+  return (
+    <div className="space-y-2 rounded-2xl border border-emerald-400/35 bg-emerald-950/40 px-3 py-3 sm:px-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-200/90">
+        Resposta correta da rodada
+      </p>
+      {youCorrect === false ? (
+        <p className="text-sm font-semibold text-emerald-100">
+          Você errou. A alternativa certa está em <span className="text-emerald-300">verde</span>.
+        </p>
+      ) : null}
+      <ul className="space-y-1.5">
+        {room.quizLastRevealOptions.map((opt, index) => {
+          const isCorrect = index === room.quizLastRevealCorrectIndex;
+          return (
+            <li
+              key={`reveal-${room.quizRound}-${index}`}
+              className={cn(
+                "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm",
+                isCorrect
+                  ? "border-emerald-400/70 bg-emerald-500/20 font-semibold text-emerald-100"
+                  : "border-white/10 bg-black/20 text-white/75",
+              )}
+            >
+              <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current text-[11px] font-black opacity-90">
+                {String.fromCharCode(65 + index)}
+              </span>
+              <span>{opt}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function reactionRoundHeadline(room: GameRoomDocument, isHost: boolean): {
@@ -769,7 +814,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const [reactionSending, setReactionSending] = useState(false);
   const [reactionErr, setReactionErr] = useState<string | null>(null);
   const [reactionClock, setReactionClock] = useState(() => Date.now());
-  const [quizSecondsLeft, setQuizSecondsLeft] = useState(QUIZ_CHOICE_SECONDS);
+  const [quizSecondsLeft, setQuizSecondsLeft] = useState<number>(DEFAULT_PVP_CHOICE_SECONDS.quiz);
   const [quizTimeoutAnswer, setQuizTimeoutAnswer] = useState(false);
   const [forfeitBusy, setForfeitBusy] = useState(false);
   const [highlightHand, setHighlightHand] = useState<PptHand | null>(null);
@@ -777,7 +822,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const reactionStartPerfRef = useRef<number | null>(null);
   const quizTimeoutFiredRef = useRef(false);
   const prevMyPickDoneRef = useRef(false);
-  const [secondsLeft, setSecondsLeft] = useState(PPT_CHOICE_SECONDS);
+  const [secondsLeft, setSecondsLeft] = useState<number>(DEFAULT_PVP_CHOICE_SECONDS.ppt);
   const [timeoutPick, setTimeoutPick] = useState(false);
   const timeoutFiredRef = useRef(false);
   const pptSubmitLockedRef = useRef(false);
@@ -788,6 +833,29 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const lastShownRoundFlashKeyRef = useRef<string | null>(null);
   const skipInitialRoundFlashRef = useRef(true);
   const roundFlashTimeoutRef = useRef<number | null>(null);
+  const [pvpChoiceSec, setPvpChoiceSec] = useState<PvpChoiceSecondsConfig>(() =>
+    parsePvpChoiceSeconds(undefined),
+  );
+  const pvpChoiceSecRef = useRef(pvpChoiceSec);
+  pvpChoiceSecRef.current = pvpChoiceSec;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const db = getFirebaseFirestore();
+        const s = await getDoc(doc(db, COLLECTIONS.systemConfigs, "economy"));
+        if (!s.exists() || cancelled) return;
+        const d = s.data();
+        setPvpChoiceSec(parsePvpChoiceSeconds(d?.pvpChoiceSeconds));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setRoom(undefined);
@@ -800,9 +868,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
     setReactionSending(false);
     setQuizSelected(null);
     setReactionClock(Date.now());
-    setQuizSecondsLeft(QUIZ_CHOICE_SECONDS);
+    setQuizSecondsLeft(pvpChoiceSecRef.current.quiz);
     setQuizTimeoutAnswer(false);
-    setSecondsLeft(PPT_CHOICE_SECONDS);
+    setSecondsLeft(pvpChoiceSecRef.current.ppt);
     setTimeoutPick(false);
     quizTimeoutFiredRef.current = false;
     timeoutFiredRef.current = false;
@@ -823,7 +891,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     quizStartedAtRef.current = Date.now();
     setQuizSelected(null);
     setQuizErr(null);
-    setQuizSecondsLeft(QUIZ_CHOICE_SECONDS);
+    setQuizSecondsLeft(pvpChoiceSecRef.current.quiz);
     setQuizTimeoutAnswer(false);
     quizTimeoutFiredRef.current = false;
   }, [room?.quizQuestionId, room?.quizRound]);
@@ -1072,7 +1140,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     timeoutFiredRef.current = false;
     setTimeoutPick(false);
     if (!showPptPlay || !uid || myPickDone || matchDone || actionDeadlineAtMs == null) {
-      setSecondsLeft(PPT_CHOICE_SECONDS);
+      setSecondsLeft(pvpChoiceSec.ppt);
       return;
     }
 
@@ -1095,36 +1163,52 @@ export function SalaClient({ roomId }: { roomId: string }) {
     }, 200);
 
     return () => window.clearInterval(tick);
-  }, [roundKey, showPptPlay, uid, myPickDone, matchDone, actionDeadlineAtMs]);
+  }, [roundKey, showPptPlay, uid, myPickDone, matchDone, actionDeadlineAtMs, pvpChoiceSec.ppt]);
 
   useEffect(() => {
     quizTimeoutFiredRef.current = false;
     setQuizTimeoutAnswer(false);
     if (!showQuizPlay || !uid || myQuizAnswered || matchDone) {
-      setQuizSecondsLeft(QUIZ_CHOICE_SECONDS);
+      setQuizSecondsLeft(pvpChoiceSec.quiz);
+      return;
+    }
+    if (actionDeadlineAtMs == null) {
+      setQuizSecondsLeft(pvpChoiceSec.quiz);
       return;
     }
 
-    let left = QUIZ_CHOICE_SECONDS;
-    setQuizSecondsLeft(left);
-    const tick = window.setInterval(() => {
-      left -= 1;
+    const syncQuizTimer = () => {
+      const remainingMs = Math.max(0, actionDeadlineAtMs - Date.now());
+      const left = Math.max(0, Math.ceil(remainingMs / 1000));
       setQuizSecondsLeft(left);
-      if (left <= 0) {
-        window.clearInterval(tick);
-        if (!quizTimeoutFiredRef.current) {
-          quizTimeoutFiredRef.current = true;
-          setQuizTimeoutAnswer(true);
-          if (quizOptionCount > 0) {
-            const answerIndex = Math.floor(Math.random() * quizOptionCount);
-            void submitQuizRef.current(answerIndex);
-          }
+      if (remainingMs <= 0 && !quizTimeoutFiredRef.current) {
+        quizTimeoutFiredRef.current = true;
+        setQuizTimeoutAnswer(true);
+        if (quizOptionCount > 0) {
+          const answerIndex = Math.floor(Math.random() * quizOptionCount);
+          void submitQuizRef.current(answerIndex);
         }
       }
-    }, 1000);
+    };
+
+    syncQuizTimer();
+    const tick = window.setInterval(() => {
+      syncQuizTimer();
+      if (quizTimeoutFiredRef.current) {
+        window.clearInterval(tick);
+      }
+    }, 200);
 
     return () => window.clearInterval(tick);
-  }, [showQuizPlay, uid, myQuizAnswered, matchDone, room?.quizQuestionId, room?.quizRound, quizOptionCount]);
+  }, [
+    showQuizPlay,
+    uid,
+    myQuizAnswered,
+    matchDone,
+    actionDeadlineAtMs,
+    quizOptionCount,
+    pvpChoiceSec.quiz,
+  ]);
 
   useEffect(() => {
     reactionStartPerfRef.current = null;
@@ -1410,7 +1494,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     : null;
 
   const timerActive = showPptPlay && !myPickDone && !matchDone;
-  const timerProgress = timerActive ? secondsLeft / PPT_CHOICE_SECONDS : 0;
+  const timerProgress = timerActive ? secondsLeft / Math.max(pvpChoiceSec.ppt, 1) : 0;
   const timerAccent =
     secondsLeft <= 3 ? "rgb(248 113 113)" : secondsLeft <= 6 ? "rgb(251 191 36)" : "rgb(34 211 238)";
   const battleCopy = isQuiz
@@ -1418,8 +1502,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
       ? {
           title: quizYouWonMatch ? "Fim de quiz" : "Quiz encerrado",
           subtitle: quizYouWonMatch
-            ? "Você fechou a partida no conhecimento e velocidade."
-            : "A disputa terminou. Da próxima, busque mais precisão e ritmo.",
+            ? "Você fechou a partida no conhecimento."
+            : "A disputa terminou. Da próxima, busque mais precisão.",
         }
       : myQuizAnswered
         ? {
@@ -1429,11 +1513,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
         : oppQuizAnswered
           ? {
               title: "Oponente já respondeu",
-              subtitle: "Responda antes do cronômetro zerar para ainda disputar no tempo.",
+              subtitle: "Responda antes do cronômetro zerar.",
             }
           : {
               title: "Quiz rápido 1v1",
-              subtitle: "Acerto vale ponto; em empate, a velocidade decide a rodada.",
+              subtitle: "Ponto só se você acertar e o adversário errar. Dois acertos ou dois erros = empate.",
             }
     : isReaction
       ? matchDone
@@ -1752,20 +1836,23 @@ export function SalaClient({ roomId }: { roomId: string }) {
           ) : null}
 
           {isQuiz && matchDone && room.quizMatchWinner ? (
-            <ResultSummaryPanel
-              gameLabel="Quiz rápido"
-              title={quizYouWonMatch ? "Você venceu o quiz!" : "O oponente venceu o quiz."}
-              victory={quizYouWonMatch}
-              myName={myDisplayName}
-              opponentName={opponentNome}
-              myScore={myQuizPts}
-              oppScore={oppQuizPts}
-              primaryLine="Partida encerrada."
-              secondaryLine={null}
-              tertiaryLine={null}
-              rankingPoints={rewardSummary?.ranking}
-              rewardCoins={rewardSummary?.coins}
-            />
+            <div className="space-y-3">
+              <ResultSummaryPanel
+                gameLabel="Quiz rápido"
+                title={quizYouWonMatch ? "Você venceu o quiz!" : "O oponente venceu o quiz."}
+                victory={quizYouWonMatch}
+                myName={myDisplayName}
+                opponentName={opponentNome}
+                myScore={myQuizPts}
+                oppScore={oppQuizPts}
+                primaryLine="Partida encerrada."
+                secondaryLine={null}
+                tertiaryLine={null}
+                rankingPoints={rewardSummary?.ranking}
+                rewardCoins={rewardSummary?.coins}
+              />
+              {quizLastRoundRevealBlock(room, isHost)}
+            </div>
           ) : null}
 
           {isReaction && matchDone && room.reactionMatchWinner ? (
@@ -2022,7 +2109,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     {myQuizAnswered ? "Resposta travada" : "Pergunta da rodada"}
                   </p>
                   <p className="mt-1 hidden max-w-[11rem] text-xs text-white/55 sm:block sm:mt-2 sm:max-w-sm sm:text-sm">
-                    Responda com precisão. Se os dois acertarem, a velocidade decide quem leva o ponto.
+                    Ponto só se um acertar e o outro errar. Se os dois acertarem ou os dois errarem, a rodada
+                    empata.
                   </p>
                   <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-2 py-1 text-[8px] font-bold uppercase tracking-[0.18em] text-white/60 sm:mt-3 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-[10px] sm:tracking-[0.28em]">
                     <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-300 shadow-[0_0_10px_rgba(244,114,182,0.75)]" />
@@ -2051,7 +2139,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
                               ? "rgb(251 191 36)"
                               : "rgb(34 211 238)"
                       } ${
-                        ((myQuizAnswered ? 10 : quizSecondsLeft) / QUIZ_CHOICE_SECONDS) * 360
+                        ((myQuizAnswered ? pvpChoiceSec.quiz : quizSecondsLeft) /
+                          Math.max(pvpChoiceSec.quiz, 1)) *
+                        360
                       }deg, rgb(15 23 42 / 0.92) 0deg)`,
                     }}
                   >
@@ -2116,6 +2206,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   {quizRoundHint}
                 </div>
               ) : null}
+
+              {quizLastRoundRevealBlock(room, isHost)}
 
               {quizErr && !quizTimeoutAnswer ? (
                 <AlertBanner tone="error" className="text-sm">

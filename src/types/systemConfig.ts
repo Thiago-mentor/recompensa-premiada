@@ -41,5 +41,11 @@ export interface SystemEconomyConfig {
   referralBonusConvidado: number;
   limiteDiarioAds: number;
   limiteDiarioCoins: number;
+  /** Segundos para responder em cada PvP (servidor usa no `actionDeadlineAt`). */
+  pvpChoiceSeconds?: Partial<{
+    ppt: number;
+    quiz: number;
+    reaction_tap: number;
+  }>;
   atualizadoEm: Timestamp;
 }

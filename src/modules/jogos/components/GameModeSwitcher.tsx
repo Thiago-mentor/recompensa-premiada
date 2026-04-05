@@ -15,7 +15,7 @@ const OPTIONS: { id: SwitcherGameId; label: string; short: string }[] = [
 
 function soloHref(gameId: SwitcherGameId) {
   if (gameId === "ppt") return "/jogos/pedra-papel-tesoura?teste=1";
-  if (gameId === "quiz") return "/jogos/quiz?teste=1";
+  if (gameId === "quiz") return routeJogosFilaBuscar("quiz");
   return "/jogos/reaction?teste=1";
 }
 

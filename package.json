@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "reset:daily-login": "node scripts/reset-daily-streak.cjs",
+    "grant-admin": "node scripts/grant-admin-claims.cjs",
     "emulators": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions,storage",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android"

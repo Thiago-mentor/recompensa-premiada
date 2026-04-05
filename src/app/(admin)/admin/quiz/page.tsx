@@ -127,6 +127,7 @@ export default function AdminQuizPage() {
   const [bulkBusyKind, setBulkBusyKind] = useState<
     "activate" | "regen" | "deactivate" | "delete" | null
   >(null);
+  const [listLoadError, setListLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const db = getFirebaseFirestore();
@@ -134,6 +135,7 @@ export default function AdminQuizPage() {
     return onSnapshot(
       q,
       (snap) => {
+        setListLoadError(null);
         const next = snap.docs.map((item) => {
           const data = item.data() as Partial<QuizQuestionDoc>;
           return {
@@ -154,7 +156,9 @@ export default function AdminQuizPage() {
         });
         setRows(next);
       },
-      () => setRows([]),
+      (err) => {
+        setListLoadError(err.message || "Erro ao carregar perguntas do Firestore.");
+      },
     );
   }, []);
 
@@ -569,6 +573,13 @@ export default function AdminQuizPage() {
       </div>
 
       {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
+      {listLoadError ? (
+        <AlertBanner tone="info">
+          <strong className="text-amber-200">Lista não atualizou:</strong> {listLoadError} — confira regras do
+          Firestore, índices e se você não está no <strong className="text-white">emulador</strong> vendo dados de{" "}
+          <strong className="text-white">produção</strong> (ou o contrário).
+        </AlertBanner>
+      ) : null}
 
       <section className="space-y-4 rounded-xl border border-violet-400/20 bg-violet-950/20 p-4">
         <div>

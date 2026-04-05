@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# Chave de conta de serviço Firebase (nunca commitar)
+*firebase-adminsdk*.json
+serviceAccount*.json
+
 # debug
 npm-debug.log*
 yarn-debug.log*

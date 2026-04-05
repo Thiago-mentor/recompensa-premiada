@@ -71,13 +71,40 @@ const PPT_MATCH_TARGET_POINTS = 5;
 const QUIZ_MATCH_TARGET_POINTS = 5;
 const REACTION_MATCH_TARGET_POINTS = 5;
 const QUIZ_RESPONSE_MS_CAP = 30000;
-const QUIZ_FAST_ANSWER_TIE_MS = 120;
+const DEFAULT_PVP_CHOICE_SEC = { ppt: 10, quiz: 10, reaction_tap: 10 };
+function clampPvpChoiceSec(raw, fallback) {
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n))
+        return fallback;
+    return Math.min(120, Math.max(3, n));
+}
+function parsePvpChoiceSecondsFromDoc(d) {
+    const pcs = d.pvpChoiceSeconds;
+    const o = pcs && typeof pcs === "object" ? pcs : {};
+    return {
+        ppt: clampPvpChoiceSec(o.ppt, DEFAULT_PVP_CHOICE_SEC.ppt),
+        quiz: clampPvpChoiceSec(o.quiz, DEFAULT_PVP_CHOICE_SEC.quiz),
+        reaction_tap: clampPvpChoiceSec(o.reaction_tap, DEFAULT_PVP_CHOICE_SEC.reaction_tap),
+    };
+}
+function pvpChoiceWindowMs(secs, gameId) {
+    const s = gameId === "ppt"
+        ? secs.ppt
+        : gameId === "quiz"
+            ? secs.quiz
+            : gameId === "reaction_tap"
+                ? secs.reaction_tap
+                : secs.ppt;
+    return s * 1000;
+}
+function pvpActionDeadlineTs(fromMs, windowMs) {
+    return firestore_2.Timestamp.fromMillis(fromMs + windowMs);
+}
 const REACTION_WAIT_MIN_MS = 1800;
 const REACTION_WAIT_MAX_MS = 3400;
 const REACTION_RESPONSE_MS_CAP = 9999;
 const REACTION_FALSE_START_MS = 9999;
 const REACTION_TIE_MS = 18;
-const PVP_ACTION_WINDOW_MS = 10000;
 function readPositiveIntEnv(name, fallback) {
     const raw = process.env[name];
     const value = Number(raw);
@@ -311,7 +338,7 @@ async function assertAdmin(uid) {
 }
 async function getEconomy() {
     const snap = await db.doc(`${COL.systemConfigs}/economy`).get();
-    const d = snap.data() || {};
+    const d = (snap.data() || {});
     const rawOverrides = d.matchRewardOverrides && typeof d.matchRewardOverrides === "object"
         ? d.matchRewardOverrides
         : {};
@@ -324,6 +351,7 @@ async function getEconomy() {
         referralBonusConvidado: typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
         matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
         streakTable: (0, streakEconomy_1.normalizeStreakTable)(d.streakTable),
+        pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
     };
 }
 function normalizeRewardOverride(value) {
@@ -493,9 +521,6 @@ function millisFromFirestoreTime(v) {
     }
     return 0;
 }
-function nextPvpActionDeadline(fromMs = Date.now()) {
-    return firestore_2.Timestamp.fromMillis(fromMs + PVP_ACTION_WINDOW_MS);
-}
 function losingHandAgainst(winnerHand) {
     if (winnerHand === "pedra")
         return "tesoura";
@@ -541,17 +566,13 @@ function clampQuizResponseMs(raw) {
         return QUIZ_RESPONSE_MS_CAP;
     return Math.max(0, Math.min(QUIZ_RESPONSE_MS_CAP, Math.floor(ms)));
 }
-function resolveQuizRoundWinner(hostCorrect, guestCorrect, hostResponseMs, guestResponseMs) {
+/** Ponto só se um acerta e o outro erra. Ambos certos ou ambos errados → empate (sem desempate por tempo). */
+function resolveQuizRoundWinner(hostCorrect, guestCorrect, _hostResponseMs, _guestResponseMs) {
     if (hostCorrect && !guestCorrect)
         return "host";
-    if (guestCorrect && !hostCorrect)
+    if (!hostCorrect && guestCorrect)
         return "guest";
-    if (!hostCorrect && !guestCorrect)
-        return "draw";
-    const diff = hostResponseMs - guestResponseMs;
-    if (Math.abs(diff) <= QUIZ_FAST_ANSWER_TIE_MS)
-        return "draw";
-    return diff < 0 ? "host" : "guest";
+    return "draw";
 }
 async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs) {
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
@@ -620,7 +641,7 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
 }
-async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponseMs, guestResponseMs) {
+async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponseMs, guestResponseMs, quizRevealOptions, quizRevealCorrectIndex) {
     const hostUid = String(r.hostUid);
     const guestUid = String(r.guestUid);
     const hostScore = Number(r.quizHostScore ?? 0);
@@ -758,6 +779,8 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
         quizLastHostResponseMs: hostResponseMs,
         quizLastGuestResponseMs: guestResponseMs,
         quizLastRoundWinner: matchWinner,
+        quizLastRevealOptions: quizRevealOptions,
+        quizLastRevealCorrectIndex: quizRevealCorrectIndex,
         quizMatchWinner: matchWinner,
         quizOutcome: outcome,
         quizRewardsApplied: true,
@@ -925,7 +948,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
     }, { merge: true });
     return { hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs };
 }
-async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r, hostMs, guestMs, hostFalseStart, guestFalseStart, winner) {
+async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r, hostMs, guestMs, hostFalseStart, guestFalseStart, winner, reactionWindowMs) {
     const hostUid = String(r.hostUid);
     const guestUid = String(r.guestUid);
     const nextHostScore = Number(r.reactionHostScore ?? 0) + (winner === "host" ? 1 : 0);
@@ -950,7 +973,7 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
             reactionGoLiveAt: nextGoLiveAt,
             reactionAnsweredUids: [],
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: nextPvpActionDeadline(nextGoLiveAt.toMillis()),
+            actionDeadlineAt: pvpActionDeadlineTs(nextGoLiveAt.toMillis(), reactionWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return {
@@ -1125,6 +1148,8 @@ async function applyReactionForfeitInTransaction(tx, roomRef, roomId, r, forfeit
     const guestMs = winner === "guest" ? 1 : REACTION_FALSE_START_MS;
     const hostFalseStart = forfeitedByUid === hostUid;
     const guestFalseStart = forfeitedByUid === guestUid;
+    const econForfeitReaction = await getEconomy();
+    const reactionWinMsForfeit = pvpChoiceWindowMs(econForfeitReaction.pvpChoiceSeconds, "reaction_tap");
     const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, {
         ...r,
         reactionHostScore: winner === "host"
@@ -1133,7 +1158,7 @@ async function applyReactionForfeitInTransaction(tx, roomRef, roomId, r, forfeit
         reactionGuestScore: winner === "guest"
             ? Math.max(Number(r.reactionGuestScore ?? 0), Number(r.reactionTargetScore ?? REACTION_MATCH_TARGET_POINTS) - 1)
             : Number(r.reactionGuestScore ?? 0),
-    }, hostMs, guestMs, hostFalseStart, guestFalseStart, winner);
+    }, hostMs, guestMs, hostFalseStart, guestFalseStart, winner, reactionWinMsForfeit);
     return { ...out, winner, hostMs, guestMs };
 }
 /** Finaliza PPT na transação: perdedor = `loserUid` (desistência / inatividade). */
@@ -1404,7 +1429,7 @@ async function applyGenericPvpTimeoutVoidInTransaction(tx, roomRef, r, extraRoom
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });
 }
-async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, pickRefs) {
+async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, pptWindowMs, pickRefs) {
     const hostUid = String(r.hostUid);
     const guestUid = String(r.guestUid);
     const target = Number(r.pptTargetScore ?? PPT_MATCH_TARGET_POINTS);
@@ -1426,7 +1451,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
             pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
             pptConsecutiveEmptyRounds: 0,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: nextPvpActionDeadline(),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return "round";
@@ -1451,7 +1476,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
             pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
             pptConsecutiveEmptyRounds: 0,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: nextPvpActionDeadline(),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return "round";
@@ -2374,6 +2399,10 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     }
     const partnerId = partnerDoc.id;
     const roomRef = db.collection(COL.gameRooms).doc();
+    const econMatch = await getEconomy();
+    const pptMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "ppt");
+    const quizMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "quiz");
+    const reactionMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "reaction_tap");
     try {
         const result = await db.runTransaction(async (tx) => {
             const selfW = coll.doc(uid);
@@ -2494,8 +2523,8 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
             const initialQuizQuestion = gameId === "quiz" ? await (0, quizQuestions_1.pickQuizQuestion)() : null;
             const reactionGoLiveAt = gameId === "reaction_tap" ? nextReactionGoLiveAt() : null;
             const initialActionDeadlineAt = gameId === "reaction_tap" && reactionGoLiveAt
-                ? nextPvpActionDeadline(reactionGoLiveAt.toMillis())
-                : nextPvpActionDeadline();
+                ? pvpActionDeadlineTs(reactionGoLiveAt.toMillis(), reactionMatchWinMs)
+                : pvpActionDeadlineTs(Date.now(), gameId === "ppt" ? pptMatchWinMs : gameId === "quiz" ? quizMatchWinMs : reactionMatchWinMs);
             tx.set(roomRef, {
                 id: roomRef.id,
                 gameId,
@@ -2762,6 +2791,8 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     if (preH.data().banido || preG.data().banido) {
         throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
     }
+    const econPpt = await getEconomy();
+    const pptPickWindowMs = pvpChoiceWindowMs(econPpt.pvpChoiceSeconds, "ppt");
     /**
      * Uma única transação: grava a jogada do caller e, se o oponente já tiver jogado, resolve a rodada.
      * Evita corrida entre dois submits quase simultâneos (pick órfão + "já escolheu" para sempre).
@@ -2830,7 +2861,7 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
         const hostHand = uid === hostUid ? hand : String(hPSnap.data()?.hand ?? "");
         const guestHand = uid === guestUid ? hand : String(gPSnap.data()?.hand ?? "");
         const out = pptOutcomeFromHands(hostHand, guestHand);
-        return applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, {
+        return applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, pptPickWindowMs, {
             hostRef: hPref,
             guestRef: gPref,
         });
@@ -2918,6 +2949,8 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
     }
     const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
     const answersColl = roomRef.collection("quiz_answers");
+    const econQuizSubmit = await getEconomy();
+    const quizSubmitWindowMs = pvpChoiceWindowMs(econQuizSubmit.pvpChoiceSeconds, "quiz");
     const result = await db.runTransaction(async (tx) => {
         const roomSnap = await tx.get(roomRef);
         if (!roomSnap.exists) {
@@ -2988,7 +3021,7 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
         const target = readQuizTargetScore(room);
         if ((roundWinner === "host" && nextHostScore >= target) || (roundWinner === "guest" && nextGuestScore >= target)) {
             const matchWinner = roundWinner;
-            const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...room, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse);
+            const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...room, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse, question.options, question.correctIndex);
             return {
                 status: "completed",
                 matchWinner,
@@ -3021,8 +3054,10 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
             quizLastHostResponseMs: hostResponse,
             quizLastGuestResponseMs: guestResponse,
             quizLastRoundWinner: roundWinner,
+            quizLastRevealOptions: question.options,
+            quizLastRevealCorrectIndex: question.correctIndex,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: nextPvpActionDeadline(),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizSubmitWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return {
@@ -3055,6 +3090,8 @@ exports.submitReactionTap = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async
     }
     const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
     const resultsColl = roomRef.collection("reaction_results");
+    const econReactionSubmit = await getEconomy();
+    const reactionSubmitWindowMs = pvpChoiceWindowMs(econReactionSubmit.pvpChoiceSeconds, "reaction_tap");
     const result = await db.runTransaction(async (tx) => {
         const roomSnap = await tx.get(roomRef);
         if (!roomSnap.exists) {
@@ -3117,7 +3154,7 @@ exports.submitReactionTap = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async
         const hostFalseStart = uid === hostUid ? falseStart : other.falseStart === true;
         const guestFalseStart = uid === guestUid ? falseStart : other.falseStart === true;
         const winner = resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs);
-        const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, room, hostMs, guestMs, hostFalseStart, guestFalseStart, winner);
+        const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, room, hostMs, guestMs, hostFalseStart, guestFalseStart, winner, reactionSubmitWindowMs);
         tx.delete(otherResultRef);
         return out.completed
             ? {
@@ -3211,6 +3248,10 @@ exports.forfeitPvpRoom = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (r
     };
 });
 async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
+    const econTimeout = await getEconomy();
+    const pptTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "ppt");
+    const quizTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "quiz");
+    const reactionTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "reaction_tap");
     const result = await db.runTransaction(async (tx) => {
         const rs = await tx.get(roomRef);
         if (!rs.exists) {
@@ -3268,7 +3309,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                     pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
                     pptConsecutiveEmptyRounds: strikes + 1,
                     timeoutEmptyRounds: strikes + 1,
-                    actionDeadlineAt: nextPvpActionDeadline(),
+                    actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptTimeoutMs),
                     atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                 });
                 return { kind: "ppt_round" };
@@ -3280,7 +3321,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 ? String(guestPickSnap.data()?.hand || "")
                 : losingHandAgainst(String(hostPickSnap.data()?.hand || "pedra"));
             const out = pptOutcomeFromHands(hostHand, guestHand);
-            const step = await applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, {
+            const step = await applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand, guestHand, out, pptTimeoutMs, {
                 hostRef: picksColl.doc(hostUid),
                 guestRef: picksColl.doc(guestUid),
             });
@@ -3340,7 +3381,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                     quizLastGuestResponseMs: QUIZ_RESPONSE_MS_CAP,
                     quizLastRoundWinner: "draw",
                     timeoutEmptyRounds: strikes + 1,
-                    actionDeadlineAt: nextPvpActionDeadline(),
+                    actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
                     atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                 });
                 return { kind: "quiz_round" };
@@ -3363,7 +3404,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
             const target = readQuizTargetScore(r);
             if ((roundWinner === "host" && nextHostScore >= target) || (roundWinner === "guest" && nextGuestScore >= target)) {
                 const matchWinner = roundWinner;
-                const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...r, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse);
+                const out = await applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, { ...r, quizHostScore: nextHostScore, quizGuestScore: nextGuestScore }, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponse, guestResponse, question.options, question.correctIndex);
                 tx.delete(answersColl.doc(hostUid));
                 tx.delete(answersColl.doc(guestUid));
                 return { kind: "quiz_match", ...out, hostResponseMs: hostResponse, guestResponseMs: guestResponse };
@@ -3388,8 +3429,10 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 quizLastHostResponseMs: hostResponse,
                 quizLastGuestResponseMs: guestResponse,
                 quizLastRoundWinner: roundWinner,
+                quizLastRevealOptions: question.options,
+                quizLastRevealCorrectIndex: question.correctIndex,
                 timeoutEmptyRounds: 0,
-                actionDeadlineAt: nextPvpActionDeadline(),
+                actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
             return { kind: "quiz_round" };
@@ -3431,7 +3474,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                     reactionGuestFalseStart: false,
                     reactionAnsweredUids: [],
                     timeoutEmptyRounds: strikes + 1,
-                    actionDeadlineAt: nextPvpActionDeadline(nextGoLiveAt.toMillis()),
+                    actionDeadlineAt: pvpActionDeadlineTs(nextGoLiveAt.toMillis(), reactionTimeoutMs),
                     atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
                 });
                 return { kind: "reaction_round" };
@@ -3447,7 +3490,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
             const hostFalseStart = hostResultSnap.exists && hostResult?.falseStart === true;
             const guestFalseStart = guestResultSnap.exists && guestResult?.falseStart === true;
             const winner = resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs);
-            const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r, hostMs, guestMs, hostFalseStart, guestFalseStart, winner);
+            const out = await applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r, hostMs, guestMs, hostFalseStart, guestFalseStart, winner, reactionTimeoutMs);
             tx.delete(resultsColl.doc(hostUid));
             tx.delete(resultsColl.doc(guestUid));
             return out.completed
