@@ -128,7 +128,7 @@ export default function HomePage() {
         />
         <StatCard label="TICKET" value={profile ? String(profile.gems) : "—"} icon={Ticket} />
         <StatCard
-          label="CASH"
+          label="CASH (pontos)"
           value={profile ? String(profile.rewardBalance) : "—"}
           icon={Banknote}
         />

@@ -83,7 +83,7 @@ export default function CarteiraPage() {
         <StatCard label="TICKET" value={profile ? String(profile.gems) : "—"} icon={Ticket} />
         <StatCard
           className="col-span-2"
-          label="CASH"
+          label="CASH (pontos)"
           value={profile ? String(profile.rewardBalance) : "—"}
           icon={Banknote}
         />
@@ -97,8 +97,8 @@ export default function CarteiraPage() {
             gera linhas no extrato (&quot;Conversão&quot;).
           </p>
           <p className="mt-2 text-xs text-white/45">
-            CASH acumula para saque — a conversão em reais (PIX) pode ser feita na hora do resgate, conforme
-            a taxa que vocês definirem.
+            CASH são <strong className="text-white/70">pontos</strong> (não são reais). No resgate, a equipe
+            aplica a taxa e paga o valor em R$ via PIX, conforme a regra de vocês.
           </p>
         </div>
         {convertErr ? (

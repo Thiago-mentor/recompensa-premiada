@@ -31,11 +31,11 @@ export default function RecompensasPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-white">Premiação</h1>
       <p className="text-sm text-white/60">
-        CASH disponível: <strong className="text-white">{profile?.rewardBalance ?? 0}</strong>
+        CASH (pontos) disponíveis: <strong className="text-white">{profile?.rewardBalance ?? 0}</strong>
       </p>
       <p className="text-xs text-white/45">
-        O valor em CASH pode ser convertido em reais na análise do resgate (taxa definida por vocês). Sem PIX
-        automático: solicitação, aprovação admin e histórico em{" "}
+        CASH são pontos, não reais. Na análise do resgate, convertem em R$ com a taxa de vocês e o PIX é pago
+        após aprovação. Sem PIX automático: histórico em{" "}
         <code className="text-violet-300">reward_claims</code>.
       </p>
       {msg ? (
@@ -45,7 +45,7 @@ export default function RecompensasPage() {
       ) : null}
       <form onSubmit={enviar} className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
         <div>
-          <label className="text-xs text-white/50">Valor a resgatar</label>
+          <label className="text-xs text-white/50">Pontos CASH a resgatar</label>
           <input
             type="number"
             className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-white"
