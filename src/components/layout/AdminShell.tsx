@@ -12,7 +12,7 @@ const links = [
   { href: ROUTES.admin.usuarios, label: "Usuários" },
   { href: ROUTES.admin.rankings, label: "Rankings" },
   { href: ROUTES.admin.quiz, label: "Quiz" },
-  { href: ROUTES.admin.recompensas, label: "Recompensas" },
+  { href: ROUTES.admin.recompensas, label: "Pedidos recompensas" },
   { href: ROUTES.admin.missoes, label: "Missões" },
   { href: ROUTES.admin.configuracoes, label: "Configurações" },
   { href: ROUTES.admin.fraudes, label: "Fraudes" },

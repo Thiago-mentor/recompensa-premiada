@@ -1,6 +1,15 @@
-/** Sugere username estável a partir do e-mail + sufixo do uid (não garante unicidade — backend valida). */
-export function suggestUsername(email: string | null | undefined, uid: string): string {
-  const raw = (email?.split("@")[0] || "user").toLowerCase().replace(/[^a-z0-9_]/g, "");
-  const base = (raw.length >= 3 ? raw : "user").slice(0, 14);
-  return `${base}_${uid.replace(/[^a-z0-9]/gi, "").slice(0, 5)}`;
+/**
+ * Username para sync após login (Google / e-mail), alinhado à Cloud Function:
+ * 3–10 caracteres, apenas a-z, 0-9 e _.
+ *
+ * O e-mail não entra na string final: o local-part costuma passar de 10 caracteres e o backend
+ * rejeitaria; por isso usamos um prefixo estável + trecho do uid (único por usuário).
+ */
+export function suggestUsername(_email: string | null | undefined, uid: string): string {
+  const clean = uid.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  let s = `u${clean.slice(0, 9)}`;
+  if (s.length < 3) {
+    s = `${s}000`.slice(0, 10);
+  }
+  return s.slice(0, 10);
 }
