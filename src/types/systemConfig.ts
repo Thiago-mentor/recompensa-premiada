@@ -14,6 +14,15 @@ export interface RankingPrizeTier {
   gems: number;
 }
 
+export interface GameRewardOverrideConfig {
+  winCoins?: number;
+  drawCoins?: number;
+  lossCoins?: number;
+  winRankingPoints?: number;
+  drawRankingPoints?: number;
+  lossRankingPoints?: number;
+}
+
 /** `system_configs/economy` (documento único ou id fixo) */
 export interface SystemEconomyConfig {
   id: "economy";
@@ -27,6 +36,7 @@ export interface SystemEconomyConfig {
     semanal: RankingPrizeTier[];
     mensal: RankingPrizeTier[];
   };
+  matchRewardOverrides?: Partial<Record<string, GameRewardOverrideConfig>>;
   referralBonusIndicador: number;
   referralBonusConvidado: number;
   limiteDiarioAds: number;

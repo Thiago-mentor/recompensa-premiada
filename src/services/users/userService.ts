@@ -10,10 +10,8 @@ import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import type { UserProfile } from "@/types/user";
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
-import { sparkCreateUserProfile } from "@/services/spark/userProfile";
 
 export function userDocRef(uid: string) {
   return doc(getFirebaseFirestore(), COLLECTIONS.users, uid);
@@ -47,17 +45,6 @@ export async function ensureUserProfileRemote(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return { ok: false, error: "Sessão inválida. Entre novamente." };
-
-  if (shouldUseSparkFallback()) {
-    return sparkCreateUserProfile({
-      uid,
-      nome: input.nome,
-      username: input.username,
-      foto: input.foto,
-      email: input.email,
-      codigoConviteOpcional: input.codigoConviteOpcional,
-    });
-  }
 
   try {
     await callFunction("initializeUserProfile", {

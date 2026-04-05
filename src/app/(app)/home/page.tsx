@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useHomeDashboard } from "@/hooks/useHomeDashboard";
@@ -26,16 +26,25 @@ import {
 import { Coins, Gem, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { getDailyRewardUiState } from "@/utils/dailyRewardUiState";
 
 export default function HomePage() {
   const { user, profile, profileLoading } = useAuth();
-  const { dailyPreview, ranking, loadError, refreshRanking } = useHomeDashboard();
-  const [banner, setBanner] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { dailyPreview, ranking, loadError, refreshRanking, streakCardPreview } = useHomeDashboard();
+  const [banner, setBanner] = useState<{
+    tone: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
   const [adLoading, setAdLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
 
   const nome = profile?.nome || user?.displayName || "Jogador";
+
+  const claimedToday = useMemo(
+    () => getDailyRewardUiState(profile).kind === "claimed_today",
+    [profile],
+  );
 
   async function onAd() {
     setBanner(null);
@@ -54,11 +63,16 @@ export default function HomePage() {
     setLoginLoading(true);
     const res = await processDailyLogin();
     setLoginLoading(false);
+    if (!res.ok) {
+      setBanner({ tone: "error", text: res.error || "Erro" });
+      return;
+    }
+    if (res.alreadyCheckedIn) {
+      return;
+    }
     setBanner({
-      tone: res.ok ? "success" : "error",
-      text: res.ok
-        ? `${res.message} Streak: ${res.streak ?? "-"} · +${res.coins ?? 0} coins`
-        : res.error || "Erro",
+      tone: "success",
+      text: `${res.message ?? "Ok."} · Sequência: ${res.streak ?? "-"} dias`,
     });
   }
 
@@ -98,9 +112,7 @@ export default function HomePage() {
         <AlertBanner tone="error">Conta suspensa. Entre em contato com o suporte.</AlertBanner>
       ) : null}
 
-      {banner ? (
-        <AlertBanner tone={banner.tone === "success" ? "success" : "error"}>{banner.text}</AlertBanner>
-      ) : null}
+      {banner ? <AlertBanner tone={banner.tone}>{banner.text}</AlertBanner> : null}
 
       {loadError ? (
         <AlertBanner tone="error" className="text-xs">
@@ -127,7 +139,13 @@ export default function HomePage() {
         />
       </div>
 
-      <DailyStreakCard streak={profile?.streakAtual ?? 0} onCheckIn={onDaily} loading={loginLoading} />
+      <DailyStreakCard
+        streak={profile?.streakAtual ?? 0}
+        onCheckIn={onDaily}
+        loading={loginLoading}
+        preview={streakCardPreview}
+        claimedToday={claimedToday}
+      />
 
       <RewardButton onClick={onAd} loading={adLoading} />
 

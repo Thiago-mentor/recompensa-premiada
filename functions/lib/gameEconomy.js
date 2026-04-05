@@ -62,7 +62,27 @@ function rankingPointsFrom(normalizedScore, resultado) {
         return 4;
     return 2;
 }
-function resolveMatchEconomy(gameId, resultado, clientScore, metadata, rng = Math.random) {
+function applyRewardOverrides(resultado, rewardCoins, rankingPoints, overrides) {
+    if (!overrides)
+        return { rewardCoins, rankingPoints };
+    if (resultado === "vitoria") {
+        return {
+            rewardCoins: overrides.winCoins ?? rewardCoins,
+            rankingPoints: overrides.winRankingPoints ?? rankingPoints,
+        };
+    }
+    if (resultado === "empate") {
+        return {
+            rewardCoins: overrides.drawCoins ?? rewardCoins,
+            rankingPoints: overrides.drawRankingPoints ?? rankingPoints,
+        };
+    }
+    return {
+        rewardCoins: overrides.lossCoins ?? rewardCoins,
+        rankingPoints: overrides.lossRankingPoints ?? rankingPoints,
+    };
+}
+function resolveMatchEconomy(gameId, resultado, clientScore, metadata, rewardOverrides, rng = Math.random) {
     const baseMeta = { ...metadata };
     if (gameId === "roleta") {
         const prize = pickRoulettePrize(rng);
@@ -86,13 +106,11 @@ function resolveMatchEconomy(gameId, resultado, clientScore, metadata, rng = Mat
     }
     if (gameId === "ppt") {
         const normalizedScore = resultado === "vitoria" ? 650 : resultado === "empate" ? 400 : 200;
-        const rewardCoins = resultado === "vitoria" ? 45 : resultado === "empate" ? 12 : 0;
-        /** Ranking PvP: só o vencedor soma +1 (regra de negócio; não usar fórmula por score). */
-        const rankingPoints = resultado === "vitoria" ? 1 : 0;
+        const resolved = applyRewardOverrides(resultado, resultado === "vitoria" ? 45 : resultado === "empate" ? 12 : 0, resultado === "vitoria" ? 1 : 0, rewardOverrides?.ppt);
         return {
             normalizedScore,
-            rewardCoins,
-            rankingPoints,
+            rewardCoins: resolved.rewardCoins,
+            rankingPoints: resolved.rankingPoints,
             resolvedMetadata: baseMeta,
         };
     }
@@ -102,13 +120,11 @@ function resolveMatchEconomy(gameId, resultado, clientScore, metadata, rng = Mat
         const base = win ? 500 : 120;
         const speedBonus = win ? clampScore(Math.max(0, 8000 - timeMs) / 15) : 0;
         const normalizedScore = clampScore(base + speedBonus);
-        const rewardCoins = win
-            ? Math.min(95, Math.max(25, 25 + Math.floor(speedBonus / 2)))
-            : 5;
+        const resolved = applyRewardOverrides(resultado, win ? Math.min(95, Math.max(25, 25 + Math.floor(speedBonus / 2))) : 5, rankingPointsFrom(normalizedScore, resultado), rewardOverrides?.quiz);
         return {
             normalizedScore,
-            rewardCoins,
-            rankingPoints: rankingPointsFrom(normalizedScore, resultado),
+            rewardCoins: resolved.rewardCoins,
+            rankingPoints: resolved.rankingPoints,
             resolvedMetadata: { ...baseMeta, responseTimeMs: timeMs },
         };
     }
@@ -118,13 +134,11 @@ function resolveMatchEconomy(gameId, resultado, clientScore, metadata, rng = Mat
         const normalizedScore = win
             ? clampScore(950 - Math.min(750, reactionMs))
             : clampScore(Math.max(80, 280 - Math.min(200, reactionMs)));
-        const rewardCoins = win
-            ? Math.min(110, Math.max(20, 40 + Math.floor((350 - reactionMs) / 10)))
-            : 4;
+        const resolved = applyRewardOverrides(resultado, win ? Math.min(110, Math.max(20, 40 + Math.floor((350 - reactionMs) / 10))) : 4, rankingPointsFrom(normalizedScore, resultado), rewardOverrides?.reaction_tap);
         return {
             normalizedScore,
-            rewardCoins,
-            rankingPoints: rankingPointsFrom(normalizedScore, resultado),
+            rewardCoins: resolved.rewardCoins,
+            rankingPoints: resolved.rankingPoints,
             resolvedMetadata: { ...baseMeta, reactionMs },
         };
     }

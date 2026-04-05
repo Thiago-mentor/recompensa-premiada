@@ -8,8 +8,10 @@ import type { ReactNode } from "react";
 
 const links = [
   { href: ROUTES.admin.dashboard, label: "Dashboard" },
+  { href: ROUTES.admin.jogos, label: "Jogos" },
   { href: ROUTES.admin.usuarios, label: "Usuários" },
   { href: ROUTES.admin.rankings, label: "Rankings" },
+  { href: ROUTES.admin.quiz, label: "Quiz" },
   { href: ROUTES.admin.recompensas, label: "Recompensas" },
   { href: ROUTES.admin.missoes, label: "Missões" },
   { href: ROUTES.admin.configuracoes, label: "Configurações" },

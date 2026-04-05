@@ -9,7 +9,6 @@ import { COLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES, routeJogosFilaBuscar } from "@/lib/constants/routes";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
-import { autoQueueAllowed } from "@/lib/firebase/sparkMode";
 import {
   isAutoQueueGame,
   joinAutoMatchQueue,
@@ -83,6 +82,8 @@ const OPTIONS: { id: GameId; label: string; short: string }[] = [
   { id: "reaction_tap", label: "Reaction tap", short: "Reaction" },
 ];
 
+const MATCHMAKING_RETRY_MS = 1200;
+
 function queueCopy(gameId: GameId) {
   if (gameId === "ppt") {
     return {
@@ -131,8 +132,6 @@ export function FilaClient() {
   const pptRefillAppliedAfterDeadlineRef = useRef(false);
   const quizRefillAppliedAfterDeadlineRef = useRef(false);
   const reactionRefillAppliedAfterDeadlineRef = useRef(false);
-
-  const queueUnavailable = !autoQueueAllowed();
 
   useEffect(() => {
     setGameId(initialGame);
@@ -305,17 +304,13 @@ export function FilaClient() {
     (quizRefillAtMs !== null && Date.now() >= quizRefillAtMs);
 
   useEffect(() => {
-    if (queueUnavailable) {
-      setPhase("form");
-      return;
-    }
     if (buscarNaUrl) {
       setError(null);
       setPhase("searching");
     } else {
       setPhase("form");
     }
-  }, [buscarNaUrl, initialGame, queueUnavailable]);
+  }, [buscarNaUrl, initialGame]);
 
   const stopSearch = useCallback(() => {
     setError(null);
@@ -324,7 +319,7 @@ export function FilaClient() {
   }, [router, gameId]);
 
   useEffect(() => {
-    if (phase !== "searching" || queueUnavailable) return;
+    if (phase !== "searching") return;
 
     const auth = getFirebaseAuth();
     const uid = auth.currentUser?.uid;
@@ -393,7 +388,7 @@ export function FilaClient() {
       }
     });
 
-    const interval = setInterval(runJoin, 4000);
+    const interval = setInterval(runJoin, MATCHMAKING_RETRY_MS);
 
     return () => {
       cancelled = true;
@@ -401,7 +396,7 @@ export function FilaClient() {
       clearInterval(interval);
       void leaveAutoMatchQueue(gameId).catch(() => undefined);
     };
-  }, [phase, gameId, router, queueUnavailable]);
+  }, [phase, gameId, router]);
 
   const activeLabel = OPTIONS.find((x) => x.id === gameId)?.label ?? gameId;
   const activeCopy = queueCopy(gameId);
@@ -442,15 +437,6 @@ export function FilaClient() {
                 : activeCopy.summary}
             </p>
           </header>
-
-          {queueUnavailable ? (
-            <AlertBanner tone="error">
-              Fila 1v1 indisponível nesta configuração. Para o fluxo principal do projeto, use
-              emuladores locais com <code className="text-white/80">NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true</code>{" "}
-              e <code className="text-white/80">npm run emulators</code>, ou publique as Cloud
-              Functions na nuvem com <code className="text-white/80">NEXT_PUBLIC_SPARK_FREE_TIER=false</code>.
-            </AlertBanner>
-          ) : null}
 
           {error ? (
             <AlertBanner tone="error" className="text-sm">
@@ -528,7 +514,7 @@ export function FilaClient() {
                     variant="arena"
                     size="lg"
                     className="w-full"
-                    disabled={adBusy || queueUnavailable}
+                    disabled={adBusy}
                     onClick={() => {
                       setAdBusy(true);
                       void (async () => {
@@ -562,7 +548,6 @@ export function FilaClient() {
               currentGameId={switcherGameId}
               mode="queue"
               onSelect={(nextGameId) => {
-                if (queueUnavailable) return;
                 setError(null);
                 setGameId(nextGameId);
                 router.replace(
@@ -583,7 +568,6 @@ export function FilaClient() {
               size="lg"
               className="w-full"
               disabled={
-                queueUnavailable ||
                 (gameId === "ppt" && !pptCanEnterQueue) ||
                 (gameId === "quiz" && !quizCanEnterQueue) ||
                 (gameId === "reaction_tap" && !reactionCanEnterQueue)

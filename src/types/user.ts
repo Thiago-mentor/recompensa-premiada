@@ -37,7 +37,7 @@ export interface UserProfile {
   referralBonusGranted?: boolean;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
-  /** Timestamps de fim de cooldown por `gameId` (Functions / Spark). */
+  /** Timestamps de fim de cooldown por `gameId` (Cloud Functions). */
   gameCooldownUntil?: Record<string, Timestamp | unknown>;
   matchBurst?: { windowStart: Timestamp; count: number };
   /** Duelos PPT restantes antes de assistir anúncio (escrita só no servidor). */

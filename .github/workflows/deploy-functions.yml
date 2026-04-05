@@ -39,3 +39,5 @@ jobs:
         run: npx --yes firebase-tools@latest deploy --only functions --non-interactive
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FUNCTIONS_REGION: southamerica-east1
+          MULTIPLAYER_FUNCTIONS_MIN_INSTANCES: "0"

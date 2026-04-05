@@ -19,7 +19,7 @@ export interface GameDefinition {
   ordem: number;
 }
 
-/** `matches/{matchId}` — modelo alinhado ao backend (Functions / Spark). */
+/** `matches/{matchId}` — modelo alinhado ao backend (Cloud Functions). */
 export interface MatchRecord {
   id: string;
   gameId: GameId;

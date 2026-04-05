@@ -13,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { DailyRewardModalHost } from "@/components/dailyReward/DailyRewardModalHost";
 
 const nav = [
   { href: ROUTES.home, label: "Início", icon: Home },
@@ -28,6 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-[#070712] text-white">
       <main className="flex-1 pb-24 px-4 pt-4 max-w-lg mx-auto w-full">{children}</main>
+      <DailyRewardModalHost />
       <nav
         className="fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-[#0b0b18]/95 backdrop-blur-md safe-area-pb"
         aria-label="Principal"

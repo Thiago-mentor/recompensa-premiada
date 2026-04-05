@@ -23,7 +23,7 @@ export const firebaseConfig = {
 };
 
 export const firebaseFunctionsRegion =
-  process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION || "us-central1";
+  process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION || "southamerica-east1";
 
 /**
  * ID do banco Firestore no projeto (Console → Firestore → “Adicionar banco de dados”).
@@ -45,6 +45,40 @@ export const firebaseEmulatorPorts = {
 } as const;
 
 export const appCheckSiteKey = process.env.NEXT_PUBLIC_APPCHECK_SITE_KEY || "";
+
+/**
+ * `false` (padrão): `ReCaptchaEnterpriseProvider` — recomendado pelo Firebase para Web + AI Logic.
+ * `true`: `ReCaptchaV3Provider` — só se o app ainda estiver registrado no Console com reCAPTCHA v3 clássico.
+ */
+export const appCheckUseLegacyReCaptchaV3 =
+  process.env.NEXT_PUBLIC_APPCHECK_RECAPTCHA_LEGACY_V3 === "true";
+
+/**
+ * Tokens de uso limitado no `getAI` (prepara replay protection futura; pode adicionar latência).
+ * @see https://firebase.google.com/docs/ai-logic/app-check
+ */
+export const firebaseAiAppCheckLimitedUseTokens =
+  process.env.NEXT_PUBLIC_FIREBASE_AI_APP_CHECK_LIMITED_USE_TOKENS === "true";
+
+/**
+ * Provedor do Firebase AI Logic no cliente:
+ * - `vertex` — Vertex AI Gemini (fluxo “Vertex AI Gemini API” no Console: exige `aiplatform.googleapis.com` + `firebasevertexai.googleapis.com`)
+ * - `google` — Gemini Developer API (fluxo “Gemini Developer API” no Get started: exige `generativelanguage.googleapis.com` + `firebasevertexai.googleapis.com`)
+ *
+ * Padrão `vertex`: quem só concluiu o onboarding do Vertex no Console costuma não ter a API Developer ativa.
+ */
+export type FirebaseAiBackendKind = "google" | "vertex";
+
+export function getFirebaseAiBackend(): FirebaseAiBackendKind {
+  const raw = process.env.NEXT_PUBLIC_FIREBASE_AI_BACKEND?.trim().toLowerCase();
+  if (raw === "google") return "google";
+  if (raw === "vertex") return "vertex";
+  return "vertex";
+}
+
+/** Região Vertex usada pelo SDK (modelos estáveis costumam funcionar em `us-central1`). */
+export const firebaseVertexAiLocation =
+  process.env.NEXT_PUBLIC_VERTEX_AI_LOCATION?.trim() || "us-central1";
 
 export const rewardedAdMockEnabled = process.env.NEXT_PUBLIC_REWARDED_AD_MOCK !== "false";
 

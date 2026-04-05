@@ -40,7 +40,7 @@ export function JogosHubClient() {
 
         <motion.div
           variants={staggerContainer}
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+          className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3"
         >
           {GAME_CATALOG.map((g) => (
             <motion.div key={g.id} variants={staggerItem} className="h-full min-h-0">

@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
-import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
+import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import type { RewardClaim } from "@/types/reward";
 import { callFunction } from "@/services/callables/client";
-import { sparkReviewRewardClaim } from "@/services/spark/rewards";
 
 export default function AdminRecompensasPage() {
   const [rows, setRows] = useState<RewardClaim[]>([]);
@@ -26,20 +24,7 @@ export default function AdminRecompensasPage() {
 
   async function review(id: string, status: "aprovado" | "recusado") {
     try {
-      if (shouldUseSparkFallback()) {
-        const adminUid = getFirebaseAuth().currentUser?.uid;
-        if (!adminUid) {
-          window.alert("Sessão inválida. Faça login como admin.");
-          return;
-        }
-        const res = await sparkReviewRewardClaim({ adminUid, claimId: id, status });
-        if (!res.ok) {
-          window.alert(res.error ?? "Falha ao analisar o pedido.");
-          return;
-        }
-      } else {
-        await callFunction("reviewRewardClaim", { claimId: id, status });
-      }
+      await callFunction("reviewRewardClaim", { claimId: id, status });
       await refresh();
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Erro ao analisar.");

@@ -12,10 +12,12 @@ import {
 } from "firebase-admin/firestore";
 import {
   type GameId,
+  type GameRewardOverrideConfig,
   GAME_COOLDOWN_SEC,
   MAX_MATCHES_PER_MINUTE,
   resolveMatchEconomy,
 } from "./gameEconomy";
+import { normalizeStreakTable, resolveStreakRewardForDay } from "./streakEconomy";
 import { getQuizQuestionById, pickQuizQuestion } from "./quizQuestions";
 
 admin.initializeApp();
@@ -58,6 +60,22 @@ const REACTION_RESPONSE_MS_CAP = 9999;
 const REACTION_FALSE_START_MS = 9999;
 const REACTION_TIE_MS = 18;
 const PVP_ACTION_WINDOW_MS = 10_000;
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+const MULTIPLAYER_FUNCTIONS_REGION = process.env.FUNCTIONS_REGION?.trim() || "southamerica-east1";
+const MULTIPLAYER_FUNCTIONS_MIN_INSTANCES = readPositiveIntEnv(
+  "MULTIPLAYER_FUNCTIONS_MIN_INSTANCES",
+  0,
+);
+const MULTIPLAYER_CALLABLE_OPTS = {
+  region: MULTIPLAYER_FUNCTIONS_REGION,
+  minInstances: MULTIPLAYER_FUNCTIONS_MIN_INSTANCES,
+} as const;
 
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
@@ -285,6 +303,10 @@ async function assertAdmin(uid: string) {
 async function getEconomy() {
   const snap = await db.doc(`${COL.systemConfigs}/economy`).get();
   const d = snap.data() || {};
+  const rawOverrides =
+    d.matchRewardOverrides && typeof d.matchRewardOverrides === "object"
+      ? (d.matchRewardOverrides as Record<string, Record<string, unknown>>)
+      : {};
   return {
     rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
     dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
@@ -294,7 +316,37 @@ async function getEconomy() {
       typeof d.referralBonusIndicador === "number" ? d.referralBonusIndicador : 200,
     referralBonusConvidado:
       typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
+    matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
+    streakTable: normalizeStreakTable(d.streakTable),
   };
+}
+
+function normalizeRewardOverride(value: Record<string, unknown> | undefined): GameRewardOverrideConfig | undefined {
+  if (!value) return undefined;
+  const out: GameRewardOverrideConfig = {};
+  const keys: (keyof GameRewardOverrideConfig)[] = [
+    "winCoins",
+    "drawCoins",
+    "lossCoins",
+    "winRankingPoints",
+    "drawRankingPoints",
+    "lossRankingPoints",
+  ];
+  for (const key of keys) {
+    const n = Number(value[key]);
+    if (Number.isFinite(n) && n >= 0) {
+      out[key] = Math.floor(n);
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeMatchRewardOverrides(raw: Record<string, Record<string, unknown>>) {
+  return {
+    ppt: normalizeRewardOverride(raw.ppt),
+    quiz: normalizeRewardOverride(raw.quiz),
+    reaction_tap: normalizeRewardOverride(raw.reaction_tap),
+  } as Partial<Record<GameId, GameRewardOverrideConfig>>;
 }
 
 function dailyKey(d = new Date()) {
@@ -512,8 +564,9 @@ async function postPptMatchRankingFromWinner(
     metaBase.forfeit = true;
     metaBase.forfeitedBy = forfeitMeta.forfeitedByUid;
   }
-  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase);
-  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
+  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
   const [hSnap, gSnap] = await Promise.all([
     db.doc(`${COL.users}/${hostUid}`).get(),
     db.doc(`${COL.users}/${guestUid}`).get(),
@@ -724,8 +777,9 @@ async function applyQuizMatchCompletionInTransaction(
     quizFinalGuestScore: guestScore,
     responseTimeMs: guestResponseMs,
   };
-  const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta);
-  const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
+  const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
 
   const finishedTs = Timestamp.now();
   const mHost = db.collection(COL.matches).doc();
@@ -899,8 +953,9 @@ async function applyQuizForfeitInTransaction(
     forfeitedBy: forfeitedByUid,
     responseTimeMs: guestResponseMs,
   };
-  const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta);
-  const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
+  const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
 
   const finishedTs = Timestamp.now();
   const mHost = db.collection(COL.matches).doc();
@@ -1107,8 +1162,21 @@ async function applyReactionMatchCompletionInTransaction(
     falseStart: guestFalseStart,
     reactionWinner: winner,
   };
-  const ecoH = resolveMatchEconomy("reaction_tap", hostRes, 0, hostMeta);
-  const ecoG = resolveMatchEconomy("reaction_tap", guestRes, 0, guestMeta);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy(
+    "reaction_tap",
+    hostRes,
+    0,
+    hostMeta,
+    economyConfig.matchRewardOverrides,
+  );
+  const ecoG = resolveMatchEconomy(
+    "reaction_tap",
+    guestRes,
+    0,
+    guestMeta,
+    economyConfig.matchRewardOverrides,
+  );
 
   const finishedTs = Timestamp.now();
   const mHost = db.collection(COL.matches).doc();
@@ -1357,8 +1425,9 @@ async function applyPptForfeitInTransaction(
     forfeit: true,
     forfeitedBy: loserUid,
   };
-  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase);
-  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
+  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
 
   const finishedTs = Timestamp.now();
   const mHost = db.collection(COL.matches).doc();
@@ -1699,8 +1768,9 @@ async function applyPptRoundResultInTransaction(
     pptFinalGuestScore: newGuest,
     pptMatchWinner: matchWinner,
   };
-  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase);
-  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
+  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
 
   const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
   const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
@@ -1962,34 +2032,71 @@ export const processDailyLogin = onCall(async (request) => {
   else {
     const lastKey = dailyKey(last);
     if (lastKey === todayKey) {
-      return { streak, coins: 0, message: "already_checked_in" };
+      return {
+        streak,
+        coins: 0,
+        gems: 0,
+        tipoBonus: "nenhum",
+        message: "already_checked_in",
+        alreadyCheckedIn: true,
+      };
     }
     if (lastKey === yKey) streak += 1;
     else streak = 1;
   }
 
+  const reward = resolveStreakRewardForDay(streak, economy.streakTable, economy.dailyLoginBonus);
   const melhor = Math.max(Number(u.melhorStreak || 0), streak);
-  const newCoins = u.coins + economy.dailyLoginBonus;
+  const curCoins = Number(u.coins || 0);
+  const curGems = Number(u.gems || 0);
+  const newCoins = curCoins + reward.coins;
+  const newGems = curGems + reward.gems;
 
-  await userRef.update({
+  const patch: Record<string, unknown> = {
     streakAtual: streak,
     melhorStreak: melhor,
     ultimaEntradaEm: Timestamp.fromDate(now),
-    coins: FieldValue.increment(economy.dailyLoginBonus),
     atualizadoEm: FieldValue.serverTimestamp(),
-  });
+  };
+  if (reward.coins > 0) patch.coins = FieldValue.increment(reward.coins);
+  if (reward.gems > 0) patch.gems = FieldValue.increment(reward.gems);
 
-  await addWalletTx({
-    userId: uid,
-    tipo: "streak",
-    moeda: "coins",
-    valor: economy.dailyLoginBonus,
-    saldoApos: newCoins,
-    descricao: "Login diário / streak",
-    referenciaId: todayKey,
-  });
+  await userRef.update(patch);
 
-  return { streak, coins: economy.dailyLoginBonus };
+  if (reward.coins > 0) {
+    await addWalletTx({
+      userId: uid,
+      tipo: "streak",
+      moeda: "coins",
+      valor: reward.coins,
+      saldoApos: newCoins,
+      descricao:
+        reward.tipoBonus === "bau"
+          ? `Login diário · marco dia ${streak} (baú)`
+          : reward.tipoBonus === "especial"
+            ? `Login diário · marco dia ${streak} (especial)`
+            : "Login diário / streak",
+      referenciaId: todayKey,
+    });
+  }
+  if (reward.gems > 0) {
+    await addWalletTx({
+      userId: uid,
+      tipo: "streak",
+      moeda: "gems",
+      valor: reward.gems,
+      saldoApos: newGems,
+      descricao: "Login diário / streak (gems)",
+      referenciaId: todayKey,
+    });
+  }
+
+  return {
+    streak,
+    coins: reward.coins,
+    gems: reward.gems,
+    tipoBonus: reward.tipoBonus,
+  };
 });
 
 async function bumpWatchAdMissions(uid: string) {
@@ -2270,7 +2377,14 @@ export const finalizeMatch = onCall(async (request) => {
   const effectiveResult: "vitoria" | "derrota" | "empate" =
     gameId === "roleta" || gameId === "bau" ? "vitoria" : resultado;
 
-  const economy = resolveMatchEconomy(gameId, effectiveResult, clientScore, metadata);
+  const economyConfig = await getEconomy();
+  const economy = resolveMatchEconomy(
+    gameId,
+    effectiveResult,
+    clientScore,
+    metadata,
+    economyConfig.matchRewardOverrides,
+  );
   const cdSec = GAME_COOLDOWN_SEC[gameId] ?? 3;
   const cooldownUntil = Timestamp.fromMillis(now + cdSec * 1000);
 
@@ -2543,7 +2657,7 @@ function slotRef(uid: string) {
 }
 
 /** Fila automática 1v1: entra na fila e tenta emparelhar com o jogador mais antigo. */
-export const joinAutoMatch = onCall(async (request) => {
+export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const gameId = request.data?.gameId as GameId;
@@ -2680,7 +2794,7 @@ export const joinAutoMatch = onCall(async (request) => {
     });
   }
 
-  const snap = await coll.orderBy("joinedAt", "asc").limit(25).get();
+  const snap = await coll.orderBy("joinedAt", "asc").limit(2).get();
   const others = snap.docs.filter((d) => d.id !== uid);
   const partnerDoc = others[0];
   if (!partnerDoc) {
@@ -2833,7 +2947,7 @@ export const joinAutoMatch = onCall(async (request) => {
 
       tx.delete(selfW);
       tx.delete(pW);
-      const initialQuizQuestion = gameId === "quiz" ? pickQuizQuestion() : null;
+      const initialQuizQuestion = gameId === "quiz" ? await pickQuizQuestion() : null;
       const reactionGoLiveAt = gameId === "reaction_tap" ? nextReactionGoLiveAt() : null;
       const initialActionDeadlineAt =
         gameId === "reaction_tap" && reactionGoLiveAt
@@ -3075,7 +3189,7 @@ export const leaveAutoMatch = onCall(async (request) => {
  * PPT 1v1 na sala: melhor de N pontos (`PPT_MATCH_TARGET_POINTS`); empate não encerra.
  * Economia / ranking / matches só ao término da partida.
  */
-export const submitPptPick = onCall(async (request) => {
+export const submitPptPick = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();
@@ -3279,8 +3393,9 @@ export const submitPptPick = onCall(async (request) => {
     pptFinalHostScore: Number(fd.pptHostScore ?? 0),
     pptFinalGuestScore: Number(fd.pptGuestScore ?? 0),
   };
-  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase);
-  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase);
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
+  const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
 
   const [hSnap, gSnap] = await Promise.all([
     db.doc(`${COL.users}/${hostUid}`).get(),
@@ -3314,7 +3429,7 @@ export const submitPptPick = onCall(async (request) => {
   };
 });
 
-export const submitQuizAnswer = onCall(async (request) => {
+export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();
@@ -3352,7 +3467,7 @@ export const submitQuizAnswer = onCall(async (request) => {
     }
 
     const questionId = String(room.quizQuestionId ?? "");
-    const question = getQuizQuestionById(questionId);
+    const question = await getQuizQuestionById(questionId);
     if (!question) {
       throw new HttpsError("failed-precondition", "Questão da sala inválida.");
     }
@@ -3447,7 +3562,7 @@ export const submitQuizAnswer = onCall(async (request) => {
 
     tx.delete(otherAnswerRef);
 
-    const nextQuestion = pickQuizQuestion(Math.random, questionId);
+    const nextQuestion = await pickQuizQuestion(Math.random, questionId);
     tx.update(roomRef, {
       status: "playing",
       phase: "quiz_playing",
@@ -3500,7 +3615,7 @@ export const submitQuizAnswer = onCall(async (request) => {
   return result;
 });
 
-export const submitReactionTap = onCall(async (request) => {
+export const submitReactionTap = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();
@@ -3641,7 +3756,7 @@ export const submitReactionTap = onCall(async (request) => {
 });
 
 /** Desistência explícita ou sair da sala: quem chama perde; oponente vence (PPT/Quiz/Reaction). */
-export const forfeitPvpRoom = onCall(async (request) => {
+export const forfeitPvpRoom = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();
@@ -3829,7 +3944,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         return { kind: "noop" as const };
       }
       const questionId = String(r.quizQuestionId ?? "");
-      const question = getQuizQuestionById(questionId);
+      const question = await getQuizQuestionById(questionId);
       if (!question) {
         return { kind: "noop" as const };
       }
@@ -3846,7 +3961,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           });
           return { kind: "void" as const, gameId };
         }
-        const nextQuestion = pickQuizQuestion(Math.random, questionId);
+        const nextQuestion = await pickQuizQuestion(Math.random, questionId);
         tx.update(roomRef, {
           status: "playing",
           phase: "quiz_playing",
@@ -3908,7 +4023,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         tx.delete(answersColl.doc(guestUid));
         return { kind: "quiz_match" as const, ...out, hostResponseMs: hostResponse, guestResponseMs: guestResponse };
       }
-      const nextQuestion = pickQuizQuestion(Math.random, questionId);
+      const nextQuestion = await pickQuizQuestion(Math.random, questionId);
       tx.delete(answersColl.doc(hostUid));
       tx.delete(answersColl.doc(guestUid));
       tx.update(roomRef, {
@@ -4035,7 +4150,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
   return result;
 }
 
-export const resolvePvpRoomTimeout = onCall(async (request) => {
+export const resolvePvpRoomTimeout = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();
@@ -4048,7 +4163,7 @@ export const resolvePvpRoomTimeout = onCall(async (request) => {
 });
 
 /** Ping de presença na partida PPT; se o oponente ficar sem sinal, vitória por W.O. */
-export const pvpPptPresence = onCall(async (request) => {
+export const pvpPptPresence = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();

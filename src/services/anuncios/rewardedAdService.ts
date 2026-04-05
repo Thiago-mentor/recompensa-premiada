@@ -2,7 +2,6 @@
 
 import { rewardedAdMockEnabled } from "@/lib/firebase/config";
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import {
   PPT_DUEL_CHARGES_PER_AD,
   PPT_PVP_DUELS_PLACEMENT_ID,
@@ -16,7 +15,6 @@ import {
   REACTION_PVP_DUELS_PLACEMENT_ID,
 } from "@/lib/constants/reactionPvp";
 import { callFunction } from "@/services/callables/client";
-import { sparkProcessRewardedAd } from "@/services/spark/ads";
 
 const PLACEMENT_HOME = "home_rewarded";
 
@@ -61,10 +59,6 @@ export async function processRewardedAdOnServer(input: {
 }): Promise<ProcessRewardedAdServerResult> {
   const uid = getFirebaseAuth().currentUser?.uid;
   if (!uid) return { ok: false, error: "Faça login novamente." };
-
-  if (shouldUseSparkFallback()) {
-    return sparkProcessRewardedAd({ uid, placementId: input.placementId });
-  }
 
   try {
     const res = await callFunction<

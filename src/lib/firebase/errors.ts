@@ -1,5 +1,4 @@
 import { FirebaseError } from "firebase/app";
-import { shouldUseSparkFallback } from "./sparkMode";
 import { firebaseEmulatorHost, firebaseEmulatorPorts, useFirebaseEmulators } from "./config";
 
 /**
@@ -21,12 +20,6 @@ export function formatFirebaseError(e: unknown): string {
             `Deixe um terminal aberto na pasta recompensa-premiada com: npm run emulators — espere listar Functions em ${firebaseEmulatorHost}:${firebaseEmulatorPorts.functions} e a UI em http://127.0.0.1:4000.`,
             "Em outro terminal: npm run dev. Confirme NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true e reinicie o dev server após alterar o .env.",
             "Se o build das functions falhar no início do emulators, corrija os erros do TypeScript em functions/ antes de testar a fila.",
-          ].join(" ");
-        }
-        if (shouldUseSparkFallback()) {
-          return [
-            "Uma parte do app tentou usar Cloud Functions, mas este ambiente ainda está configurado para o fallback legado sem Functions.",
-            "Se o objetivo é usar o fluxo principal do projeto, mantenha NEXT_PUBLIC_SPARK_FREE_TIER=false ou ative os emuladores locais.",
           ].join(" ");
         }
         return [

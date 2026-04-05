@@ -10,7 +10,12 @@ import {
 } from "firebase/firestore";
 import { getStorage, connectStorageEmulator, type FirebaseStorage } from "firebase/storage";
 import { getFunctions, connectFunctionsEmulator, type Functions } from "firebase/functions";
-import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from "firebase/app-check";
+import {
+  initializeAppCheck,
+  ReCaptchaEnterpriseProvider,
+  ReCaptchaV3Provider,
+  type AppCheck,
+} from "firebase/app-check";
 import {
   firebaseConfig,
   firebaseEmulatorHost,
@@ -19,6 +24,7 @@ import {
   firestoreDatabaseId,
   useFirebaseEmulators,
   appCheckSiteKey,
+  appCheckUseLegacyReCaptchaV3,
   isFirebaseConfigured,
 } from "./config";
 
@@ -30,7 +36,7 @@ let functions: Functions | null = null;
 let appCheck: AppCheck | null = null;
 let analytics: Analytics | null = null;
 
-function getFirebaseApp(): FirebaseApp {
+export function getFirebaseApp(): FirebaseApp {
   if (!isFirebaseConfigured()) {
     throw new Error(
       "Firebase não configurado. Copie .env.example para .env.local e preencha as chaves.",
@@ -117,13 +123,17 @@ export function getFirebaseFunctions(): Functions {
 }
 
 /**
- * App Check (reCAPTCHA v3). Sem site key, não inicializa — configure no Console e em .env.local.
+ * App Check para Web. Padrão: reCAPTCHA Enterprise (recomendado para Firebase AI Logic).
+ * Defina NEXT_PUBLIC_APPCHECK_RECAPTCHA_LEGACY_V3=true se o app usar provider v3 no Console.
  */
 export function initFirebaseAppCheck(): AppCheck | null {
   if (typeof window === "undefined" || !appCheckSiteKey) return null;
   if (!appCheck) {
+    const provider = appCheckUseLegacyReCaptchaV3
+      ? new ReCaptchaV3Provider(appCheckSiteKey)
+      : new ReCaptchaEnterpriseProvider(appCheckSiteKey);
     appCheck = initializeAppCheck(getFirebaseApp(), {
-      provider: new ReCaptchaV3Provider(appCheckSiteKey),
+      provider,
       isTokenAutoRefreshEnabled: true,
     });
   }

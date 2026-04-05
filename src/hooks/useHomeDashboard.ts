@@ -4,10 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { listActiveMissions, subscribeUserDailyMissions } from "@/services/missoes/missionService";
 import { fetchTopRanking } from "@/services/ranking/rankingService";
+import { fetchEconomyStreakSlice, type EconomyStreakSlice } from "@/services/economy/economyStreakConfig";
 import { getDailyPeriodKey } from "@/utils/date";
+import {
+  getNextStreakMilestone,
+  resolveStreakRewardForDay,
+} from "@/utils/streakReward";
 import type { MissionCardModel } from "@/components/cards/MissionCard";
 import type { MissionTemplate, UserMissionProgress } from "@/types/mission";
 import type { RankingEntry } from "@/types/ranking";
+import type { StreakCardPreview } from "@/types/streakPreview";
 
 export function useHomeDashboard() {
   const { user, profile } = useAuth();
@@ -15,6 +21,7 @@ export function useHomeDashboard() {
   const [progressMap, setProgressMap] = useState<Record<string, UserMissionProgress>>({});
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [economyStreak, setEconomyStreak] = useState<EconomyStreakSlice | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +65,38 @@ export function useHomeDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const e = await fetchEconomyStreakSlice();
+        if (!cancelled) setEconomyStreak(e);
+      } catch {
+        if (!cancelled)
+          setEconomyStreak({ dailyLoginBonus: 50, streakTable: [] });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const streakCardPreview: StreakCardPreview | null = useMemo(() => {
+    if (!economyStreak) return null;
+    const streak = Math.max(0, profile?.streakAtual ?? 0);
+    const nextMilestone = getNextStreakMilestone(streak, economyStreak.streakTable);
+    const nextLoginReward = resolveStreakRewardForDay(
+      streak + 1,
+      economyStreak.streakTable,
+      economyStreak.dailyLoginBonus,
+    );
+    return {
+      nextMilestone,
+      nextLoginReward,
+      hasConfiguredMilestones: economyStreak.streakTable.length > 0,
+    };
+  }, [economyStreak, profile?.streakAtual]);
+
   const missionsMerged: MissionCardModel[] = useMemo(() => {
     return templates.map((t) => {
       const p = progressMap[t.id];
@@ -91,5 +130,6 @@ export function useHomeDashboard() {
     ranking,
     loadError,
     refreshRanking,
+    streakCardPreview,
   };
 }

@@ -43,7 +43,7 @@ export function RoletaGameScreen() {
       <div>
         <h1 className="text-xl font-bold text-white">Roleta de coins</h1>
         <p className="text-sm text-white/55">
-          A animação é só visual — o valor real vem da Cloud Function / modo Spark.
+          A animação é só visual — o valor real vem da Cloud Function.
         </p>
       </div>
       <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">

@@ -1,9 +1,7 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { shouldUseSparkFallback } from "@/lib/firebase/sparkMode";
 import { callFunction } from "@/services/callables/client";
-import { sparkFinalizeMatch } from "@/services/spark/matches";
 import type { GameId } from "@/types/game";
 
 export type FinalizeMatchInput = {
@@ -30,25 +28,6 @@ export async function finalizeMatchOnServer(input: FinalizeMatchInput): Promise<
   if (!uid) return { ok: false, error: "Faça login novamente." };
 
   const metadata = { ...(input.detalhes ?? {}), ...(input.metadata ?? {}) };
-
-  if (shouldUseSparkFallback()) {
-    const r = await sparkFinalizeMatch({
-      uid,
-      gameId: input.gameId,
-      resultado: input.resultado,
-      score: input.score,
-      metadata,
-      opponentId: input.opponentId,
-      startedAt: input.startedAt,
-    });
-    return r.ok
-      ? {
-          ok: true,
-          rewardCoins: r.rewardCoins,
-          rankingPoints: r.rankingPoints,
-        }
-      : { ok: false, error: r.error };
-  }
 
   try {
     const res = await callFunction<

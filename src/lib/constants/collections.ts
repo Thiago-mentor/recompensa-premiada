@@ -14,6 +14,7 @@ export const COLLECTIONS = {
   referrals: "referrals",
   fraudLogs: "fraud_logs",
   systemConfigs: "system_configs",
+  quizQuestions: "quiz_questions",
   announcements: "announcements",
   supportTickets: "support_tickets",
   /** Fila automática: `matchmaking_queue/{gameId}/waiting/{uid}` — só Functions */
