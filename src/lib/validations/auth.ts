@@ -7,10 +7,14 @@ export const loginEmailSchema = z.object({
 
 export const cadastroSchema = z
   .object({
-    nome: z.string().min(2, "Informe seu nome"),
+    nome: z
+      .string()
+      .min(2, "Informe seu nome")
+      .max(28, "No máximo 28 caracteres (melhor no celular e nas arenas)"),
     username: z
       .string()
       .min(3, "Mínimo 3 caracteres")
+      .max(24, "No máximo 24 caracteres")
       .regex(/^[a-z0-9_]+$/, "Apenas letras minúsculas, números e _"),
     email: z.string().email("E-mail inválido"),
     password: z.string().min(6, "Mínimo 6 caracteres"),

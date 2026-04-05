@@ -513,9 +513,12 @@ function ResultSummaryPanel({
           )}
         </div>
 
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-[1.4rem] border border-white/10 bg-black/25 p-3 sm:rounded-[1.7rem] sm:p-4">
-          <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.08] px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/70">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-[1.4rem] border border-white/10 bg-black/25 p-3 sm:gap-3 sm:rounded-[1.7rem] sm:p-4">
+          <div className="min-w-0 overflow-hidden rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.08] px-2 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:px-3">
+            <p
+              className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/70"
+              title={myName}
+            >
               {myName}
             </p>
             <p className="mt-1 font-mono text-4xl font-black text-cyan-300 drop-shadow-[0_0_18px_rgba(34,211,238,0.35)] sm:text-5xl">
@@ -529,8 +532,11 @@ function ResultSummaryPanel({
             </p>
             <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.22em] text-white/35">arena fechada</p>
           </div>
-          <div className="rounded-2xl border border-fuchsia-400/15 bg-fuchsia-500/[0.08] px-3 py-3 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-fuchsia-100/70">
+          <div className="min-w-0 overflow-hidden rounded-2xl border border-fuchsia-400/15 bg-fuchsia-500/[0.08] px-2 py-3 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:px-3">
+            <p
+              className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.18em] text-fuchsia-100/70"
+              title={opponentName}
+            >
               {opponentName}
             </p>
             <p className="mt-1 font-mono text-4xl font-black text-fuchsia-300 drop-shadow-[0_0_18px_rgba(217,70,239,0.35)] sm:text-5xl">

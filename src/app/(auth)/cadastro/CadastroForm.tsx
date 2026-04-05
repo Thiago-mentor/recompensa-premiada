@@ -102,6 +102,7 @@ export function CadastroForm() {
           </label>
           <input
             id="nome"
+            maxLength={28}
             className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white outline-none focus:border-violet-500"
             value={nome}
             onChange={(e) => setNome(e.target.value)}
@@ -114,6 +115,7 @@ export function CadastroForm() {
           <input
             id="username"
             autoComplete="username"
+            maxLength={24}
             className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white outline-none focus:border-violet-500"
             value={username}
             onChange={(e) => setUsername(e.target.value.toLowerCase())}
