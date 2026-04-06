@@ -562,12 +562,19 @@ function PlayerPillar({
   score,
   align,
   ringClass,
+  scoreLabel = "Placar",
+  progressRatio = 1,
+  detail,
 }: {
   nome: string;
   score: number;
   align: "left" | "right";
   ringClass: string;
+  scoreLabel?: string;
+  progressRatio?: number;
+  detail?: string | null;
 }) {
+  const progressPercent = Math.max(0, Math.min(100, progressRatio * 100));
   return (
     <div
       className={cn(
@@ -613,8 +620,9 @@ function PlayerPillar({
         />
       </div>
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45 sm:text-xs">
-        Placar
+        {scoreLabel}
       </p>
+      {detail ? <p className="text-[10px] text-white/40">{detail}</p> : null}
       <div
         className={cn(
           "hidden w-full max-w-[9rem] sm:block sm:max-w-[11rem]",
@@ -629,10 +637,79 @@ function PlayerPillar({
                 ? "bg-gradient-to-r from-cyan-300 to-sky-400"
                 : "bg-gradient-to-r from-fuchsia-300 to-violet-400",
             )}
-            style={{ width: "100%" }}
+            style={{ width: `${progressPercent}%` }}
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function FaceoffBoard({
+  myName,
+  oppName,
+  myScore,
+  oppScore,
+  target,
+  myDetail,
+  oppDetail,
+  centerCaption,
+  actionLabel,
+  actionBusy,
+  onAction,
+}: {
+  myName: string;
+  oppName: string;
+  myScore: number;
+  oppScore: number;
+  target: number;
+  myDetail?: string | null;
+  oppDetail?: string | null;
+  centerCaption: string;
+  actionLabel: string;
+  actionBusy: boolean;
+  onAction: () => void;
+}) {
+  const safeTarget = Math.max(1, target);
+  return (
+    <div className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1">
+      <PlayerPillar
+        nome={myName}
+        score={myScore}
+        align="left"
+        ringClass="border-cyan-400/50 bg-slate-950/80 shadow-[0_0_28px_-6px_rgba(34,211,238,0.4)]"
+        progressRatio={myScore / safeTarget}
+        detail={myDetail}
+      />
+
+      <div className="flex w-20 shrink-0 flex-col items-center justify-center self-center sm:w-24">
+        <span className="select-none bg-gradient-to-b from-amber-300 to-orange-500 bg-clip-text text-lg font-black italic text-transparent drop-shadow-[0_0_12px_rgba(251,191,36,0.35)] sm:text-xl">
+          VS
+        </span>
+        <span className="mt-1 text-[8px] font-bold uppercase tracking-[0.18em] text-white/35">
+          meta {target}
+        </span>
+        <span className="mt-1 text-center text-[8px] font-bold uppercase tracking-[0.16em] text-white/40">
+          {centerCaption}
+        </span>
+        <button
+          type="button"
+          className="mt-2 rounded-lg border border-red-400/25 bg-red-500/10 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-red-100"
+          disabled={actionBusy}
+          onClick={onAction}
+        >
+          {actionBusy ? "..." : actionLabel}
+        </button>
+      </div>
+
+      <PlayerPillar
+        nome={oppName}
+        score={oppScore}
+        align="right"
+        ringClass="border-fuchsia-400/40 bg-slate-950/80 shadow-[0_0_24px_-8px_rgba(217,70,239,0.25)]"
+        progressRatio={oppScore / safeTarget}
+        detail={oppDetail}
+      />
     </div>
   );
 }
@@ -868,6 +945,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const [timeoutPick, setTimeoutPick] = useState(false);
   const timeoutFiredRef = useRef(false);
   const pptSubmitLockedRef = useRef(false);
+  const reactionSubmitLockedRef = useRef(false);
   const matchDoneRef = useRef(false);
   const quizMatchFinalScrollRef = useRef<HTMLDivElement>(null);
   const prevQuizMatchDoneRef = useRef(false);
@@ -919,6 +997,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     quizTimeoutFiredRef.current = false;
     timeoutFiredRef.current = false;
     pptSubmitLockedRef.current = false;
+    reactionSubmitLockedRef.current = false;
     setRoundFlash(null);
     lastShownRoundFlashKeyRef.current = null;
     skipInitialRoundFlashRef.current = true;
@@ -940,6 +1019,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
     setQuizTimeoutAnswer(false);
     quizTimeoutFiredRef.current = false;
   }, [room?.quizQuestionId, room?.quizRound]);
+
+  useEffect(() => {
+    reactionSubmitLockedRef.current = false;
+    setReactionErr(null);
+    setReactionSending(false);
+  }, [room?.reactionRound, room?.reactionGoLiveAt, room?.reactionAnsweredUids]);
 
   useEffect(() => {
     const db = getFirebaseFirestore();
@@ -1040,7 +1125,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
   const submitReaction = useCallback(
     async (input: { falseStart: boolean; reactionMs: number }) => {
-      if (!uid || reactionSending) return;
+      if (!uid || reactionSending || reactionSubmitLockedRef.current) return;
+      reactionSubmitLockedRef.current = true;
       setReactionErr(null);
       setReactionSending(true);
       try {
@@ -1057,6 +1143,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
         if (msg.includes("Tempo da rodada esgotado")) {
           setReactionErr(null);
         } else {
+          reactionSubmitLockedRef.current = false;
           setReactionErr(msg);
         }
       } finally {
@@ -1576,6 +1663,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     showReactionPlay && reactionGoLiveAtMs != null ? Math.max(0, reactionGoLiveAtMs - reactionClock) : 0;
   const reactionSignalLive =
     showReactionPlay && reactionGoLiveAtMs != null && reactionClock >= reactionGoLiveAtMs;
+  const reactionInputReady = reactionSignalLive && !myReactionAnswered && !reactionSending && !matchDone;
   const reactionRoundTimeLeftMs =
     showReactionPlay && actionDeadlineAtMs != null ? Math.max(0, actionDeadlineAtMs - reactionClock) : 0;
   const reactionRoundExpired =
@@ -1662,7 +1750,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               }
             : {
                 title: "Reaction tap 1v1",
-                subtitle: "Espere o sinal. Queimar a largada pode entregar a vitória ao rival.",
+                subtitle: "Espere o sinal verde. Toques antecipados ficam bloqueados até a rodada liberar.",
               }
     : matchDone
       ? {
@@ -1723,7 +1811,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               <h1 className="bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-2xl">
                 {gameDisplayName(room.gameId)}
               </h1>
-              <p className="mt-1 hidden text-xs text-white/50 sm:block sm:text-sm">
+              <p className="mt-1 text-[11px] leading-relaxed text-white/50 sm:text-sm">
                 {battleCopy.subtitle}
               </p>
             </div>
@@ -1755,6 +1843,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 score={duelMyPts}
                 align="left"
                 ringClass="border-cyan-400/60 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(34,211,238,0.45)]"
+                progressRatio={duelMyPts / Math.max(1, duelTarget)}
               />
               <div className="relative flex shrink-0 flex-col items-center gap-0.5 px-1 sm:gap-1">
                 <div className="pointer-events-none absolute inset-0 rounded-full bg-amber-300/10 blur-xl" />
@@ -1784,6 +1873,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 score={duelOppPts}
                 align="right"
                 ringClass="border-fuchsia-400/55 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]"
+                progressRatio={duelOppPts / Math.max(1, duelTarget)}
               />
             </div>
             <div className="mt-3 flex flex-col items-center gap-2 rounded-xl border border-white/8 bg-black/20 p-2 sm:hidden">
@@ -1852,65 +1942,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
           </section>
           ) : null}
 
-          {isPpt && !matchDone ? (
-            <section className="hidden overflow-hidden rounded-[1.35rem] border border-amber-400/20 bg-gradient-to-br from-amber-950/35 via-slate-950/92 to-orange-950/25 p-3 shadow-[0_0_40px_-12px_rgba(251,191,36,0.18)] sm:block sm:rounded-[1.8rem] sm:p-5">
-              <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/45 to-transparent" />
-              <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-amber-200/80 sm:text-[10px] sm:tracking-[0.25em]">
-                    Placar ao vivo
-                  </p>
-                  <div className="mt-2 flex items-end gap-2 sm:mt-3 sm:gap-3">
-                    <span className="font-mono text-4xl font-black tabular-nums text-cyan-300 drop-shadow-[0_0_20px_rgba(34,211,238,0.35)] sm:text-6xl">
-                      {myPts}
-                    </span>
-                    <span className="pb-1 text-2xl font-black text-white/25 sm:pb-2 sm:text-3xl">:</span>
-                    <span className="font-mono text-4xl font-black tabular-nums text-fuchsia-300 drop-shadow-[0_0_20px_rgba(217,70,239,0.35)] sm:text-6xl">
-                      {oppPts}
-                    </span>
-                  </div>
-                  <div className="mt-2 grid gap-2 sm:mt-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-cyan-400/15 bg-cyan-500/8 p-2.5 sm:rounded-2xl sm:p-3">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">
-                        Sua barra
-                      </p>
-                      <div className="mt-2 h-2 rounded-full bg-white/8">
-                        <div
-                          className="h-2 rounded-full bg-gradient-to-r from-cyan-300 to-sky-400"
-                          style={{ width: `${Math.min(100, (myPts / target) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-fuchsia-400/15 bg-fuchsia-500/8 p-2.5 sm:rounded-2xl sm:p-3">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.28em] text-fuchsia-100/80">
-                        Pressao rival
-                      </p>
-                      <div className="mt-2 h-2 rounded-full bg-white/8">
-                        <div
-                          className="h-2 rounded-full bg-gradient-to-r from-fuchsia-300 to-violet-400"
-                          style={{ width: `${Math.min(100, (oppPts / target) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-[10px] text-white/45 sm:mt-3 sm:text-[11px]">
-                    Meta <span className="font-bold text-amber-200/90">{target}</span> pontos · empate
-                    nao pontua
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="danger"
-                size="lg"
-                className="mt-4 w-full border border-red-400/30 shadow-[0_0_24px_-6px_rgba(248,113,113,0.35)]"
-                disabled={forfeitBusy}
-                onClick={() => void confirmForfeit()}
-              >
-                {forfeitBusy ? "Desistindo…" : "Desistir — aceito derrota"}
-              </Button>
-            </section>
-          ) : null}
-
           {isPpt && matchDone && room.pptVoidBothInactive ? (
             <ResultSummaryPanel
               gameLabel="Pedra, papel e tesoura"
@@ -1935,7 +1966,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               opponentName={opponentNome}
               myScore={myPts}
               oppScore={oppPts}
-              primaryLine="Partida encerrada."
+              primaryLine={youWonMatch ? "Você fechou a série antes do rival." : "O adversário levou a melhor nesta série."}
               secondaryLine={null}
               tertiaryLine={null}
               rankingPoints={rewardSummary?.ranking}
@@ -1952,7 +1983,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               opponentName={opponentNome}
               myScore={myPts}
               oppScore={oppPts}
-              primaryLine="Partida encerrada."
+              primaryLine={youWonMatch ? "Você venceu no confronto final." : "O oponente confirmou a vantagem no confronto final."}
               secondaryLine={null}
               tertiaryLine={null}
             />
@@ -1969,7 +2000,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   opponentName={opponentNome}
                   myScore={myQuizPts}
                   oppScore={oppQuizPts}
-                  primaryLine="Partida encerrada."
+                  primaryLine="Conhecimento e timing definiram o placar final."
                   secondaryLine={null}
                   tertiaryLine={null}
                   rankingPoints={rewardSummary?.ranking}
@@ -2006,7 +2037,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               opponentName={opponentNome}
               myScore={myReactionPts}
               oppScore={oppReactionPts}
-              primaryLine="Partida encerrada."
+              primaryLine="O reflexo definiu a vitória no tempo certo."
               secondaryLine={null}
               tertiaryLine={null}
               rankingPoints={rewardSummary?.ranking}
@@ -2320,44 +2351,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 </div>
               </div>
 
-              <div className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1">
-                <PptPlayCardFrame tone="you" label={myDisplayName}>
-                  <div className="flex min-h-[4.8rem] flex-col items-center justify-center gap-1 py-0.5 text-center sm:min-h-[6rem] sm:gap-2 sm:py-1">
-                    <span className="font-mono text-2xl font-black text-cyan-200 sm:text-3xl">{myQuizPts}</span>
-                    <span className="text-[9px] font-bold uppercase tracking-wide text-white/55 sm:text-[10px]">
-                      {myQuizAnswered ? "Resposta enviada" : "Ainda decidindo"}
-                    </span>
-                  </div>
-                </PptPlayCardFrame>
-
-                <div className="flex w-20 shrink-0 flex-col items-center justify-center self-center sm:w-24">
-                  <span className="select-none bg-gradient-to-b from-amber-300 to-orange-500 bg-clip-text text-lg font-black italic text-transparent drop-shadow-[0_0_12px_rgba(251,191,36,0.35)] sm:text-xl">
-                    VS
-                  </span>
-                  <span className="mt-1 text-[8px] font-bold uppercase tracking-[0.18em] text-white/35">
-                    meta {quizTarget}
-                  </span>
-                  <button
-                    type="button"
-                    className="mt-2 rounded-lg border border-red-400/25 bg-red-500/10 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-red-100"
-                    disabled={forfeitBusy}
-                    onClick={() => void confirmForfeit()}
-                  >
-                    {forfeitBusy ? "..." : "Desistir"}
-                  </button>
-                </div>
-
-                <PptPlayCardFrame tone="opp" label={opponentNome}>
-                  <div className="flex min-h-[4.8rem] flex-col items-center justify-center gap-1 py-0.5 text-center sm:min-h-[6rem] sm:gap-2 sm:py-1">
-                    <span className="font-mono text-2xl font-black text-fuchsia-200 sm:text-3xl">
-                      {oppQuizPts}
-                    </span>
-                    <span className="text-[9px] font-bold uppercase tracking-wide text-white/55 sm:text-[10px]">
-                      {oppQuizStatusLabel}
-                    </span>
-                  </div>
-                </PptPlayCardFrame>
-              </div>
+              <FaceoffBoard
+                myName={myDisplayName}
+                oppName={opponentNome}
+                myScore={myQuizPts}
+                oppScore={oppQuizPts}
+                target={quizTarget}
+                myDetail={myQuizAnswered ? "Resposta enviada" : "Ainda decidindo"}
+                oppDetail={oppQuizStatusLabel}
+                centerCaption={quizRevealBlocking ? "rodada resolvida" : "quiz ao vivo"}
+                actionLabel="Desistir"
+                actionBusy={forfeitBusy}
+                onAction={() => void confirmForfeit()}
+              />
 
               <div className="space-y-4 border-t border-white/10 pt-3 sm:space-y-4 sm:pt-4">
                 {quizRevealBlocking ? (
@@ -2473,46 +2479,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 </div>
               </div>
 
-              <div className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1">
-                <PptPlayCardFrame tone="you" label={myDisplayName}>
-                  <div className="flex min-h-[4.8rem] flex-col items-center justify-center gap-1 py-0.5 text-center sm:min-h-[6rem] sm:gap-2 sm:py-1">
-                    <span className="font-mono text-2xl font-black text-emerald-200 sm:text-3xl">
-                      {myReactionAnswered ? `${myReactionMs ?? "—"}ms` : myReactionPts}
-                    </span>
-                    <span className="text-[9px] font-bold uppercase tracking-wide text-white/55 sm:text-[10px]">
-                      {myReactionAnswered ? "Seu tempo" : "Pontos"}
-                    </span>
-                  </div>
-                </PptPlayCardFrame>
-
-                <div className="flex w-20 shrink-0 flex-col items-center justify-center self-center sm:w-24">
-                  <span className="select-none bg-gradient-to-b from-amber-300 to-orange-500 bg-clip-text text-lg font-black italic text-transparent drop-shadow-[0_0_12px_rgba(251,191,36,0.35)] sm:text-xl">
-                    VS
-                  </span>
-                  <span className="mt-1 text-[8px] font-bold uppercase tracking-[0.18em] text-white/35">
-                    meta {reactionTarget}
-                  </span>
-                  <button
-                    type="button"
-                    className="mt-2 rounded-lg border border-red-400/25 bg-red-500/10 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-red-100"
-                    disabled={forfeitBusy}
-                    onClick={() => void confirmForfeit()}
-                  >
-                    {forfeitBusy ? "..." : "Desistir"}
-                  </button>
-                </div>
-
-                <PptPlayCardFrame tone="opp" label={opponentNome}>
-                  <div className="flex min-h-[4.8rem] flex-col items-center justify-center gap-1 py-0.5 text-center sm:min-h-[6rem] sm:gap-2 sm:py-1">
-                    <span className="font-mono text-2xl font-black text-cyan-200 sm:text-3xl">
-                      {oppReactionAnswered ? `${oppReactionMs ?? "—"}ms` : oppReactionPts}
-                    </span>
-                    <span className="text-[9px] font-bold uppercase tracking-wide text-white/55 sm:text-[10px]">
-                      {oppReactionAnswered ? "Tempo rival" : "Pontos"}
-                    </span>
-                  </div>
-                </PptPlayCardFrame>
-              </div>
+              <FaceoffBoard
+                myName={myDisplayName}
+                oppName={opponentNome}
+                myScore={myReactionPts}
+                oppScore={oppReactionPts}
+                target={reactionTarget}
+                myDetail={myReactionAnswered ? `${myReactionMs ?? "—"} ms` : "Pontos atuais"}
+                oppDetail={oppReactionAnswered ? `${oppReactionMs ?? "—"} ms` : "Aguardando toque"}
+                centerCaption={reactionSignalLive ? "sinal aberto" : "aguarde o verde"}
+                actionLabel="Desistir"
+                actionBusy={forfeitBusy}
+                onAction={() => void confirmForfeit()}
+              />
 
               {reactionHint ? (
                 <div
@@ -2535,9 +2514,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   <p className={cn("text-xs", reactionHeadline ? "mt-1 opacity-90" : "")}>{reactionHint}</p>
                 </div>
               ) : (
-                <p className="text-xs text-white/45">
-                  Toque antes do sinal e voce corre risco de perder por falso start.
-                </p>
+                  <p className="text-xs text-white/45">
+                    Aguarde a liberação da rodada. O toque só fica ativo quando o sinal abrir.
+                  </p>
               )}
 
               <div className="flex flex-wrap items-center gap-2">
@@ -2576,26 +2555,24 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
               <button
                 type="button"
-                disabled={reactionSending || myReactionAnswered || matchDone || reactionRoundExpired}
+                disabled={!reactionInputReady || reactionRoundExpired}
                 onClick={() => {
-                  const falseStart = !reactionSignalLive;
-                  const reactionMs = falseStart
-                    ? 9999
-                    : Math.max(
-                        1,
-                        Math.round(
-                          performance.now() -
-                            (reactionStartPerfRef.current ?? performance.now()),
-                        ),
-                      );
-                  void submitReaction({ falseStart, reactionMs });
+                  if (!reactionInputReady) return;
+                  const reactionMs = Math.max(
+                    1,
+                    Math.round(
+                      performance.now() -
+                        (reactionStartPerfRef.current ?? performance.now()),
+                    ),
+                  );
+                  void submitReaction({ falseStart: false, reactionMs });
                 }}
                 className={cn(
                   "w-full rounded-[1.35rem] border-2 py-10 text-xl font-black uppercase tracking-[0.22em] transition sm:rounded-[1.7rem] sm:py-14 sm:text-3xl",
-                  reactionSignalLive
+                  reactionInputReady
                     ? "border-emerald-300/70 bg-emerald-400 text-slate-950 shadow-[0_0_36px_-8px_rgba(52,211,153,0.55)]"
                     : "border-amber-400/35 bg-amber-500/15 text-amber-100 shadow-[0_0_30px_-10px_rgba(251,191,36,0.22)]",
-                  (reactionSending || myReactionAnswered || matchDone) &&
+                  (!reactionInputReady || reactionSending || myReactionAnswered || matchDone) &&
                     "pointer-events-none opacity-55",
                   reactionRoundExpired && "pointer-events-none opacity-55",
                 )}
@@ -2618,14 +2595,14 @@ export function SalaClient({ roomId }: { roomId: string }) {
             </AlertBanner>
           ) : null}
 
-          <footer className="flex flex-col gap-3 border-t border-white/10 pt-4">
-            <Link href={ROUTES.jogos}>
+          <footer className="grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+            <Link href={ROUTES.jogos} className="min-w-0">
               <Button
                 variant="secondary"
                 size="lg"
                 className="w-full border border-white/15 bg-white/[0.06] font-bold shadow-[0_0_24px_-12px_rgba(255,255,255,0.2)]"
               >
-                Voltar aos jogos
+                Voltar ao lobby
               </Button>
             </Link>
             <Link
@@ -2636,7 +2613,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 "shadow-[0_0_24px_-8px_rgba(217,70,239,0.35)] transition hover:border-fuchsia-400/50 hover:brightness-110 active:scale-[0.99]",
               )}
             >
-              Procurar outro adversário
+              Nova partida
             </Link>
           </footer>
         </div>

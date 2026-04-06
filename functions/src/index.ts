@@ -4031,7 +4031,6 @@ export const submitReactionTap = onCall(MULTIPLAYER_CALLABLE_OPTS, async (reques
   const uid = request.auth?.uid;
   assertAuthed(uid);
   const roomId = String(request.data?.roomId || "").trim();
-  const requestedFalseStart = request.data?.falseStart === true;
 
   if (!roomId) {
     throw new HttpsError("invalid-argument", "roomId obrigatório.");
@@ -4070,10 +4069,11 @@ export const submitReactionTap = onCall(MULTIPLAYER_CALLABLE_OPTS, async (reques
       throw new HttpsError("failed-precondition", "Tempo da rodada esgotado.");
     }
     const goLiveAtMs = millisFromFirestoreTime(room.reactionGoLiveAt);
-    const falseStart = requestedFalseStart || (goLiveAtMs > 0 && Date.now() < goLiveAtMs);
-    const reactionMs = falseStart
-      ? REACTION_FALSE_START_MS
-      : clampReactionResponseMs(request.data?.reactionMs);
+    if (goLiveAtMs > 0 && Date.now() < goLiveAtMs) {
+      throw new HttpsError("failed-precondition", "Aguardando sinal da rodada.");
+    }
+    const falseStart = false;
+    const reactionMs = clampReactionResponseMs(request.data?.reactionMs);
 
     const hostUid = String(room.hostUid);
     const guestUid = String(room.guestUid);

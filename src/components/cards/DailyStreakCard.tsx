@@ -39,23 +39,24 @@ export function DailyStreakCard({
       <div className="flex items-center gap-2 text-orange-200">
         <Flame className="h-6 w-6" />
         <div>
-          <p className="text-sm font-medium text-orange-100/90">Recompensa diária</p>
-          <p className="text-2xl font-bold text-white">Sequência: {streak} dias</p>
+          <p className="text-sm font-medium text-orange-100/90">Sequência diária</p>
+          <p className="text-2xl font-bold text-white">{streak} {streak === 1 ? "dia" : "dias"} ativos</p>
         </div>
       </div>
-      <p className="mt-2 text-xs text-white/55">
-        Colete <strong className="text-white/70">uma vez por dia</strong>. Dias seguidos mantêm a
-        sequência; pular um dia zera. Marcos com TICKET/baú vêm da configuração da economia.
+      <p className="mt-2 text-sm text-white/70">
+        Entre todo dia para manter a sequência e liberar bônus melhores.
       </p>
       {milestoneLine ? (
-        <p className="mt-2 text-xs leading-relaxed text-orange-100/75">{milestoneLine}</p>
+        <p className="mt-2 rounded-xl border border-orange-400/20 bg-orange-500/10 px-3 py-2 text-xs leading-relaxed text-orange-100/85">
+          {milestoneLine}
+        </p>
       ) : null}
       {nextLoginLine ? (
-        <p className="mt-1 text-xs leading-relaxed text-white/45">{nextLoginLine}</p>
+        <p className="mt-2 text-sm leading-relaxed text-emerald-200/90">{nextLoginLine}</p>
       ) : null}
       {claimedToday ? (
-        <p className="mt-2 rounded-lg border border-emerald-500/35 bg-emerald-950/40 px-3 py-2 text-xs leading-relaxed text-emerald-100/95">
-          Recompensa de hoje já coletada. Volte amanhã para manter a sequência.
+        <p className="mt-3 rounded-lg border border-emerald-500/35 bg-emerald-950/40 px-3 py-2 text-xs leading-relaxed text-emerald-100/95">
+          Check-in de hoje concluído. Volte amanhã para continuar acumulando.
         </p>
       ) : null}
       <Button
@@ -64,7 +65,7 @@ export function DailyStreakCard({
         onClick={onCheckIn}
         disabled={loading || claimedToday}
       >
-        {loading ? "Registrando…" : claimedToday ? "Já coletado hoje" : "Coletar recompensa de hoje"}
+        {loading ? "Registrando..." : claimedToday ? "Pronto por hoje" : "Coletar recompensa"}
       </Button>
     </div>
   );
