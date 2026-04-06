@@ -9,6 +9,16 @@ service firebase.storage {
         && request.resource.size < 3 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }
+
+    /** Comprovante de PIX — só admin envia; o app repassa a URL pública ao usuário via Firestore. */
+    match /reward_claim_comprovantes/{claimId}/{fileName} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if request.auth != null && request.auth.token.admin == true
+        && fileName.matches('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,120}$')
+        && request.resource.size < 5 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+    }
     match /{allPaths=**} {
       allow read, write: if false;
     }

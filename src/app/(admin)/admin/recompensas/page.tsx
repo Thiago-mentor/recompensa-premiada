@@ -1,11 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import type { RewardClaim, RewardClaimStatus } from "@/types/reward";
 import { callFunction } from "@/services/callables/client";
+import { ConfirmarPixRewardClaim } from "@/components/admin/ConfirmarPixRewardClaim";
+import {
+  cashPointsToBrl,
+  fetchCashPointsPerReal,
+  formatBrl,
+} from "@/services/economy/cashEconomyConfig";
 
 function tsToIso(v: unknown): string {
   if (v && typeof v === "object" && "toDate" in v && typeof (v as { toDate: () => Date }).toDate === "function") {
@@ -24,35 +30,50 @@ function csvEscape(s: string): string {
   return needs ? `"${doubled}"` : doubled;
 }
 
-function claimsToCsv(rows: RewardClaim[]): string {
+function claimsToCsv(
+  rows: RewardClaim[],
+  nomeByUid: Record<string, string>,
+  cashPointsPerReal: number,
+): string {
   const header = [
     "id",
+    "nomeUsuario",
     "userId",
     "tipo",
     "valorPontosCash",
+    "valorReaisEstimado",
     "chavePix",
     "status",
     "criadoEm",
     "atualizadoEm",
     "analisadoPor",
     "motivoRecusa",
+    "comprovanteUrl",
+    "confirmadoEm",
+    "confirmadoPor",
   ];
-  const lines = rows.map((r) =>
-    [
+  const lines = rows.map((r) => {
+    const brl = cashPointsToBrl(r.valor, cashPointsPerReal);
+    return [
       r.id,
+      nomeByUid[r.userId] ?? "",
       r.userId,
       r.tipo,
       String(r.valor),
+      brl.toFixed(2),
       r.chavePix ?? "",
       r.status,
       tsToIso(r.criadoEm),
       tsToIso(r.atualizadoEm),
       r.analisadoPor ?? "",
       r.motivoRecusa ?? "",
+      r.comprovanteUrl ?? "",
+      tsToIso(r.confirmadoEm),
+      r.confirmadoPor ?? "",
     ]
       .map((c) => csvEscape(String(c)))
-      .join(","),
-  );
+      .join(",");
+  });
   return "\uFEFF" + [header.join(","), ...lines].join("\r\n");
 }
 
@@ -92,23 +113,41 @@ function endOfLocalDay(ymd: string): number {
   return new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
 }
 
-function claimToExportRow(r: RewardClaim) {
+function claimToExportRow(
+  r: RewardClaim,
+  nomeByUid: Record<string, string>,
+  cashPointsPerReal: number,
+) {
+  const brl = cashPointsToBrl(r.valor, cashPointsPerReal);
   return {
     id: r.id,
+    nomeUsuario: nomeByUid[r.userId] ?? null,
     userId: r.userId,
     tipo: r.tipo,
     valorPontosCash: r.valor,
+    valorReaisEstimado: Number(brl.toFixed(2)),
     chavePix: r.chavePix ?? null,
     status: r.status,
     criadoEm: tsToIso(r.criadoEm) || null,
     atualizadoEm: tsToIso(r.atualizadoEm) || null,
     analisadoPor: r.analisadoPor ?? null,
     motivoRecusa: r.motivoRecusa ?? null,
+    comprovanteUrl: r.comprovanteUrl ?? null,
+    confirmadoEm: tsToIso(r.confirmadoEm) || null,
+    confirmadoPor: r.confirmadoPor ?? null,
   };
 }
 
-function claimsToJson(rows: RewardClaim[]): string {
-  return JSON.stringify(rows.map(claimToExportRow), null, 2);
+function claimsToJson(
+  rows: RewardClaim[],
+  nomeByUid: Record<string, string>,
+  cashPointsPerReal: number,
+): string {
+  return JSON.stringify(
+    rows.map((r) => claimToExportRow(r, nomeByUid, cashPointsPerReal)),
+    null,
+    2,
+  );
 }
 
 type FiltroStatus = "todos" | RewardClaimStatus;
@@ -119,13 +158,28 @@ export default function AdminRecompensasPage() {
   const [dataDe, setDataDe] = useState("");
   const [dataAte, setDataAte] = useState("");
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [nomeByUid, setNomeByUid] = useState<Record<string, string>>({});
+  const [cashPointsPerReal, setCashPointsPerReal] = useState(100);
 
   async function refresh() {
     const db = getFirebaseFirestore();
-    const snap = await getDocs(
-      query(collection(db, COLLECTIONS.rewardClaims), orderBy("criadoEm", "desc")),
+    const [snap, rate] = await Promise.all([
+      getDocs(query(collection(db, COLLECTIONS.rewardClaims), orderBy("criadoEm", "desc"))),
+      fetchCashPointsPerReal().catch(() => 100),
+    ]);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim);
+    setRows(list);
+    setCashPointsPerReal(rate);
+
+    const uids = [...new Set(list.map((r) => r.userId))];
+    const pairs = await Promise.all(
+      uids.map(async (uid) => {
+        const dref = await getDoc(doc(db, COLLECTIONS.users, uid));
+        const nome = dref.exists() ? String(dref.data()?.nome ?? "").trim() : "";
+        return [uid, nome || "—"] as const;
+      }),
     );
-    setRows(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim));
+    setNomeByUid(Object.fromEntries(pairs));
   }
 
   useEffect(() => {
@@ -173,7 +227,11 @@ export default function AdminRecompensasPage() {
       return;
     }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    downloadBlob(`pedidos-recompensas-${stamp}.csv`, claimsToCsv(filtrados), "text/csv;charset=utf-8");
+    downloadBlob(
+      `pedidos-recompensas-${stamp}.csv`,
+      claimsToCsv(filtrados, nomeByUid, cashPointsPerReal),
+      "text/csv;charset=utf-8",
+    );
   }
 
   function exportarJson() {
@@ -185,23 +243,28 @@ export default function AdminRecompensasPage() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     downloadBlob(
       `pedidos-recompensas-${stamp}.json`,
-      claimsToJson(filtrados),
+      claimsToJson(filtrados, nomeByUid, cashPointsPerReal),
       "application/json;charset=utf-8",
     );
   }
 
   async function copiarPedido(r: RewardClaim) {
+    const brl = cashPointsToBrl(r.valor, cashPointsPerReal);
+    const nome = nomeByUid[r.userId] ?? "—";
     const texto = [
       `ID: ${r.id}`,
-      `Usuário: ${r.userId}`,
+      `Nome: ${nome}`,
+      `Usuário (UID): ${r.userId}`,
       `Tipo: ${r.tipo}`,
       `Pontos CASH: ${r.valor}`,
+      `Estimativa em reais: ${formatBrl(brl)} (${cashPointsPerReal} pts ≈ R$ 1,00)`,
       `Chave PIX: ${r.chavePix ?? "(vazio)"}`,
       `Status: ${r.status}`,
       `Criado: ${tsToIso(r.criadoEm) || "—"}`,
       `Atualizado: ${tsToIso(r.atualizadoEm) || "—"}`,
       r.analisadoPor ? `Analisado por: ${r.analisadoPor}` : null,
       r.motivoRecusa ? `Motivo recusa: ${r.motivoRecusa}` : null,
+      r.comprovanteUrl ? `Comprovante: ${r.comprovanteUrl}` : null,
     ]
       .filter(Boolean)
       .join("\n");
@@ -220,7 +283,9 @@ export default function AdminRecompensasPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Recompensas · Pedidos</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Dados completos dos pedidos de resgate (PIX e outros) para análise e pagamento manual.
+            Dados completos dos pedidos de resgate (PIX e outros) para análise e pagamento manual. Valor em R$ usa a
+            taxa de <code className="text-slate-300">{cashPointsPerReal}</code> pts CASH por R$ 1,00 (
+            <code className="text-slate-300">system_configs/economy</code>).
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -233,7 +298,8 @@ export default function AdminRecompensasPage() {
             >
               <option value="todos">Todos</option>
               <option value="pendente">Pendentes</option>
-              <option value="aprovado">Aprovados</option>
+              <option value="aprovado">Aprovados (aguardando PIX)</option>
+              <option value="confirmado">PIX confirmados</option>
               <option value="recusado">Recusados</option>
             </select>
           </label>
@@ -314,14 +380,32 @@ export default function AdminRecompensasPage() {
               <div className="min-w-0 space-y-1 text-slate-200">
                 <p className="font-mono text-xs text-slate-500">ID {r.id}</p>
                 <p>
-                  <span className="text-slate-500">Usuário</span>{" "}
-                  <span className="break-all font-mono text-white">{r.userId}</span>
+                  <span className="text-slate-500">Nome</span>{" "}
+                  <strong className="text-white">{nomeByUid[r.userId] ?? "—"}</strong>
+                </p>
+                <p>
+                  <span className="text-slate-500">UID</span>{" "}
+                  <span className="break-all font-mono text-xs text-slate-400">{r.userId}</span>
                 </p>
                 <p>
                   <span className="text-slate-500">Tipo</span> {r.tipo} ·{" "}
                   <span className="text-slate-500">Pontos CASH</span>{" "}
                   <strong className="text-white">{r.valor}</strong>
                 </p>
+                <p>
+                  <span className="text-slate-500">Estimativa em reais</span>{" "}
+                  <strong className="text-emerald-300">{formatBrl(cashPointsToBrl(r.valor, cashPointsPerReal))}</strong>
+                  <span className="text-slate-500"> ({cashPointsPerReal} pts ≈ R$ 1,00)</span>
+                </p>
+                {r.retencaoAplicada ? (
+                  <p className="text-xs text-sky-200/80">
+                    CASH retido neste pedido — aprovar não debita de novo; recusar estorna ao usuário.
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-200/75">
+                    Pedido legado (sem retenção no envio) — aprovar debita o saldo; recusar não estorna.
+                  </p>
+                )}
                 <p className="break-all">
                   <span className="text-slate-500">Chave PIX</span>{" "}
                   <span className="text-emerald-200/95">{r.chavePix || "—"}</span>
@@ -334,12 +418,27 @@ export default function AdminRecompensasPage() {
                         ? "text-amber-300"
                         : r.status === "aprovado"
                           ? "text-emerald-400"
-                          : "text-rose-300"
+                          : r.status === "confirmado"
+                            ? "text-cyan-300"
+                            : "text-rose-300"
                     }
                   >
                     {r.status}
                   </strong>
                 </p>
+                {r.status === "confirmado" && r.comprovanteUrl ? (
+                  <p className="break-all text-xs">
+                    <span className="text-slate-500">Comprovante </span>
+                    <a
+                      href={r.comprovanteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan-300 hover:underline"
+                    >
+                      abrir link
+                    </a>
+                  </p>
+                ) : null}
                 <p className="text-xs text-slate-500">
                   Criado {tsToIso(r.criadoEm) || "—"} · Atualizado {tsToIso(r.atualizadoEm) || "—"}
                 </p>
@@ -375,6 +474,9 @@ export default function AdminRecompensasPage() {
                       Recusar
                     </button>
                   </span>
+                ) : null}
+                {r.status === "aprovado" ? (
+                  <ConfirmarPixRewardClaim claimId={r.id} onDone={() => refresh().catch(() => setRows([]))} />
                 ) : null}
               </div>
             </div>

@@ -10,6 +10,7 @@ export const CALLABLES = {
   processReferralReward: "processReferralReward",
   requestRewardClaim: "requestRewardClaim",
   reviewRewardClaim: "reviewRewardClaim",
+  confirmRewardClaimPix: "confirmRewardClaimPix",
   riskAnalysisOnUserEvent: "riskAnalysisOnUserEvent",
   initializeUserProfile: "initializeUserProfile",
   joinAutoMatch: "joinAutoMatch",

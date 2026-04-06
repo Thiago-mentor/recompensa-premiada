@@ -2582,7 +2582,7 @@ export const claimMissionReward = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
 export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
-  const valor = Number(request.data?.valor);
+  const valor = Math.floor(Number(request.data?.valor));
   const tipo = String(request.data?.tipo || "pix");
   const chavePix = String(request.data?.chavePix || "").trim();
   if (!Number.isFinite(valor) || valor <= 0 || !chavePix) {
@@ -2590,25 +2590,45 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   }
 
   const userRef = db.doc(`${COL.users}/${uid}`);
-  const uSnap = await userRef.get();
-  if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
-  const u = uSnap.data()!;
-  if (valor > Number(u.rewardBalance || 0)) {
-    throw new HttpsError("failed-precondition", "Saldo insuficiente.");
-  }
-
   const ref = db.collection(COL.rewardClaims).doc();
-  await ref.set({
-    id: ref.id,
+
+  await db.runTransaction(async (tx) => {
+    const uSnap = await tx.get(userRef);
+    if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
+    const u = uSnap.data()!;
+    const bal = Number(u.rewardBalance || 0);
+    if (valor > bal) {
+      throw new HttpsError("failed-precondition", "Saldo insuficiente.");
+    }
+    tx.update(userRef, {
+      rewardBalance: FieldValue.increment(-valor),
+      atualizadoEm: FieldValue.serverTimestamp(),
+    });
+    tx.set(ref, {
+      id: ref.id,
+      userId: uid,
+      valor,
+      tipo,
+      chavePix,
+      status: "pendente",
+      retencaoAplicada: true,
+      analisadoPor: null,
+      motivoRecusa: null,
+      criadoEm: FieldValue.serverTimestamp(),
+      atualizadoEm: FieldValue.serverTimestamp(),
+    });
+  });
+
+  const after = await userRef.get();
+  const saldoApos = Number(after.data()?.rewardBalance ?? 0);
+  await addWalletTx({
     userId: uid,
-    valor,
-    tipo,
-    chavePix,
-    status: "pendente",
-    analisadoPor: null,
-    motivoRecusa: null,
-    criadoEm: FieldValue.serverTimestamp(),
-    atualizadoEm: FieldValue.serverTimestamp(),
+    tipo: "resgate_pendente",
+    moeda: "rewardBalance",
+    valor: -valor,
+    saldoApos,
+    descricao: "Retenção para saque PIX (em análise)",
+    referenciaId: ref.id,
   });
 
   return { claimId: ref.id };
@@ -2705,41 +2725,129 @@ export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   if (c.status !== "pendente") throw new HttpsError("failed-precondition", "Já analisado.");
 
   const userRef = db.doc(`${COL.users}/${c.userId}`);
+  const valorN = Number(c.valor);
+  const retencao = c.retencaoAplicada === true;
 
   if (status === "aprovado") {
     await db.runTransaction(async (tx) => {
-      const uSnap = await tx.get(userRef);
-      const bal = Number(uSnap.data()?.rewardBalance || 0);
-      if (bal < Number(c.valor)) throw new HttpsError("failed-precondition", "Saldo alterado.");
-      tx.update(userRef, {
-        rewardBalance: FieldValue.increment(-Number(c.valor)),
-        atualizadoEm: FieldValue.serverTimestamp(),
-      });
-      tx.update(ref, {
-        status: "aprovado",
-        analisadoPor: uid,
-        atualizadoEm: FieldValue.serverTimestamp(),
-      });
+      const claimSnap = await tx.get(ref);
+      if (!claimSnap.exists) throw new HttpsError("not-found", "Pedido inexistente.");
+      const cur = claimSnap.data()!;
+      if (cur.status !== "pendente") throw new HttpsError("failed-precondition", "Já analisado.");
+      const comRetencao = cur.retencaoAplicada === true;
+
+      if (comRetencao) {
+        tx.update(ref, {
+          status: "aprovado",
+          analisadoPor: uid,
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+      } else {
+        const uSnap = await tx.get(userRef);
+        const bal = Number(uSnap.data()?.rewardBalance || 0);
+        if (bal < valorN) throw new HttpsError("failed-precondition", "Saldo alterado.");
+        tx.update(userRef, {
+          rewardBalance: FieldValue.increment(-valorN),
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+        tx.update(ref, {
+          status: "aprovado",
+          analisadoPor: uid,
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+      }
     });
-    const after = await userRef.get();
-    const saldoApos = Number(after.data()?.rewardBalance ?? 0);
-    await addWalletTx({
-      userId: c.userId,
-      tipo: "resgate",
-      moeda: "rewardBalance",
-      valor: -Number(c.valor),
-      saldoApos,
-      descricao: "Resgate aprovado",
-      referenciaId: claimId,
-    });
+    // Pedidos com retenção já têm extrato em `resgate_pendente`; não duplicar linha no aprove.
+    if (!retencao) {
+      const after = await userRef.get();
+      const saldoApos = Number(after.data()?.rewardBalance ?? 0);
+      await addWalletTx({
+        userId: c.userId,
+        tipo: "resgate",
+        moeda: "rewardBalance",
+        valor: -valorN,
+        saldoApos,
+        descricao: "Resgate aprovado",
+        referenciaId: claimId,
+      });
+    }
   } else {
-    await ref.update({
-      status: "recusado",
-      analisadoPor: uid,
-      motivoRecusa: String(request.data?.motivo || ""),
-      atualizadoEm: FieldValue.serverTimestamp(),
+    await db.runTransaction(async (tx) => {
+      const claimSnap = await tx.get(ref);
+      if (!claimSnap.exists) throw new HttpsError("not-found", "Pedido inexistente.");
+      const cur = claimSnap.data()!;
+      if (cur.status !== "pendente") throw new HttpsError("failed-precondition", "Já analisado.");
+      const comRetencao = cur.retencaoAplicada === true;
+
+      if (comRetencao) {
+        tx.update(userRef, {
+          rewardBalance: FieldValue.increment(valorN),
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+      }
+      tx.update(ref, {
+        status: "recusado",
+        analisadoPor: uid,
+        motivoRecusa: String(request.data?.motivo || ""),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
     });
+    if (retencao) {
+      const after = await userRef.get();
+      const saldoApos = Number(after.data()?.rewardBalance ?? 0);
+      await addWalletTx({
+        userId: c.userId,
+        tipo: "ajuste",
+        moeda: "rewardBalance",
+        valor: valorN,
+        saldoApos,
+        descricao: "Estorno CASH — saque recusado",
+        referenciaId: claimId,
+      });
+    }
   }
+
+  return { ok: true };
+});
+
+function isAllowedComprovanteUrl(raw: string): boolean {
+  const u = raw.trim();
+  if (u.length < 16 || u.length > 2048) return false;
+  if (!u.startsWith("https://")) return false;
+  try {
+    const parsed = new URL(u);
+    return parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Admin: após aprovar, envia URL do comprovante (upload no Storage pelo cliente) e marca como confirmado. */
+export const confirmRewardClaimPix = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+  await assertAdmin(uid);
+  const claimId = String(request.data?.claimId || "");
+  const comprovanteUrl = String(request.data?.comprovanteUrl || "").trim();
+  if (!claimId || !comprovanteUrl || !isAllowedComprovanteUrl(comprovanteUrl)) {
+    throw new HttpsError("invalid-argument", "claimId e comprovanteUrl (HTTPS) obrigatórios.");
+  }
+
+  const ref = db.doc(`${COL.rewardClaims}/${claimId}`);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Pedido inexistente.");
+  const c = snap.data()!;
+  if (c.status !== "aprovado") {
+    throw new HttpsError("failed-precondition", "Só é possível confirmar PIX de pedidos aprovados.");
+  }
+
+  await ref.update({
+    status: "confirmado",
+    comprovanteUrl,
+    confirmadoPor: uid,
+    confirmadoEm: FieldValue.serverTimestamp(),
+    atualizadoEm: FieldValue.serverTimestamp(),
+  });
 
   return { ok: true };
 });

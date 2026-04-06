@@ -19,6 +19,7 @@ const tipoLabel: Record<WalletTransaction["tipo"], string> = {
   referral: "Convite",
   ajuste: "Ajuste",
   resgate: "Resgate",
+  resgate_pendente: "Saque (retenção)",
   conversao: "Conversão",
 };
 
