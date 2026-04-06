@@ -138,10 +138,7 @@ export default function RecompensasPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Premiação</h1>
-          {profile?.nome ? (
-            <p className="mt-0.5 text-sm text-white/45">{profile.nome}</p>
-          ) : null}
+          <h1 className="text-2xl font-bold text-white">Saque PIX</h1>
         </div>
       </div>
 

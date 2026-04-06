@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 import { ROUTES } from "@/lib/constants/routes";
+import { BackButton } from "@/components/navigation/BackButton";
 import {
   Home,
   ListChecks,
@@ -26,9 +27,18 @@ const nav = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const showBackButton = pathname !== ROUTES.home;
+
   return (
     <div className="flex min-h-dvh flex-col bg-[#070712] text-white">
-      <main className="flex-1 pb-24 px-4 pt-4 max-w-lg mx-auto w-full">{children}</main>
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 pb-24 pt-4">
+        {showBackButton ? (
+          <div className="mb-4">
+            <BackButton fallbackHref={ROUTES.home} />
+          </div>
+        ) : null}
+        {children}
+      </main>
       <DailyRewardModalHost />
       <nav
         className="fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-[#0b0b18]/95 backdrop-blur-md safe-area-pb"

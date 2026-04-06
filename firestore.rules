@@ -96,7 +96,7 @@ service cloud.firestore {
     }
 
     match /quiz_questions/{id} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 

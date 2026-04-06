@@ -3,9 +3,29 @@
 import { useRef, useState } from "react";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { getFirebaseStorage } from "@/lib/firebase/client";
+import {
+  firebaseEmulatorHost,
+  firebaseEmulatorPorts,
+  useFirebaseEmulators,
+} from "@/lib/firebase/config";
 import { callFunction } from "@/services/callables/client";
 
 const MAX_BYTES = 5 * 1024 * 1024;
+
+function isAllowedComprovanteUrl(raw: string): boolean {
+  const value = raw.trim();
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "https:") return true;
+    if (!useFirebaseEmulators || parsed.protocol !== "http:") return false;
+    const samePort = parsed.port === String(firebaseEmulatorPorts.storage);
+    const allowedHosts = new Set(["127.0.0.1", "localhost", firebaseEmulatorHost]);
+    return samePort && allowedHosts.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
 
 export function ConfirmarPixRewardClaim({ claimId, onDone }: { claimId: string; onDone: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24,22 +44,24 @@ export function ConfirmarPixRewardClaim({ claimId, onDone }: { claimId: string; 
       setErr("Use imagem ou PDF.");
       return;
     }
+    if (!claimId) {
+      setErr("claimId é obrigatório.");
+      return;
+    }
+
     setErr(null);
     setBusy(true);
-    if (!claimId) {
-      return setErr("claimId é obrigatório.");
-    }
-    
     try {
       const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
       const path = `reward_claim_comprovantes/${claimId}/${Date.now()}_${safe}`;
       const storageRef = ref(getFirebaseStorage(), path);
       await uploadBytes(storageRef, file, { contentType: file.type });
       const url = await getDownloadURL(storageRef);
-      if (!url.startsWith("https://")) {
-      return setErr("Comprovante deve ser uma URL HTTPS.");
-    }
-    await callFunction("confirmRewardClaimPix", { claimId, comprovanteUrl: url });
+      if (!isAllowedComprovanteUrl(url)) {
+        setErr("Nao foi possivel obter uma URL valida do comprovante.");
+        return;
+      }
+      await callFunction("confirmRewardClaimPix", { claimId, comprovanteUrl: url });
       onDone();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Falha ao enviar.");

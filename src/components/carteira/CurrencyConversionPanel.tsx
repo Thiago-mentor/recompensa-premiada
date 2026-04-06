@@ -478,9 +478,8 @@ export function CurrencyConversionPanel({
         </div>
 
         <p className="mt-6 text-center text-[11px] leading-relaxed text-white/35">
-          CASH (pontos) não entra nesta troca — use a área{" "}
-          <span className="text-white/50">Premiação</span> para resgate. Cada conversão gera lançamentos no
-          extrato.
+          CASH (pontos) não entra nesta troca — use a área <span className="text-white/50">Saque Pix</span> para
+          resgate. Cada conversão gera lançamentos no extrato.
         </p>
       </div>
     </section>

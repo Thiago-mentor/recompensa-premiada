@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
+const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
@@ -112,13 +113,18 @@ function readPositiveIntEnv(name, fallback) {
 }
 const MULTIPLAYER_FUNCTIONS_REGION = process.env.FUNCTIONS_REGION?.trim() || "southamerica-east1";
 const MULTIPLAYER_FUNCTIONS_MIN_INSTANCES = readPositiveIntEnv("MULTIPLAYER_FUNCTIONS_MIN_INSTANCES", 0);
+const APP_CHECK_ENFORCED = process.env.ENFORCE_APP_CHECK === "true" &&
+    process.env.FUNCTIONS_EMULATOR !== "true" &&
+    !process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const MULTIPLAYER_CALLABLE_OPTS = {
     region: MULTIPLAYER_FUNCTIONS_REGION,
     minInstances: MULTIPLAYER_FUNCTIONS_MIN_INSTANCES,
+    enforceAppCheck: APP_CHECK_ENFORCED,
 };
 /** Callables gerais (perfil, login, etc.) — mesma região do cliente (`NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION`). */
 const DEFAULT_CALLABLE_OPTS = {
     region: MULTIPLAYER_FUNCTIONS_REGION,
+    enforceAppCheck: APP_CHECK_ENFORCED,
 };
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
@@ -139,6 +145,19 @@ const REACTION_DUEL_CHARGES_PER_AD = 3;
 const REACTION_DUEL_CHARGES_MAX_STACK = 30;
 const REACTION_DUEL_TIME_REFILL_MS = 10 * 60 * 1000;
 const REACTION_PVP_DUELS_PLACEMENT_ID = "reaction_pvp_duels";
+const HOME_REWARDED_PLACEMENT_ID = "home_rewarded";
+const ALLOWED_REWARDED_AD_PLACEMENTS = new Set([
+    HOME_REWARDED_PLACEMENT_ID,
+    PPT_PVP_DUELS_PLACEMENT_ID,
+    QUIZ_PVP_DUELS_PLACEMENT_ID,
+    REACTION_PVP_DUELS_PLACEMENT_ID,
+]);
+const REWARDED_AD_MOCK_PREFIX = "mock_";
+const REWARDED_AD_TOKEN_MIN_LEN = 16;
+const REWARDED_AD_TOKEN_MAX_LEN = 256;
+const rewardAdMockAllowed = process.env.ALLOW_REWARDED_AD_MOCK === "true" ||
+    process.env.FUNCTIONS_EMULATOR === "true" ||
+    Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
 function readPptDuelCharges(data) {
     if (!data)
         return PPT_DEFAULT_DUEL_CHARGES;
@@ -426,6 +445,38 @@ async function addWalletTx(input) {
         referenciaId: input.referenciaId ?? null,
         criadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
+}
+function hashId(...parts) {
+    return (0, node_crypto_1.createHash)("sha256").update(parts.join("|")).digest("hex").slice(0, 32);
+}
+function addWalletTxInTx(tx, input) {
+    tx.set(db.doc(`${COL.wallet}/${input.id}`), {
+        userId: input.userId,
+        tipo: input.tipo,
+        moeda: input.moeda,
+        valor: input.valor,
+        saldoApos: input.saldoApos,
+        descricao: input.descricao,
+        referenciaId: input.referenciaId ?? null,
+        criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+}
+function parseRewardedAdCompletionToken(raw) {
+    const token = String(raw ?? "").trim();
+    if (!token) {
+        throw new https_1.HttpsError("invalid-argument", "Token de conclusão do anúncio é obrigatório.");
+    }
+    if (token.length < REWARDED_AD_TOKEN_MIN_LEN || token.length > REWARDED_AD_TOKEN_MAX_LEN) {
+        throw new https_1.HttpsError("invalid-argument", "Token de anúncio inválido.");
+    }
+    const isMock = token.startsWith(REWARDED_AD_MOCK_PREFIX);
+    if (isMock && !rewardAdMockAllowed) {
+        throw new https_1.HttpsError("failed-precondition", "Mock de anúncio desabilitado neste ambiente.");
+    }
+    if (!isMock) {
+        throw new https_1.HttpsError("failed-precondition", "Provedor real de anúncio ainda não configurado no servidor. Use mock apenas em ambiente controlado.");
+    }
+    return { token, isMock };
 }
 function millisFromCooldownField(v) {
     if (v == null)
@@ -1730,87 +1781,91 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
     assertAuthed(uid);
     const economy = await getEconomy();
     const userRef = db.doc(`${COL.users}/${uid}`);
-    const snap = await userRef.get();
-    if (!snap.exists)
-        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-    const u = snap.data();
-    if (u.banido)
-        throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
     const now = new Date();
-    const last = u.ultimaEntradaEm?.toDate?.();
     const todayKey = dailyKey(now);
     const yesterday = new Date(now);
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);
     const yKey = dailyKey(yesterday);
-    let streak = Number(u.streakAtual || 0);
-    if (!last)
-        streak = 1;
-    else {
-        const lastKey = dailyKey(last);
-        if (lastKey === todayKey) {
-            return {
-                streak,
-                coins: 0,
-                gems: 0,
-                tipoBonus: "nenhum",
-                message: "already_checked_in",
-                alreadyCheckedIn: true,
-            };
-        }
-        if (lastKey === yKey)
-            streak += 1;
-        else
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        if (!snap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const u = snap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const last = u.ultimaEntradaEm?.toDate?.();
+        let streak = Number(u.streakAtual || 0);
+        if (!last)
             streak = 1;
-    }
-    const reward = (0, streakEconomy_1.resolveStreakRewardForDay)(streak, economy.streakTable, economy.dailyLoginBonus);
-    const melhor = Math.max(Number(u.melhorStreak || 0), streak);
-    const curCoins = Number(u.coins || 0);
-    const curGems = Number(u.gems || 0);
-    const newCoins = curCoins + reward.coins;
-    const newGems = curGems + reward.gems;
-    const patch = {
-        streakAtual: streak,
-        melhorStreak: melhor,
-        ultimaEntradaEm: firestore_2.Timestamp.fromDate(now),
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-    };
-    if (reward.coins > 0)
-        patch.coins = firestore_2.FieldValue.increment(reward.coins);
-    if (reward.gems > 0)
-        patch.gems = firestore_2.FieldValue.increment(reward.gems);
-    await userRef.update(patch);
-    if (reward.coins > 0) {
-        await addWalletTx({
-            userId: uid,
-            tipo: "streak",
-            moeda: "coins",
-            valor: reward.coins,
-            saldoApos: newCoins,
-            descricao: reward.tipoBonus === "bau"
-                ? `Login diário · marco dia ${streak} (baú)`
-                : reward.tipoBonus === "especial"
-                    ? `Login diário · marco dia ${streak} (especial)`
-                    : "Login diário / streak",
-            referenciaId: todayKey,
-        });
-    }
-    if (reward.gems > 0) {
-        await addWalletTx({
-            userId: uid,
-            tipo: "streak",
-            moeda: "gems",
-            valor: reward.gems,
-            saldoApos: newGems,
-            descricao: "Login diário / streak (TICKET)",
-            referenciaId: todayKey,
-        });
-    }
-    return {
-        streak,
-        coins: reward.coins,
-        gems: reward.gems,
-        tipoBonus: reward.tipoBonus,
-    };
+        else {
+            const lastKey = dailyKey(last);
+            if (lastKey === todayKey) {
+                return {
+                    streak,
+                    coins: 0,
+                    gems: 0,
+                    tipoBonus: "nenhum",
+                    message: "already_checked_in",
+                    alreadyCheckedIn: true,
+                };
+            }
+            if (lastKey === yKey)
+                streak += 1;
+            else
+                streak = 1;
+        }
+        const reward = (0, streakEconomy_1.resolveStreakRewardForDay)(streak, economy.streakTable, economy.dailyLoginBonus);
+        const melhor = Math.max(Number(u.melhorStreak || 0), streak);
+        const curCoins = Number(u.coins || 0);
+        const curGems = Number(u.gems || 0);
+        const newCoins = curCoins + reward.coins;
+        const newGems = curGems + reward.gems;
+        const patch = {
+            streakAtual: streak,
+            melhorStreak: melhor,
+            ultimaEntradaEm: firestore_2.Timestamp.fromDate(now),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        };
+        if (reward.coins > 0)
+            patch.coins = firestore_2.FieldValue.increment(reward.coins);
+        if (reward.gems > 0)
+            patch.gems = firestore_2.FieldValue.increment(reward.gems);
+        tx.update(userRef, patch);
+        if (reward.coins > 0) {
+            addWalletTxInTx(tx, {
+                id: `streak_${uid}_${todayKey}_coins`,
+                userId: uid,
+                tipo: "streak",
+                moeda: "coins",
+                valor: reward.coins,
+                saldoApos: newCoins,
+                descricao: reward.tipoBonus === "bau"
+                    ? `Login diário · marco dia ${streak} (baú)`
+                    : reward.tipoBonus === "especial"
+                        ? `Login diário · marco dia ${streak} (especial)`
+                        : "Login diário / streak",
+                referenciaId: todayKey,
+            });
+        }
+        if (reward.gems > 0) {
+            addWalletTxInTx(tx, {
+                id: `streak_${uid}_${todayKey}_gems`,
+                userId: uid,
+                tipo: "streak",
+                moeda: "gems",
+                valor: reward.gems,
+                saldoApos: newGems,
+                descricao: "Login diário / streak (TICKET)",
+                referenciaId: todayKey,
+            });
+        }
+        return {
+            streak,
+            coins: reward.coins,
+            gems: reward.gems,
+            tipoBonus: reward.tipoBonus,
+        };
+    });
 });
 async function bumpWatchAdMissions(uid) {
     const missionsSnap = await db
@@ -1841,180 +1896,106 @@ async function bumpWatchAdMissions(uid) {
 exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
-    const placementId = String(request.data?.placementId || "default");
-    const mockToken = request.data?.mockCompletionToken
-        ? String(request.data.mockCompletionToken)
-        : null;
+    const placementId = String(request.data?.placementId || "").trim();
+    if (!ALLOWED_REWARDED_AD_PLACEMENTS.has(placementId)) {
+        throw new https_1.HttpsError("invalid-argument", "placementId inválido.");
+    }
+    const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken);
     const economy = await getEconomy();
     const userRef = db.doc(`${COL.users}/${uid}`);
-    const uSnap = await userRef.get();
-    if (!uSnap.exists)
-        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-    const u = uSnap.data();
-    if (u.banido)
-        throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
-    const start = new Date();
-    start.setUTCHours(0, 0, 0, 0);
-    const adsToday = await db
-        .collection(COL.adEvents)
-        .where("userId", "==", uid)
-        .where("status", "==", "recompensado")
-        .where("criadoEm", ">=", firestore_2.Timestamp.fromDate(start))
-        .get();
-    if (adsToday.size >= economy.limiteDiarioAds) {
-        throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
-    }
-    if (!mockToken) {
-        throw new https_1.HttpsError("failed-precondition", "Token de conclusão obrigatório fora do modo mock.");
-    }
+    const tokenHash = hashId(uid, placementId, completionToken);
+    const adRef = db.doc(`${COL.adEvents}/${tokenHash}`);
+    const today = dailyKey();
     const isPptDuels = placementId === PPT_PVP_DUELS_PLACEMENT_ID;
     const isQuizDuels = placementId === QUIZ_PVP_DUELS_PLACEMENT_ID;
     const isReactionDuels = placementId === REACTION_PVP_DUELS_PLACEMENT_ID;
-    if (isPptDuels) {
-        const adRef = db.collection(COL.adEvents).doc();
-        const { capped, added } = await db.runTransaction(async (tx) => {
-            const rs = await tx.get(userRef);
-            if (!rs.exists) {
-                throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-            }
-            const raw = rs.data();
-            if (raw.banido) {
-                throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
-            }
-            const cur = readPptDuelCharges(raw);
+    const result = await db.runTransaction(async (tx) => {
+        const [uSnap, existingAdSnap] = await Promise.all([tx.get(userRef), tx.get(adRef)]);
+        if (!uSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        if (existingAdSnap.exists) {
+            throw new https_1.HttpsError("already-exists", "Este anúncio já foi processado.");
+        }
+        const u = uSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const currentDayKey = String(u.rewardedAdsDayKey || "");
+        const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
+        if (currentCount >= economy.limiteDiarioAds) {
+            throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
+        }
+        const userPatch = {
+            rewardedAdsDayKey: today,
+            rewardedAdsCount: currentCount + 1,
+            totalAdsAssistidos: firestore_2.FieldValue.increment(1),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        };
+        tx.set(adRef, {
+            id: adRef.id,
+            userId: uid,
+            status: "recompensado",
+            placementId,
+            rewardKind: isPptDuels
+                ? "ppt_pvp_duels"
+                : isQuizDuels
+                    ? "quiz_pvp_duels"
+                    : isReactionDuels
+                        ? "reaction_pvp_duels"
+                        : "coins",
+            mock: isMock,
+            tokenHash,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        if (isPptDuels) {
+            const cur = readPptDuelCharges(u);
             const cappedNext = Math.min(PPT_DUEL_CHARGES_MAX_STACK, cur + PPT_DUEL_CHARGES_PER_AD);
             const addedDuels = cappedNext - cur;
-            tx.set(adRef, {
-                id: adRef.id,
-                userId: uid,
-                status: "recompensado",
-                placementId,
-                rewardKind: "ppt_pvp_duels",
-                mock: true,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            tx.update(userRef, {
-                pptPvPDuelsRemaining: cappedNext,
-                pptPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
-                totalAdsAssistidos: firestore_2.FieldValue.increment(1),
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            return { capped: cappedNext, added: addedDuels };
-        });
-        await bumpWatchAdMissions(uid);
-        return {
-            coins: 0,
-            pptPvPDuelsAdded: added,
-            pptPvPDuelsRemaining: capped,
-        };
-    }
-    if (isQuizDuels) {
-        const adRef = db.collection(COL.adEvents).doc();
-        const { capped, added } = await db.runTransaction(async (tx) => {
-            const rs = await tx.get(userRef);
-            if (!rs.exists) {
-                throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-            }
-            const raw = rs.data();
-            if (raw.banido) {
-                throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
-            }
-            const cur = readQuizDuelCharges(raw);
+            userPatch.pptPvPDuelsRemaining = cappedNext;
+            userPatch.pptPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
+            tx.update(userRef, userPatch);
+            return { coins: 0, pptPvPDuelsAdded: addedDuels, pptPvPDuelsRemaining: cappedNext };
+        }
+        if (isQuizDuels) {
+            const cur = readQuizDuelCharges(u);
             const cappedNext = Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, cur + QUIZ_DUEL_CHARGES_PER_AD);
             const addedDuels = cappedNext - cur;
-            tx.set(adRef, {
-                id: adRef.id,
-                userId: uid,
-                status: "recompensado",
-                placementId,
-                rewardKind: "quiz_pvp_duels",
-                mock: true,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            tx.update(userRef, {
-                quizPvPDuelsRemaining: cappedNext,
-                quizPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
-                totalAdsAssistidos: firestore_2.FieldValue.increment(1),
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            return { capped: cappedNext, added: addedDuels };
-        });
-        await bumpWatchAdMissions(uid);
-        return {
-            coins: 0,
-            quizPvPDuelsAdded: added,
-            quizPvPDuelsRemaining: capped,
-        };
-    }
-    if (isReactionDuels) {
-        const adRef = db.collection(COL.adEvents).doc();
-        const { capped, added } = await db.runTransaction(async (tx) => {
-            const rs = await tx.get(userRef);
-            if (!rs.exists) {
-                throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-            }
-            const raw = rs.data();
-            if (raw.banido) {
-                throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
-            }
-            const cur = readReactionDuelCharges(raw);
+            userPatch.quizPvPDuelsRemaining = cappedNext;
+            userPatch.quizPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
+            tx.update(userRef, userPatch);
+            return { coins: 0, quizPvPDuelsAdded: addedDuels, quizPvPDuelsRemaining: cappedNext };
+        }
+        if (isReactionDuels) {
+            const cur = readReactionDuelCharges(u);
             const cappedNext = Math.min(REACTION_DUEL_CHARGES_MAX_STACK, cur + REACTION_DUEL_CHARGES_PER_AD);
             const addedDuels = cappedNext - cur;
-            tx.set(adRef, {
-                id: adRef.id,
-                userId: uid,
-                status: "recompensado",
-                placementId,
-                rewardKind: "reaction_pvp_duels",
-                mock: true,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            tx.update(userRef, {
+            userPatch.reactionPvPDuelsRemaining = cappedNext;
+            userPatch.reactionPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
+            tx.update(userRef, userPatch);
+            return {
+                coins: 0,
+                reactionPvPDuelsAdded: addedDuels,
                 reactionPvPDuelsRemaining: cappedNext,
-                reactionPvpDuelsRefillAvailableAt: firestore_2.FieldValue.delete(),
-                totalAdsAssistidos: firestore_2.FieldValue.increment(1),
-                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-            return { capped: cappedNext, added: addedDuels };
+            };
+        }
+        const coins = economy.rewardAdCoinAmount;
+        const newCoins = Number(u.coins ?? 0) + coins;
+        userPatch.coins = firestore_2.FieldValue.increment(coins);
+        tx.update(userRef, userPatch);
+        addWalletTxInTx(tx, {
+            id: `ad_${tokenHash}_coins`,
+            userId: uid,
+            tipo: "anuncio",
+            moeda: "coins",
+            valor: coins,
+            saldoApos: newCoins,
+            descricao: "Anúncio recompensado",
+            referenciaId: adRef.id,
         });
-        await bumpWatchAdMissions(uid);
-        return {
-            coins: 0,
-            reactionPvPDuelsAdded: added,
-            reactionPvPDuelsRemaining: capped,
-        };
-    }
-    const coins = economy.rewardAdCoinAmount;
-    const newCoins = Number(u.coins ?? 0) + coins;
-    const adRef = db.collection(COL.adEvents).doc();
-    await adRef.set({
-        id: adRef.id,
-        userId: uid,
-        status: "recompensado",
-        placementId,
-        mock: true,
-        criadoEm: firestore_2.FieldValue.serverTimestamp(),
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-    });
-    await userRef.update({
-        coins: firestore_2.FieldValue.increment(coins),
-        totalAdsAssistidos: firestore_2.FieldValue.increment(1),
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-    });
-    await addWalletTx({
-        userId: uid,
-        tipo: "anuncio",
-        moeda: "coins",
-        valor: coins,
-        saldoApos: newCoins,
-        descricao: "Anúncio recompensado",
-        referenciaId: adRef.id,
+        return { coins };
     });
     await bumpWatchAdMissions(uid);
-    return { coins };
+    return result;
 });
 exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -2129,47 +2110,70 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
     const missionId = String(request.data?.missionId || "");
     if (!missionId)
         throw new https_1.HttpsError("invalid-argument", "missionId obrigatório.");
-    const mSnap = await db.doc(`${COL.missions}/${missionId}`).get();
-    if (!mSnap.exists)
-        throw new https_1.HttpsError("not-found", "Missão inexistente.");
-    const m = mSnap.data();
+    const missionRef = db.doc(`${COL.missions}/${missionId}`);
     const progRef = db.doc(`${COL.userMissions}/${uid}/daily/${missionId}`);
-    const pSnap = await progRef.get();
-    if (!pSnap.exists || !pSnap.data()?.concluida) {
-        throw new https_1.HttpsError("failed-precondition", "Missão não concluída.");
-    }
-    if (pSnap.data()?.recompensaResgatada) {
-        throw new https_1.HttpsError("already-exists", "Recompensa já resgatada.");
-    }
     const userRef = db.doc(`${COL.users}/${uid}`);
-    const uSnap = await userRef.get();
-    if (!uSnap.exists)
-        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-    const u = uSnap.data();
-    const c = Number(m.recompensaCoins || 0);
-    const g = Number(m.recompensaGems || 0);
-    const xp = Number(m.recompensaXP || 0);
-    await userRef.update({
-        coins: firestore_2.FieldValue.increment(c),
-        gems: firestore_2.FieldValue.increment(g),
-        xp: firestore_2.FieldValue.increment(xp),
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-    });
-    await progRef.update({
-        recompensaResgatada: true,
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-    });
-    if (c > 0) {
-        await addWalletTx({
-            userId: uid,
-            tipo: "missao",
-            moeda: "coins",
-            valor: c,
-            saldoApos: u.coins + c,
-            descricao: `Missão: ${m.titulo || missionId}`,
-            referenciaId: missionId,
+    await db.runTransaction(async (tx) => {
+        const [mSnap, pSnap, uSnap] = await Promise.all([
+            tx.get(missionRef),
+            tx.get(progRef),
+            tx.get(userRef),
+        ]);
+        if (!mSnap.exists)
+            throw new https_1.HttpsError("not-found", "Missão inexistente.");
+        if (!pSnap.exists || !pSnap.data()?.concluida) {
+            throw new https_1.HttpsError("failed-precondition", "Missão não concluída.");
+        }
+        if (pSnap.data()?.recompensaResgatada) {
+            throw new https_1.HttpsError("already-exists", "Recompensa já resgatada.");
+        }
+        if (!uSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const m = mSnap.data();
+        const u = uSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const c = Number(m.recompensaCoins || 0);
+        const g = Number(m.recompensaGems || 0);
+        const xp = Number(m.recompensaXP || 0);
+        const currentCoins = Number(u.coins || 0);
+        const currentGems = Number(u.gems || 0);
+        const periodKey = String(pSnap.data()?.periodoChave || dailyKey());
+        tx.update(userRef, {
+            coins: firestore_2.FieldValue.increment(c),
+            gems: firestore_2.FieldValue.increment(g),
+            xp: firestore_2.FieldValue.increment(xp),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
-    }
+        tx.update(progRef, {
+            recompensaResgatada: true,
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        if (c > 0) {
+            addWalletTxInTx(tx, {
+                id: `mission_${uid}_${missionId}_${periodKey}_coins`,
+                userId: uid,
+                tipo: "missao",
+                moeda: "coins",
+                valor: c,
+                saldoApos: currentCoins + c,
+                descricao: `Missão: ${m.titulo || missionId}`,
+                referenciaId: missionId,
+            });
+        }
+        if (g > 0) {
+            addWalletTxInTx(tx, {
+                id: `mission_${uid}_${missionId}_${periodKey}_gems`,
+                userId: uid,
+                tipo: "missao",
+                moeda: "gems",
+                valor: g,
+                saldoApos: currentGems + g,
+                descricao: `Missão: ${m.titulo || missionId} (TICKET)`,
+                referenciaId: missionId,
+            });
+        }
+    });
     return { ok: true };
 });
 exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -2398,11 +2402,14 @@ function isAllowedComprovanteUrl(raw) {
     const u = raw.trim();
     if (u.length < 16 || u.length > 2048)
         return false;
-    if (!u.startsWith("https://"))
-        return false;
     try {
         const parsed = new URL(u);
-        return parsed.protocol === "https:";
+        if (parsed.protocol === "https:")
+            return true;
+        const emulatorHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST?.trim();
+        if (!emulatorHost || parsed.protocol !== "http:")
+            return false;
+        return parsed.host === emulatorHost;
     }
     catch {
         return false;
@@ -2416,7 +2423,7 @@ exports.confirmRewardClaimPix = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const claimId = String(request.data?.claimId || "");
     const comprovanteUrl = String(request.data?.comprovanteUrl || "").trim();
     if (!claimId || !comprovanteUrl || !isAllowedComprovanteUrl(comprovanteUrl)) {
-        throw new https_1.HttpsError("invalid-argument", "claimId e comprovanteUrl (HTTPS) obrigatórios.");
+        throw new https_1.HttpsError("invalid-argument", "claimId e comprovanteUrl valido do Storage sao obrigatorios.");
     }
     const ref = db.doc(`${COL.rewardClaims}/${claimId}`);
     const snap = await ref.get();
@@ -2549,17 +2556,26 @@ exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     assertAuthed(uid);
     // MVP: marcar ação mínima cumprida; bônus real após validações adicionais
     const userRef = db.doc(`${COL.users}/${uid}`);
-    const snap = await userRef.get();
-    if (!snap.exists)
-        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-    const u = snap.data();
-    const inviter = u.convidadoPor;
-    if (!inviter || u.referralBonusGranted) {
-        return { ok: false, reason: "no_referral" };
-    }
     const economy = await getEconomy();
-    const invRef = db.doc(`${COL.users}/${inviter}`);
-    await db.runTransaction(async (tx) => {
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        if (!snap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const u = snap.data();
+        const inviter = u.convidadoPor;
+        if (!inviter || u.referralBonusGranted) {
+            return { ok: false, reason: "no_referral" };
+        }
+        if (inviter === uid) {
+            throw new https_1.HttpsError("failed-precondition", "Indicação inválida.");
+        }
+        const invRef = db.doc(`${COL.users}/${inviter}`);
+        const invSnap = await tx.get(invRef);
+        if (!invSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Usuário indicador inexistente.");
+        }
+        const guestCoins = Number(u.coins || 0) + economy.referralBonusConvidado;
+        const inviterCoins = Number(invSnap.data()?.coins || 0) + economy.referralBonusIndicador;
         tx.update(userRef, {
             referralBonusGranted: true,
             coins: firestore_2.FieldValue.increment(economy.referralBonusConvidado),
@@ -2569,17 +2585,28 @@ exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             coins: firestore_2.FieldValue.increment(economy.referralBonusIndicador),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
+        addWalletTxInTx(tx, {
+            id: `referral_guest_${uid}_${inviter}`,
+            userId: uid,
+            tipo: "referral",
+            moeda: "coins",
+            valor: economy.referralBonusConvidado,
+            saldoApos: guestCoins,
+            descricao: "Bônus de indicação (convidado)",
+            referenciaId: inviter,
+        });
+        addWalletTxInTx(tx, {
+            id: `referral_inviter_${inviter}_${uid}`,
+            userId: inviter,
+            tipo: "referral",
+            moeda: "coins",
+            valor: economy.referralBonusIndicador,
+            saldoApos: inviterCoins,
+            descricao: "Bônus de indicação (indicador)",
+            referenciaId: uid,
+        });
+        return { ok: true };
     });
-    await addWalletTx({
-        userId: uid,
-        tipo: "referral",
-        moeda: "coins",
-        valor: economy.referralBonusConvidado,
-        saldoApos: 0,
-        descricao: "Bônus de indicação (convidado)",
-        referenciaId: inviter,
-    });
-    return { ok: true };
 });
 function waitingColl(gameId) {
     return db.collection(`${COL.matchmakingQueue}/${gameId}/waiting`);

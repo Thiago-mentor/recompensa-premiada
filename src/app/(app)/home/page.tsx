@@ -25,7 +25,6 @@ import {
 } from "@/components/arena/ArenaShell";
 import { Banknote, Coins, Ticket, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/Button";
 import { getDailyRewardUiState } from "@/utils/dailyRewardUiState";
 
 export default function HomePage() {
@@ -93,11 +92,6 @@ export default function HomePage() {
           <p className="text-sm text-white/55">Olá,</p>
           <h1 className="text-2xl font-bold text-white">{nome}</h1>
         </div>
-        <Link href={ROUTES.recompensas}>
-          <Button variant="ghost" className="text-xs py-2 px-3">
-            Recompensas
-          </Button>
-        </Link>
       </header>
 
       {profileLoading || !profile ? (

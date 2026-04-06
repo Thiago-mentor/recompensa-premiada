@@ -102,7 +102,8 @@ export function getFirebaseAiBackend(): FirebaseAiBackendKind {
 export const firebaseVertexAiLocation =
   process.env.NEXT_PUBLIC_VERTEX_AI_LOCATION?.trim() || "us-central1";
 
-export const rewardedAdMockEnabled = process.env.NEXT_PUBLIC_REWARDED_AD_MOCK !== "false";
+export const rewardedAdMockEnabled =
+  useFirebaseEmulators || process.env.NEXT_PUBLIC_REWARDED_AD_MOCK === "true";
 
 export function isFirebaseConfigured(): boolean {
   return Boolean(

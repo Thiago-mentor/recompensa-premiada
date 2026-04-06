@@ -35,6 +35,7 @@ let storage: FirebaseStorage | null = null;
 let functions: Functions | null = null;
 let appCheck: AppCheck | null = null;
 let analytics: Analytics | null = null;
+let appCheckLogged = false;
 
 export function getFirebaseApp(): FirebaseApp {
   if (!isFirebaseConfigured()) {
@@ -127,15 +128,48 @@ export function getFirebaseFunctions(): Functions {
  * Defina NEXT_PUBLIC_APPCHECK_RECAPTCHA_LEGACY_V3=true se o app usar provider v3 no Console.
  */
 export function initFirebaseAppCheck(): AppCheck | null {
-  if (typeof window === "undefined" || !appCheckSiteKey) return null;
+  if (typeof window === "undefined") return null;
+  if (useFirebaseEmulators) {
+    if (!appCheckLogged) {
+      console.info("[Firebase] App Check ignorado no ambiente local com emuladores.");
+      appCheckLogged = true;
+    }
+    return null;
+  }
+  if (!appCheckSiteKey) {
+    if (!appCheckLogged) {
+      console.info("[Firebase] App Check desativado: NEXT_PUBLIC_APPCHECK_SITE_KEY não definido.");
+      appCheckLogged = true;
+    }
+    return null;
+  }
   if (!appCheck) {
-    const provider = appCheckUseLegacyReCaptchaV3
-      ? new ReCaptchaV3Provider(appCheckSiteKey)
-      : new ReCaptchaEnterpriseProvider(appCheckSiteKey);
-    appCheck = initializeAppCheck(getFirebaseApp(), {
-      provider,
-      isTokenAutoRefreshEnabled: true,
-    });
+    try {
+      const provider = appCheckUseLegacyReCaptchaV3
+        ? new ReCaptchaV3Provider(appCheckSiteKey)
+        : new ReCaptchaEnterpriseProvider(appCheckSiteKey);
+      appCheck = initializeAppCheck(getFirebaseApp(), {
+        provider,
+        isTokenAutoRefreshEnabled: true,
+      });
+      if (!appCheckLogged) {
+        console.info(
+          `[Firebase] App Check inicializado com ${
+            appCheckUseLegacyReCaptchaV3 ? "reCAPTCHA v3" : "reCAPTCHA Enterprise"
+          }${useFirebaseEmulators ? " (com emuladores ativos)" : ""}.`,
+        );
+        appCheckLogged = true;
+      }
+    } catch (error) {
+      if (!appCheckLogged) {
+        console.warn(
+          "[Firebase] Falha ao inicializar App Check.",
+          error instanceof Error ? error.message : error,
+        );
+        appCheckLogged = true;
+      }
+      return null;
+    }
   }
   return appCheck;
 }
