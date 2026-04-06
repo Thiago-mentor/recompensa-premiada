@@ -152,6 +152,45 @@ function claimsToJson(
 
 type FiltroStatus = "todos" | RewardClaimStatus;
 
+function statusMeta(status: RewardClaimStatus): {
+  label: string;
+  className: string;
+  hint: string | null;
+} {
+  switch (status) {
+    case "pendente":
+      return {
+        label: "Em análise",
+        className: "text-amber-300",
+        hint: "Aguardando revisão do admin.",
+      };
+    case "aprovado":
+      return {
+        label: "Pagamento em andamento",
+        className: "text-emerald-400",
+        hint: "Pedido aprovado. Falta enviar o comprovante do PIX.",
+      };
+    case "confirmado":
+      return {
+        label: "PIX confirmado",
+        className: "text-cyan-300",
+        hint: "Pagamento concluído com comprovante disponível.",
+      };
+    case "recusado":
+      return {
+        label: "Recusado",
+        className: "text-rose-300",
+        hint: "Pedido encerrado sem pagamento.",
+      };
+    default:
+      return {
+        label: status,
+        className: "text-slate-200",
+        hint: null,
+      };
+  }
+}
+
 export default function AdminRecompensasPage() {
   const [rows, setRows] = useState<RewardClaim[]>([]);
   const [filtro, setFiltro] = useState<FiltroStatus>("todos");
@@ -376,6 +415,9 @@ export default function AdminRecompensasPage() {
             key={r.id}
             className="space-y-3 rounded-lg border border-white/10 bg-slate-900/80 p-4 text-sm"
           >
+            {(() => {
+              const meta = statusMeta(r.status);
+              return (
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 space-y-1 text-slate-200">
                 <p className="font-mono text-xs text-slate-500">ID {r.id}</p>
@@ -412,20 +454,9 @@ export default function AdminRecompensasPage() {
                 </p>
                 <p>
                   <span className="text-slate-500">Status</span>{" "}
-                  <strong
-                    className={
-                      r.status === "pendente"
-                        ? "text-amber-300"
-                        : r.status === "aprovado"
-                          ? "text-emerald-400"
-                          : r.status === "confirmado"
-                            ? "text-cyan-300"
-                            : "text-rose-300"
-                    }
-                  >
-                    {r.status}
-                  </strong>
+                  <strong className={meta.className}>{meta.label}</strong>
                 </p>
+                {meta.hint ? <p className="text-xs text-white/45">{meta.hint}</p> : null}
                 {r.status === "confirmado" && r.comprovanteUrl ? (
                   <p className="break-all text-xs">
                     <span className="text-slate-500">Comprovante </span>
@@ -476,10 +507,23 @@ export default function AdminRecompensasPage() {
                   </span>
                 ) : null}
                 {r.status === "aprovado" ? (
-                  <ConfirmarPixRewardClaim claimId={r.id} onDone={() => refresh().catch(() => setRows([]))} />
+                  <div className="flex max-w-xs flex-col gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-3">
+                    <p className="text-[11px] font-semibold text-emerald-100">Enviar comprovante e concluir PIX</p>
+                    <p className="text-[11px] leading-relaxed text-emerald-100/70">
+                      Depois do upload, o pedido muda para confirmado e o usuário poderá abrir o comprovante no histórico.
+                    </p>
+                    <ConfirmarPixRewardClaim claimId={r.id} onDone={() => refresh().catch(() => setRows([]))} />
+                  </div>
+                ) : null}
+                {r.status === "confirmado" ? (
+                  <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/20 px-3 py-2 text-[11px] text-cyan-100/80">
+                    PIX finalizado.
+                  </div>
                 ) : null}
               </div>
             </div>
+              );
+            })()}
           </li>
         ))}
       </ul>

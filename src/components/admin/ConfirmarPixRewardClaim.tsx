@@ -11,6 +11,9 @@ import {
 import { callFunction } from "@/services/callables/client";
 
 const MAX_BYTES = 5 * 1024 * 1024;
+const UPLOAD_TIMEOUT_MS = 20_000;
+
+type BusyStep = "idle" | "uploading" | "confirming";
 
 function isAllowedComprovanteUrl(raw: string): boolean {
   const value = raw.trim();
@@ -29,8 +32,24 @@ function isAllowedComprovanteUrl(raw: string): boolean {
 
 export function ConfirmarPixRewardClaim({ claimId, onDone }: { claimId: string; onDone: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyStep, setBusyStep] = useState<BusyStep>("idle");
   const [err, setErr] = useState<string | null>(null);
+
+  const busy = busyStep !== "idle";
+
+  async function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(message)), UPLOAD_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -50,28 +69,44 @@ export function ConfirmarPixRewardClaim({ claimId, onDone }: { claimId: string; 
     }
 
     setErr(null);
-    setBusy(true);
+    setBusyStep("uploading");
     try {
       const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
       const path = `reward_claim_comprovantes/${claimId}/${Date.now()}_${safe}`;
       const storageRef = ref(getFirebaseStorage(), path);
-      await uploadBytes(storageRef, file, { contentType: file.type });
-      const url = await getDownloadURL(storageRef);
+      await withTimeout(
+        uploadBytes(storageRef, file, { contentType: file.type }),
+        "O upload do comprovante demorou demais. Tente novamente.",
+      );
+      const url = await withTimeout(
+        getDownloadURL(storageRef),
+        "Nao foi possivel obter a URL final do comprovante.",
+      );
       if (!isAllowedComprovanteUrl(url)) {
         setErr("Nao foi possivel obter uma URL valida do comprovante.");
         return;
       }
-      await callFunction("confirmRewardClaimPix", { claimId, comprovanteUrl: url });
+      setBusyStep("confirming");
+      await withTimeout(
+        callFunction("confirmRewardClaimPix", { claimId, comprovanteUrl: url }),
+        "A confirmacao do PIX demorou demais. Verifique os emuladores e tente novamente.",
+      );
       onDone();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Falha ao enviar.");
     } finally {
-      setBusy(false);
+      setBusyStep("idle");
     }
   }
 
   return (
     <div className="flex w-full max-w-xs flex-col gap-2 sm:items-end">
+      {busyStep === "uploading" ? (
+        <p className="text-right text-[11px] text-cyan-200/80">Enviando comprovante...</p>
+      ) : null}
+      {busyStep === "confirming" ? (
+        <p className="text-right text-[11px] text-cyan-200/80">Confirmando PIX...</p>
+      ) : null}
       {err ? <p className="text-right text-xs text-rose-300">{err}</p> : null}
       <input
         ref={inputRef}
@@ -86,7 +121,11 @@ export function ConfirmarPixRewardClaim({ claimId, onDone }: { claimId: string; 
         className="rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-3 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/70 disabled:opacity-50"
         onClick={() => inputRef.current?.click()}
       >
-        {busy ? "Enviando…" : "Confirmar PIX (comprovante)"}
+        {busyStep === "uploading"
+          ? "Enviando..."
+          : busyStep === "confirming"
+            ? "Confirmando..."
+            : "Confirmar PIX (comprovante)"}
       </button>
     </div>
   );

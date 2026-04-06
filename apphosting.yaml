@@ -19,3 +19,23 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: NEXT_PUBLIC_APPCHECK_SITE_KEY
+    value: 6LcFC6ksAAAAABX2Zgk-7mFBUdIrCgoOK0oLBsu1
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_APPCHECK_RECAPTCHA_LEGACY_V3
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATORS
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_REWARDED_AD_MOCK
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

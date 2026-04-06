@@ -92,16 +92,23 @@ function PedidoStepper({ status }: { status: RewardClaimStatus }) {
 
   const tracoRegistroAnalise = true;
   const tracoAnaliseProcesso = status === "aprovado" || status === "confirmado";
-  const labelProcesso = status === "confirmado" ? "Concluído" : "Processo";
+  const labelAnalise = status === "recusado" ? "Recusado" : "Análise";
+  const labelProcesso = status === "confirmado" ? "PIX enviado" : "Pagamento";
+  const subProcesso =
+    status === "aprovado"
+      ? "Aguardando comprovante"
+      : status === "confirmado"
+        ? "Comprovante disponível"
+        : "";
 
   return (
     <div className="mt-4 rounded-xl border border-white/[0.08] bg-black/25 px-2 py-4 sm:px-4">
       <div className="flex items-start justify-between gap-0 sm:gap-1">
         {dot("registro", "Registro", "")}
         <Traco concluido={tracoRegistroAnalise} />
-        {dot("analise", "Análise", "")}
+        {dot("analise", labelAnalise, "")}
         <Traco concluido={tracoAnaliseProcesso} />
-        {dot("processo", labelProcesso, "")}
+        {dot("processo", labelProcesso, subProcesso)}
       </div>
       <p className="sr-only">Status do pedido: {status}</p>
     </div>
@@ -118,7 +125,7 @@ function StatusBadge({ status }: { status: RewardClaimStatus }) {
       : status === "aprovado"
         ? {
             className: "border-emerald-400/35 bg-emerald-500/10 text-emerald-100",
-            label: "Aprovado",
+            label: "Pagamento em andamento",
           }
         : status === "confirmado"
           ? {
@@ -191,6 +198,11 @@ export function PedidosSaquePanel({
                 </div>
               </div>
               <PedidoStepper status={p.status} />
+              {p.status === "aprovado" ? (
+                <p className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-100/85">
+                  Seu pedido foi aprovado e esta aguardando o envio do comprovante PIX.
+                </p>
+              ) : null}
               {p.status === "confirmado" && p.comprovanteUrl ? (
                 <a
                   href={p.comprovanteUrl}
