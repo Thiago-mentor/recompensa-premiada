@@ -81,6 +81,34 @@ service cloud.firestore {
     }
 
     match /referrals/{id} {
+      allow read: if isSignedIn()
+        && (resource.data.inviterUserId == request.auth.uid
+          || resource.data.invitedUserId == request.auth.uid
+          || isAdmin());
+      allow write: if false;
+    }
+
+    match /referral_campaigns/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /referral_rankings_daily/{period}/entries/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /referral_rankings_weekly/{period}/entries/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /referral_rankings_monthly/{period}/entries/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /referral_rankings_alltime/{period}/entries/{uid} {
       allow read: if isSignedIn();
       allow write: if false;
     }

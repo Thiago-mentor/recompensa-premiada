@@ -26,4 +26,6 @@ export const CALLABLES = {
   reactionSyncDuelRefill: "reactionSyncDuelRefill",
   convertCurrency: "convertCurrency",
   adminGrantEconomy: "adminGrantEconomy",
+  adminReviewReferral: "adminReviewReferral",
+  adminCloseReferralRanking: "adminCloseReferralRanking",
 } as const;

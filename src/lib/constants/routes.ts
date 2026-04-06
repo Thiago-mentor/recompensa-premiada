@@ -13,6 +13,7 @@ export const ROUTES = {
   convidar: "/convidar",
   admin: {
     dashboard: "/admin/dashboard",
+    indicacoes: "/admin/indicacoes",
     jogos: "/admin/jogos",
     usuarios: "/admin/usuarios",
     rankings: "/admin/rankings",

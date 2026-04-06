@@ -16,6 +16,9 @@ export interface UserProfile {
   username: string;
   codigoConvite: string;
   convidadoPor: string | null;
+  invitedByCode?: string | null;
+  invitedAt?: Timestamp | null;
+  referralStatus?: "pending" | "valid" | "rewarded" | "blocked" | "invalid" | null;
   /** PR — vitórias e economia dos jogos (exibido como “PR”). */
   coins: number;
   /** TICKET — sorteios / entradas (exibido como “TICKET”; campo Firestore legado `gems`). */
@@ -27,6 +30,7 @@ export interface UserProfile {
   streakAtual: number;
   melhorStreak: number;
   ultimaEntradaEm: Timestamp | null;
+  dailyLoginCount?: number;
   totalAdsAssistidos: number;
   totalPartidas: number;
   totalVitorias: number;
@@ -38,6 +42,14 @@ export interface UserProfile {
   riscoFraude: FraudRiskLevel;
   /** Indicação validada (ex.: convidado cumpriu ação mínima) */
   referralBonusGranted?: boolean;
+  referralPendingCount?: number;
+  referralQualifiedCount?: number;
+  referralRewardedCount?: number;
+  referralBlockedCount?: number;
+  referralInvitedCount?: number;
+  referralTotalEarnedCoins?: number;
+  referralInvitedRewardCoins?: number;
+  totalMissionRewardsClaimed?: number;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
   /** Timestamps de fim de cooldown por `gameId` (Cloud Functions). */

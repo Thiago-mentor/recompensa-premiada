@@ -1,4 +1,5 @@
 import type { Timestamp } from "./firestore";
+import type { ReferralQualificationRules, ReferralRankingPrizeTier } from "./referral";
 
 /** Tabela de streak: dia -> recompensa */
 export interface StreakRewardTier {
@@ -54,4 +55,31 @@ export interface SystemEconomyConfig {
     reaction_tap: number;
   }>;
   atualizadoEm: Timestamp;
+}
+
+export interface ReferralCampaignSystemConfig {
+  id: "referral_system";
+  enabled: boolean;
+  codeRequired: boolean;
+  defaultInviterRewardCoins: number;
+  defaultInvitedRewardCoins: number;
+  invitedRewardEnabled: boolean;
+  limitValidPerDay: number;
+  limitRewardedPerUser: number;
+  qualificationRules: ReferralQualificationRules;
+  rankingRules: {
+    daily: ReferralRankingPrizeTier[];
+    weekly: ReferralRankingPrizeTier[];
+    monthly: ReferralRankingPrizeTier[];
+    all: ReferralRankingPrizeTier[];
+  };
+  antiFraudRules: {
+    blockSelfReferral: boolean;
+    flagBurstSignups: boolean;
+    burstSignupThreshold: number;
+    requireManualReviewForSuspected: boolean;
+  };
+  activeCampaignId?: string | null;
+  campaignText?: string | null;
+  updatedAt?: Timestamp;
 }

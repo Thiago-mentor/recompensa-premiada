@@ -1,6 +1,11 @@
 /** Nomes das coleções Firestore (modelo de domínio) */
 export const COLLECTIONS = {
   users: "users",
+  referralCampaigns: "referral_campaigns",
+  referralRankingsDaily: "referral_rankings_daily",
+  referralRankingsWeekly: "referral_rankings_weekly",
+  referralRankingsMonthly: "referral_rankings_monthly",
+  referralRankingsAllTime: "referral_rankings_alltime",
   missions: "missions",
   userMissions: "userMissions",
   games: "games",

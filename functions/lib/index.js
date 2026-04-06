@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
+exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -51,6 +51,12 @@ const db = firestoreDbId && firestoreDbId !== "(default)"
     : (0, firestore_1.getFirestore)((0, app_1.getApp)());
 const COL = {
     users: "users",
+    referrals: "referrals",
+    referralCampaigns: "referral_campaigns",
+    referralRankingsDaily: "referral_rankings_daily",
+    referralRankingsWeekly: "referral_rankings_weekly",
+    referralRankingsMonthly: "referral_rankings_monthly",
+    referralRankingsAllTime: "referral_rankings_alltime",
     missions: "missions",
     userMissions: "userMissions",
     wallet: "wallet_transactions",
@@ -427,6 +433,197 @@ function weeklyKey(d = new Date()) {
 function monthlyKey(d = new Date()) {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
+function referralAllTimeKey() {
+    return "global";
+}
+function referralRankingCollection(period) {
+    switch (period) {
+        case "daily":
+            return COL.referralRankingsDaily;
+        case "weekly":
+            return COL.referralRankingsWeekly;
+        case "monthly":
+            return COL.referralRankingsMonthly;
+        case "all":
+        default:
+            return COL.referralRankingsAllTime;
+    }
+}
+function referralRankingKey(period, when = new Date()) {
+    switch (period) {
+        case "daily":
+            return dailyKey(when);
+        case "weekly":
+            return weeklyKey(when);
+        case "monthly":
+            return monthlyKey(when);
+        case "all":
+        default:
+            return referralAllTimeKey();
+    }
+}
+function normalizePrizeTierList(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    return raw
+        .map((item) => ({
+        posicaoMax: Math.max(1, Math.floor(Number(item.posicaoMax) || 0)),
+        coins: Math.max(0, Math.floor(Number(item.coins) || 0)),
+        gems: Math.max(0, Math.floor(Number(item.gems) || 0)),
+    }))
+        .filter((item) => item.posicaoMax >= 1 && (item.coins > 0 || item.gems > 0))
+        .sort((a, b) => a.posicaoMax - b.posicaoMax);
+}
+function buildReferralCodeSeed(name, username) {
+    const raw = `${username || ""}${name || ""}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    const compact = raw.slice(0, 4);
+    return compact.length >= 3 ? compact : "PREM";
+}
+function randomReferralCode(seed) {
+    return `${seed}${randomCode(4)}`.slice(0, 8);
+}
+async function generateUniqueReferralCode(seed) {
+    for (let i = 0; i < 12; i++) {
+        const code = randomReferralCode(seed);
+        const dup = await db.collection(COL.users).where("codigoConvite", "==", code).limit(1).get();
+        if (dup.empty)
+            return code;
+    }
+    return `${seed.slice(0, 2)}${Date.now().toString(36).toUpperCase().slice(-6)}`.slice(0, 8);
+}
+async function getReferralConfig() {
+    const snap = await db.doc(`${COL.systemConfigs}/referral_system`).get();
+    const d = (snap.data() || {});
+    return {
+        enabled: d.enabled !== false,
+        codeRequired: d.codeRequired === true,
+        defaultInviterRewardCoins: Math.max(0, Math.floor(Number(d.defaultInviterRewardCoins) || 100)),
+        defaultInvitedRewardCoins: Math.max(0, Math.floor(Number(d.defaultInvitedRewardCoins) || 50)),
+        invitedRewardEnabled: d.invitedRewardEnabled !== false,
+        limitValidPerDay: Math.max(0, Math.floor(Number(d.limitValidPerDay) || 20)),
+        limitRewardedPerUser: Math.max(0, Math.floor(Number(d.limitRewardedPerUser) || 500)),
+        qualificationRules: {
+            requireEmailVerified: d.qualificationRules && typeof d.qualificationRules === "object"
+                ? d.qualificationRules.requireEmailVerified === true
+                : false,
+            requireProfileCompleted: d.qualificationRules && typeof d.qualificationRules === "object"
+                ? d.qualificationRules.requireProfileCompleted !== false
+                : true,
+            minAdsWatched: Math.max(0, Math.floor(Number(d.qualificationRules && typeof d.qualificationRules === "object"
+                ? d.qualificationRules.minAdsWatched
+                : 0) || 0)),
+            minMatchesPlayed: Math.max(0, Math.floor(Number(d.qualificationRules && typeof d.qualificationRules === "object"
+                ? d.qualificationRules.minMatchesPlayed
+                : 1) || 1)),
+            minMissionRewardsClaimed: Math.max(0, Math.floor(Number(d.qualificationRules && typeof d.qualificationRules === "object"
+                ? d.qualificationRules.minMissionRewardsClaimed
+                : 0) || 0)),
+        },
+        antiFraudRules: {
+            blockSelfReferral: d.antiFraudRules && typeof d.antiFraudRules === "object"
+                ? d.antiFraudRules.blockSelfReferral !== false
+                : true,
+            flagBurstSignups: d.antiFraudRules && typeof d.antiFraudRules === "object"
+                ? d.antiFraudRules.flagBurstSignups !== false
+                : true,
+            burstSignupThreshold: Math.max(1, Math.floor(Number(d.antiFraudRules && typeof d.antiFraudRules === "object"
+                ? d.antiFraudRules.burstSignupThreshold
+                : 5) || 5)),
+            requireManualReviewForSuspected: d.antiFraudRules && typeof d.antiFraudRules === "object"
+                ? d.antiFraudRules.requireManualReviewForSuspected === true
+                : false,
+        },
+        activeCampaignId: typeof d.activeCampaignId === "string" ? d.activeCampaignId : null,
+        campaignText: typeof d.campaignText === "string" ? d.campaignText : null,
+    };
+}
+async function getActiveReferralCampaign(config) {
+    if (config.activeCampaignId) {
+        const snap = await db.doc(`${COL.referralCampaigns}/${config.activeCampaignId}`).get();
+        if (snap.exists) {
+            const d = snap.data();
+            return {
+                id: snap.id,
+                name: String(d.name || "Campanha de indicação"),
+                config: {
+                    inviterRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.inviterRewardCoins : config.defaultInviterRewardCoins) || config.defaultInviterRewardCoins)),
+                    invitedRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.invitedRewardCoins : config.defaultInvitedRewardCoins) || config.defaultInvitedRewardCoins)),
+                    invitedRewardEnabled: d.config && typeof d.config === "object"
+                        ? d.config.invitedRewardEnabled !== false
+                        : config.invitedRewardEnabled,
+                    qualificationRules: d.config && typeof d.config === "object" && d.config.qualificationRules
+                        ? {
+                            ...config.qualificationRules,
+                            ...d.config.qualificationRules,
+                        }
+                        : config.qualificationRules,
+                    rankingPrizes: d.config && typeof d.config === "object" && d.config.rankingPrizes
+                        ? {
+                            daily: normalizePrizeTierList(d.config.rankingPrizes.daily),
+                            weekly: normalizePrizeTierList(d.config.rankingPrizes.weekly),
+                            monthly: normalizePrizeTierList(d.config.rankingPrizes.monthly),
+                            all: normalizePrizeTierList(d.config.rankingPrizes.all),
+                        }
+                        : undefined,
+                },
+            };
+        }
+    }
+    const activeSnap = await db.collection(COL.referralCampaigns).where("isActive", "==", true).limit(10).get();
+    const now = Date.now();
+    for (const item of activeSnap.docs) {
+        const d = item.data();
+        const startAt = millisFromFirestoreTime(d.startAt);
+        const endAt = millisFromFirestoreTime(d.endAt);
+        if (startAt > 0 && now < startAt)
+            continue;
+        if (endAt > 0 && now > endAt)
+            continue;
+        return {
+            id: item.id,
+            name: String(d.name || "Campanha de indicação"),
+            config: {
+                inviterRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.inviterRewardCoins : config.defaultInviterRewardCoins) || config.defaultInviterRewardCoins)),
+                invitedRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.invitedRewardCoins : config.defaultInvitedRewardCoins) || config.defaultInvitedRewardCoins)),
+                invitedRewardEnabled: d.config && typeof d.config === "object"
+                    ? d.config.invitedRewardEnabled !== false
+                    : config.invitedRewardEnabled,
+                qualificationRules: d.config && typeof d.config === "object" && d.config.qualificationRules
+                    ? {
+                        ...config.qualificationRules,
+                        ...d.config.qualificationRules,
+                    }
+                    : config.qualificationRules,
+                rankingPrizes: d.config && typeof d.config === "object" && d.config.rankingPrizes
+                    ? {
+                        daily: normalizePrizeTierList(d.config.rankingPrizes.daily),
+                        weekly: normalizePrizeTierList(d.config.rankingPrizes.weekly),
+                        monthly: normalizePrizeTierList(d.config.rankingPrizes.monthly),
+                        all: normalizePrizeTierList(d.config.rankingPrizes.all),
+                    }
+                    : undefined,
+            },
+        };
+    }
+    return null;
+}
+async function upsertReferralRankingEntry(tx, inviterUid, inviterName, inviterPhoto, deltas) {
+    const periods = ["daily", "weekly", "monthly", "all"];
+    for (const period of periods) {
+        const ref = db.doc(`${referralRankingCollection(period)}/${referralRankingKey(period)}/entries/${inviterUid}`);
+        tx.set(ref, {
+            userId: inviterUid,
+            userName: inviterName,
+            photoURL: inviterPhoto ?? null,
+            pendingReferrals: firestore_2.FieldValue.increment(deltas.pending ?? 0),
+            validReferrals: firestore_2.FieldValue.increment(deltas.valid ?? 0),
+            rewardedReferrals: firestore_2.FieldValue.increment(deltas.rewarded ?? 0),
+            blockedReferrals: firestore_2.FieldValue.increment(deltas.blocked ?? 0),
+            totalRewards: firestore_2.FieldValue.increment(deltas.rewards ?? 0),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+}
 function randomCode(len = 8) {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let s = "";
@@ -459,6 +656,169 @@ function addWalletTxInTx(tx, input) {
         descricao: input.descricao,
         referenciaId: input.referenciaId ?? null,
         criadoEm: firestore_2.FieldValue.serverTimestamp(),
+    });
+}
+function referralMeetsQualification(rules, userData, emailVerified) {
+    if (rules.requireEmailVerified && !emailVerified)
+        return false;
+    if (rules.requireProfileCompleted) {
+        if (!String(userData.nome || "").trim() || !String(userData.username || "").trim())
+            return false;
+    }
+    if (Number(userData.totalAdsAssistidos || 0) < rules.minAdsWatched)
+        return false;
+    if (Number(userData.totalPartidas || 0) < rules.minMatchesPlayed)
+        return false;
+    if (Number(userData.totalMissionRewardsClaimed || 0) < rules.minMissionRewardsClaimed)
+        return false;
+    return true;
+}
+async function evaluateReferralForUser(uid) {
+    const referralRef = db.doc(`${COL.referrals}/${uid}`);
+    const config = await getReferralConfig();
+    if (!config.enabled)
+        return;
+    const campaign = await getActiveReferralCampaign(config);
+    await db.runTransaction(async (tx) => {
+        const referralSnap = await tx.get(referralRef);
+        if (!referralSnap.exists)
+            return;
+        const referral = referralSnap.data();
+        const status = String(referral.status || "pending");
+        if (status === "blocked" || status === "invalid" || status === "rewarded")
+            return;
+        const inviterUid = String(referral.inviterUserId || "");
+        const invitedUid = String(referral.invitedUserId || "");
+        if (!inviterUid || !invitedUid)
+            return;
+        const [invitedSnap, inviterSnap] = await Promise.all([
+            tx.get(db.doc(`${COL.users}/${invitedUid}`)),
+            tx.get(db.doc(`${COL.users}/${inviterUid}`)),
+        ]);
+        if (!invitedSnap.exists || !inviterSnap.exists)
+            return;
+        const invitedData = invitedSnap.data();
+        const inviterData = inviterSnap.data();
+        const authUser = await admin.auth().getUser(invitedUid);
+        const rules = campaign?.config.qualificationRules ?? config.qualificationRules;
+        const isQualified = referralMeetsQualification(rules, invitedData, authUser.emailVerified === true);
+        if (!isQualified)
+            return;
+        const todayReferralsSnap = await tx.get(db
+            .collection(COL.referrals)
+            .where("inviterUserId", "==", inviterUid)
+            .where("status", "in", ["valid", "rewarded"])
+            .where("qualifiedAt", ">=", firestore_2.Timestamp.fromDate(new Date(new Date().setUTCHours(0, 0, 0, 0))))
+            .limit(config.limitValidPerDay + 1));
+        const inviterQualifiedToday = todayReferralsSnap.size;
+        const totalRewarded = Number(inviterData.referralRewardedCount || 0);
+        const suspicious = config.antiFraudRules.flagBurstSignups &&
+            Number(inviterData.referralPendingCount || 0) >= config.antiFraudRules.burstSignupThreshold;
+        if (config.limitValidPerDay > 0 && inviterQualifiedToday >= config.limitValidPerDay) {
+            tx.update(referralRef, {
+                status: "blocked",
+                referralStatus: "blocked",
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                "fraudFlags.suspectedFraud": true,
+                "fraudFlags.manualReviewRequired": true,
+                notes: "Bloqueado por limite diário de indicações válidas.",
+            });
+            return;
+        }
+        if (config.limitRewardedPerUser > 0 && totalRewarded >= config.limitRewardedPerUser) {
+            tx.update(referralRef, {
+                status: "blocked",
+                referralStatus: "blocked",
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                "fraudFlags.duplicateRewardBlocked": true,
+                notes: "Bloqueado por limite total de recompensas do indicador.",
+            });
+            return;
+        }
+        if (config.antiFraudRules.requireManualReviewForSuspected && suspicious) {
+            tx.update(referralRef, {
+                status: "valid",
+                referralStatus: "valid",
+                referralQualified: true,
+                qualifiedAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                "fraudFlags.suspectedFraud": true,
+                "fraudFlags.manualReviewRequired": true,
+            });
+            tx.update(db.doc(`${COL.users}/${invitedUid}`), {
+                referralStatus: "valid",
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(db.doc(`${COL.users}/${inviterUid}`), {
+                referralQualifiedCount: firestore_2.FieldValue.increment(1),
+                referralPendingCount: firestore_2.FieldValue.increment(-1),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1 });
+            return;
+        }
+        const inviterReward = Math.max(0, campaign?.config.inviterRewardCoins ?? config.defaultInviterRewardCoins);
+        const invitedRewardEnabled = campaign?.config.invitedRewardEnabled ?? config.invitedRewardEnabled;
+        const invitedReward = invitedRewardEnabled
+            ? Math.max(0, campaign?.config.invitedRewardCoins ?? config.defaultInvitedRewardCoins)
+            : 0;
+        const inviterCoinsAfter = Number(inviterData.coins || 0) + inviterReward;
+        const invitedCoinsAfter = Number(invitedData.coins || 0) + invitedReward;
+        tx.update(referralRef, {
+            status: "rewarded",
+            referralStatus: "rewarded",
+            referralQualified: true,
+            referralRewardGiven: true,
+            qualifiedAt: firestore_2.FieldValue.serverTimestamp(),
+            rewardedAt: firestore_2.FieldValue.serverTimestamp(),
+            inviterRewardCoins: inviterReward,
+            invitedRewardCoins: invitedReward,
+            inviterRewardGrantedAt: firestore_2.FieldValue.serverTimestamp(),
+            invitedRewardGrantedAt: invitedReward > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
+            campaignId: campaign?.id ?? null,
+            campaignName: campaign?.name ?? null,
+            qualificationSnapshot: rules,
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        });
+        tx.update(db.doc(`${COL.users}/${inviterUid}`), {
+            coins: firestore_2.FieldValue.increment(inviterReward),
+            referralPendingCount: firestore_2.FieldValue.increment(-1),
+            referralQualifiedCount: firestore_2.FieldValue.increment(1),
+            referralRewardedCount: firestore_2.FieldValue.increment(1),
+            referralInvitedCount: firestore_2.FieldValue.increment(1),
+            referralTotalEarnedCoins: firestore_2.FieldValue.increment(inviterReward),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        tx.update(db.doc(`${COL.users}/${invitedUid}`), {
+            coins: firestore_2.FieldValue.increment(invitedReward),
+            referralBonusGranted: true,
+            referralStatus: "rewarded",
+            referralInvitedRewardCoins: firestore_2.FieldValue.increment(invitedReward),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        addWalletTxInTx(tx, {
+            id: `referral_inviter_${inviterUid}_${invitedUid}`,
+            userId: inviterUid,
+            tipo: "referral",
+            moeda: "coins",
+            valor: inviterReward,
+            saldoApos: inviterCoinsAfter,
+            descricao: `Indicação válida${campaign?.name ? ` · ${campaign.name}` : ""}`,
+            referenciaId: invitedUid,
+        });
+        if (invitedReward > 0) {
+            addWalletTxInTx(tx, {
+                id: `referral_invited_${invitedUid}_${inviterUid}`,
+                userId: invitedUid,
+                tipo: "referral",
+                moeda: "coins",
+                valor: invitedReward,
+                saldoApos: invitedCoinsAfter,
+                descricao: `Bônus por convite${campaign?.name ? ` · ${campaign.name}` : ""}`,
+                referenciaId: inviterUid,
+            });
+        }
+        await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1, rewarded: 1, rewards: inviterReward });
     });
 }
 function parseRewardedAdCompletionToken(raw) {
@@ -1719,21 +2079,35 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     if (!dup.empty) {
         throw new https_1.HttpsError("already-exists", "Username já em uso.");
     }
+    const referralConfig = await getReferralConfig();
     let convidadoPor = null;
+    let invitedByCode = null;
+    let inviterName = null;
+    let inviterPhoto = null;
     if (codigoConvite) {
         const inv = await db
             .collection(COL.users)
             .where("codigoConvite", "==", codigoConvite)
             .limit(1)
             .get();
-        if (!inv.empty) {
-            const inviter = inv.docs[0].id;
-            if (inviter !== uid)
-                convidadoPor = inviter;
+        if (inv.empty) {
+            throw new https_1.HttpsError("invalid-argument", "Código de convite inválido.");
         }
+        const inviter = inv.docs[0].id;
+        if (inviter === uid && referralConfig.antiFraudRules.blockSelfReferral) {
+            throw new https_1.HttpsError("failed-precondition", "Você não pode usar o próprio código.");
+        }
+        convidadoPor = inviter;
+        invitedByCode = codigoConvite;
+        inviterName = String(inv.docs[0].data()?.nome || "").trim() || null;
+        inviterPhoto = typeof inv.docs[0].data()?.foto === "string" ? inv.docs[0].data()?.foto : null;
+    }
+    else if (referralConfig.codeRequired) {
+        throw new https_1.HttpsError("invalid-argument", "Informe um código de convite para continuar.");
     }
     const economy = await getEconomy();
-    const codigo = randomCode(8);
+    const codigo = await generateUniqueReferralCode(buildReferralCodeSeed(nome, username));
+    const campaign = await getActiveReferralCampaign(referralConfig);
     await db.runTransaction(async (tx) => {
         tx.set(userRef, {
             uid,
@@ -1743,6 +2117,17 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             username,
             codigoConvite: codigo,
             convidadoPor,
+            invitedByCode,
+            invitedAt: convidadoPor ? firestore_2.FieldValue.serverTimestamp() : null,
+            referralStatus: convidadoPor ? "pending" : null,
+            referralPendingCount: 0,
+            referralQualifiedCount: 0,
+            referralRewardedCount: 0,
+            referralBlockedCount: 0,
+            referralInvitedCount: 0,
+            referralTotalEarnedCoins: 0,
+            referralInvitedRewardCoins: 0,
+            totalMissionRewardsClaimed: 0,
             coins: economy.welcomeBonus,
             gems: 0,
             rewardBalance: 0,
@@ -1751,6 +2136,7 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             streakAtual: 0,
             melhorStreak: 0,
             ultimaEntradaEm: null,
+            dailyLoginCount: 0,
             totalAdsAssistidos: 0,
             totalPartidas: 0,
             totalVitorias: 0,
@@ -1764,6 +2150,45 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
+        if (convidadoPor && invitedByCode) {
+            const referralRef = db.doc(`${COL.referrals}/${uid}`);
+            tx.set(referralRef, {
+                id: uid,
+                inviterUserId: convidadoPor,
+                inviterCode: invitedByCode,
+                inviterName,
+                invitedUserId: uid,
+                invitedUserName: nome,
+                invitedUserEmail: email,
+                invitedByCode,
+                invitedAt: firestore_2.FieldValue.serverTimestamp(),
+                createdAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                status: "pending",
+                referralStatus: "pending",
+                referralQualified: false,
+                referralRewardGiven: false,
+                inviterRewardCoins: 0,
+                invitedRewardCoins: 0,
+                campaignId: campaign?.id ?? null,
+                campaignName: campaign?.name ?? null,
+                inviteSource: "cadastro",
+                qualificationSnapshot: campaign?.config.qualificationRules ?? referralConfig.qualificationRules,
+                fraudFlags: {
+                    suspectedFraud: false,
+                    selfReferralBlocked: false,
+                    duplicateRewardBlocked: false,
+                    manualReviewRequired: false,
+                    sameIpFlag: false,
+                },
+                notes: null,
+            });
+            tx.update(db.doc(`${COL.users}/${convidadoPor}`), {
+                referralPendingCount: firestore_2.FieldValue.increment(1),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            await upsertReferralRankingEntry(tx, convidadoPor, inviterName || "Jogador", inviterPhoto, { pending: 1 });
+        }
     });
     await addWalletTx({
         userId: uid,
@@ -1824,6 +2249,7 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             streakAtual: streak,
             melhorStreak: melhor,
             ultimaEntradaEm: firestore_2.Timestamp.fromDate(now),
+            dailyLoginCount: firestore_2.FieldValue.increment(1),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         };
         if (reward.coins > 0)
@@ -1865,6 +2291,9 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             gems: reward.gems,
             tipoBonus: reward.tipoBonus,
         };
+    }).then(async (result) => {
+        await evaluateReferralForUser(uid);
+        return result;
     });
 });
 async function bumpWatchAdMissions(uid) {
@@ -1995,6 +2424,7 @@ exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         return { coins };
     });
     await bumpWatchAdMissions(uid);
+    await evaluateReferralForUser(uid);
     return result;
 });
 exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -2097,6 +2527,7 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     }
     await upsertRanking(uid, String(u.nome || "Jogador"), u.foto ?? null, rankingPoints, win);
     await bumpPlayMatchMissions(uid);
+    await evaluateReferralForUser(uid);
     return {
         matchId: matchRef.id,
         rewardCoins,
@@ -2143,6 +2574,7 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
             coins: firestore_2.FieldValue.increment(c),
             gems: firestore_2.FieldValue.increment(g),
             xp: firestore_2.FieldValue.increment(xp),
+            totalMissionRewardsClaimed: firestore_2.FieldValue.increment(1),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         tx.update(progRef, {
@@ -2174,6 +2606,7 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
             });
         }
     });
+    await evaluateReferralForUser(uid);
     return { ok: true };
 });
 exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -2554,59 +2987,153 @@ exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
 exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
-    // MVP: marcar ação mínima cumprida; bônus real após validações adicionais
-    const userRef = db.doc(`${COL.users}/${uid}`);
-    const economy = await getEconomy();
-    return db.runTransaction(async (tx) => {
-        const snap = await tx.get(userRef);
-        if (!snap.exists)
-            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-        const u = snap.data();
-        const inviter = u.convidadoPor;
-        if (!inviter || u.referralBonusGranted) {
-            return { ok: false, reason: "no_referral" };
+    await evaluateReferralForUser(uid);
+    const referralSnap = await db.doc(`${COL.referrals}/${uid}`).get();
+    if (!referralSnap.exists) {
+        return { ok: false, reason: "no_referral" };
+    }
+    const referral = referralSnap.data();
+    return {
+        ok: true,
+        status: String(referral.status || "pending"),
+        qualified: referral.referralQualified === true,
+        rewarded: referral.referralRewardGiven === true,
+    };
+});
+exports.adminReviewReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    await assertAdmin(uid);
+    const referralId = String(request.data?.referralId || "").trim();
+    const action = String(request.data?.action || "").trim();
+    if (!referralId || !["block", "mark_valid", "reward"].includes(action)) {
+        throw new https_1.HttpsError("invalid-argument", "referralId/action inválidos.");
+    }
+    const referralConfig = await getReferralConfig();
+    const campaign = await getActiveReferralCampaign(referralConfig);
+    const referralRef = db.doc(`${COL.referrals}/${referralId}`);
+    await db.runTransaction(async (tx) => {
+        const referralSnap = await tx.get(referralRef);
+        if (!referralSnap.exists)
+            throw new https_1.HttpsError("not-found", "Indicação não encontrada.");
+        const referral = referralSnap.data();
+        const inviterUid = String(referral.inviterUserId || "");
+        const invitedUid = String(referral.invitedUserId || "");
+        if (!inviterUid || !invitedUid)
+            throw new https_1.HttpsError("failed-precondition", "Dados da indicação inválidos.");
+        const inviterRef = db.doc(`${COL.users}/${inviterUid}`);
+        const invitedRef = db.doc(`${COL.users}/${invitedUid}`);
+        const [inviterSnap, invitedSnap] = await Promise.all([tx.get(inviterRef), tx.get(invitedRef)]);
+        if (!inviterSnap.exists || !invitedSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Usuários da indicação não encontrados.");
         }
-        if (inviter === uid) {
-            throw new https_1.HttpsError("failed-precondition", "Indicação inválida.");
+        const inviterData = inviterSnap.data();
+        const invitedData = invitedSnap.data();
+        const status = String(referral.status || "pending");
+        if (action === "block") {
+            tx.update(referralRef, {
+                status: "blocked",
+                referralStatus: "blocked",
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                "fraudFlags.manualReviewRequired": false,
+                notes: "Bloqueado manualmente pelo admin.",
+            });
+            if (status === "pending") {
+                tx.update(inviterRef, {
+                    referralPendingCount: firestore_2.FieldValue.increment(-1),
+                    referralBlockedCount: firestore_2.FieldValue.increment(1),
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                });
+                await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, blocked: 1 });
+            }
+            tx.update(invitedRef, { referralStatus: "blocked", atualizadoEm: firestore_2.FieldValue.serverTimestamp() });
+            return;
         }
-        const invRef = db.doc(`${COL.users}/${inviter}`);
-        const invSnap = await tx.get(invRef);
-        if (!invSnap.exists) {
-            throw new https_1.HttpsError("failed-precondition", "Usuário indicador inexistente.");
+        if (action === "mark_valid" && status === "pending") {
+            tx.update(referralRef, {
+                status: "valid",
+                referralStatus: "valid",
+                referralQualified: true,
+                qualifiedAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                notes: "Validado manualmente pelo admin.",
+            });
+            tx.update(inviterRef, {
+                referralPendingCount: firestore_2.FieldValue.increment(-1),
+                referralQualifiedCount: firestore_2.FieldValue.increment(1),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(invitedRef, { referralStatus: "valid", atualizadoEm: firestore_2.FieldValue.serverTimestamp() });
+            await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1 });
+            return;
         }
-        const guestCoins = Number(u.coins || 0) + economy.referralBonusConvidado;
-        const inviterCoins = Number(invSnap.data()?.coins || 0) + economy.referralBonusIndicador;
-        tx.update(userRef, {
-            referralBonusGranted: true,
-            coins: firestore_2.FieldValue.increment(economy.referralBonusConvidado),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        tx.update(invRef, {
-            coins: firestore_2.FieldValue.increment(economy.referralBonusIndicador),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        addWalletTxInTx(tx, {
-            id: `referral_guest_${uid}_${inviter}`,
-            userId: uid,
-            tipo: "referral",
-            moeda: "coins",
-            valor: economy.referralBonusConvidado,
-            saldoApos: guestCoins,
-            descricao: "Bônus de indicação (convidado)",
-            referenciaId: inviter,
-        });
-        addWalletTxInTx(tx, {
-            id: `referral_inviter_${inviter}_${uid}`,
-            userId: inviter,
-            tipo: "referral",
-            moeda: "coins",
-            valor: economy.referralBonusIndicador,
-            saldoApos: inviterCoins,
-            descricao: "Bônus de indicação (indicador)",
-            referenciaId: uid,
-        });
-        return { ok: true };
+        if (action === "reward" && status !== "rewarded") {
+            const inviterReward = Math.max(0, Number(referral.inviterRewardCoins || campaign?.config.inviterRewardCoins || referralConfig.defaultInviterRewardCoins || 0));
+            const invitedReward = Math.max(0, Number(referral.invitedRewardCoins ||
+                (campaign?.config.invitedRewardEnabled ?? referralConfig.invitedRewardEnabled
+                    ? campaign?.config.invitedRewardCoins ?? referralConfig.defaultInvitedRewardCoins
+                    : 0)));
+            tx.update(referralRef, {
+                status: "rewarded",
+                referralStatus: "rewarded",
+                referralQualified: true,
+                referralRewardGiven: true,
+                qualifiedAt: referral.qualifiedAt ?? firestore_2.FieldValue.serverTimestamp(),
+                rewardedAt: firestore_2.FieldValue.serverTimestamp(),
+                inviterRewardCoins: inviterReward,
+                invitedRewardCoins: invitedReward,
+                inviterRewardGrantedAt: firestore_2.FieldValue.serverTimestamp(),
+                invitedRewardGrantedAt: invitedReward > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                notes: "Recompensa concedida manualmente pelo admin.",
+            });
+            tx.update(inviterRef, {
+                coins: firestore_2.FieldValue.increment(inviterReward),
+                referralPendingCount: firestore_2.FieldValue.increment(status === "pending" ? -1 : 0),
+                referralQualifiedCount: firestore_2.FieldValue.increment(status === "pending" ? 1 : 0),
+                referralRewardedCount: firestore_2.FieldValue.increment(1),
+                referralInvitedCount: firestore_2.FieldValue.increment(1),
+                referralTotalEarnedCoins: firestore_2.FieldValue.increment(inviterReward),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            tx.update(invitedRef, {
+                coins: firestore_2.FieldValue.increment(invitedReward),
+                referralBonusGranted: true,
+                referralStatus: "rewarded",
+                referralInvitedRewardCoins: firestore_2.FieldValue.increment(invitedReward),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            addWalletTxInTx(tx, {
+                id: `referral_inviter_${inviterUid}_${invitedUid}`,
+                userId: inviterUid,
+                tipo: "referral",
+                moeda: "coins",
+                valor: inviterReward,
+                saldoApos: Number(inviterData.coins || 0) + inviterReward,
+                descricao: "Indicação recompensada manualmente",
+                referenciaId: invitedUid,
+            });
+            if (invitedReward > 0) {
+                addWalletTxInTx(tx, {
+                    id: `referral_invited_${invitedUid}_${inviterUid}`,
+                    userId: invitedUid,
+                    tipo: "referral",
+                    moeda: "coins",
+                    valor: invitedReward,
+                    saldoApos: Number(invitedData.coins || 0) + invitedReward,
+                    descricao: "Bônus manual de indicação",
+                    referenciaId: inviterUid,
+                });
+            }
+            await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, {
+                pending: status === "pending" ? -1 : 0,
+                valid: status === "pending" ? 1 : 0,
+                rewarded: 1,
+                rewards: inviterReward,
+            });
+        }
     });
+    return { ok: true };
 });
 function waitingColl(gameId) {
     return db.collection(`${COL.matchmakingQueue}/${gameId}/waiting`);
@@ -3924,6 +4451,120 @@ async function closeRankingJob(period) {
     // Snapshot + premiação: expandir com consulta ordenada e distribuição por system_configs
     console.log(`closeRanking ${period} tick`);
 }
+function referralPrizeTiersForPeriod(configDoc, campaign, period) {
+    const campaignTiers = campaign?.config.rankingPrizes?.[period];
+    if (campaignTiers && campaignTiers.length > 0)
+        return normalizePrizeTierList(campaignTiers);
+    const rawRules = configDoc.rankingRules && typeof configDoc.rankingRules === "object"
+        ? (configDoc.rankingRules[period] ?? [])
+        : [];
+    return normalizePrizeTierList(rawRules);
+}
+async function closeReferralRankingJob(period) {
+    const configSnap = await db.doc(`${COL.systemConfigs}/referral_system`).get();
+    if (!configSnap.exists)
+        return;
+    const configDoc = configSnap.data();
+    if (configDoc.enabled === false)
+        return;
+    const referralConfig = await getReferralConfig();
+    const campaign = await getActiveReferralCampaign(referralConfig);
+    const prizeTiers = referralPrizeTiersForPeriod(configDoc, campaign, period);
+    if (prizeTiers.length === 0)
+        return;
+    const periodKey = referralRankingKey(period);
+    const rankingRootRef = db.doc(`${referralRankingCollection(period)}/${periodKey}`);
+    const payoutFlagRef = db.doc(`${referralRankingCollection(period)}/${periodKey}/meta/payout`);
+    const payoutFlagSnap = await payoutFlagRef.get();
+    if (payoutFlagSnap.exists)
+        return;
+    const maxPos = prizeTiers[prizeTiers.length - 1]?.posicaoMax ?? 0;
+    if (maxPos < 1)
+        return;
+    const entriesSnap = await db
+        .collection(`${referralRankingCollection(period)}/${periodKey}/entries`)
+        .orderBy("validReferrals", "desc")
+        .orderBy("totalRewards", "desc")
+        .limit(maxPos)
+        .get();
+    if (entriesSnap.empty) {
+        await payoutFlagRef.set({
+            period,
+            periodKey,
+            processedAt: firestore_2.FieldValue.serverTimestamp(),
+            winners: 0,
+            campaignId: campaign?.id ?? null,
+            note: "Sem entradas para premiar.",
+        });
+        return;
+    }
+    const winners = entriesSnap.docs.map((docSnap, index) => {
+        const tier = prizeTiers.find((item) => index + 1 <= item.posicaoMax) ??
+            null;
+        return {
+            pos: index + 1,
+            uid: docSnap.id,
+            data: docSnap.data(),
+            tier,
+        };
+    });
+    const batch = db.batch();
+    for (const winner of winners) {
+        if (!winner.tier || (winner.tier.coins <= 0 && winner.tier.gems <= 0))
+            continue;
+        const userRef = db.doc(`${COL.users}/${winner.uid}`);
+        const userSnap = await userRef.get();
+        if (!userSnap.exists)
+            continue;
+        const userData = userSnap.data();
+        const newCoins = Number(userData.coins || 0) + winner.tier.coins;
+        const newGems = Number(userData.gems || 0) + winner.tier.gems;
+        batch.set(userRef, {
+            coins: firestore_2.FieldValue.increment(winner.tier.coins),
+            gems: firestore_2.FieldValue.increment(winner.tier.gems),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        if (winner.tier.coins > 0) {
+            batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_coins`), {
+                userId: winner.uid,
+                tipo: "referral",
+                moeda: "coins",
+                valor: winner.tier.coins,
+                saldoApos: newCoins,
+                descricao: `Premiação ranking de indicações ${period}`,
+                referenciaId: `${period}:${periodKey}:#${winner.pos}`,
+                criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+        if (winner.tier.gems > 0) {
+            batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_gems`), {
+                userId: winner.uid,
+                tipo: "referral",
+                moeda: "gems",
+                valor: winner.tier.gems,
+                saldoApos: newGems,
+                descricao: `Premiação ranking de indicações ${period} (TICKET)`,
+                referenciaId: `${period}:${periodKey}:#${winner.pos}`,
+                criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+    }
+    batch.set(payoutFlagRef, {
+        period,
+        periodKey,
+        processedAt: firestore_2.FieldValue.serverTimestamp(),
+        winners: winners.filter((winner) => winner.tier != null).length,
+        campaignId: campaign?.id ?? null,
+    });
+    batch.set(rankingRootRef, {
+        period,
+        periodKey,
+        prizeProcessedAt: firestore_2.FieldValue.serverTimestamp(),
+        campaignId: campaign?.id ?? null,
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await batch.commit();
+}
 /** Backstop server-side: resolve salas PvP expiradas para impedir travas e loops infinitos. */
 exports.reapExpiredPvpRooms = (0, scheduler_1.onSchedule)({ schedule: "* * * * *", timeZone: "America/Sao_Paulo" }, async () => {
     const snap = await db
@@ -4004,5 +4645,25 @@ exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * 
 });
 exports.closeMonthlyRanking = (0, scheduler_1.onSchedule)({ schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" }, async () => {
     await closeRankingJob("mensal");
+});
+exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * *", timeZone: "America/Sao_Paulo" }, async () => {
+    await closeReferralRankingJob("daily");
+});
+exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * 0", timeZone: "America/Sao_Paulo" }, async () => {
+    await closeReferralRankingJob("weekly");
+});
+exports.closeReferralMonthlyRanking = (0, scheduler_1.onSchedule)({ schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" }, async () => {
+    await closeReferralRankingJob("monthly");
+});
+exports.adminCloseReferralRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    await assertAdmin(uid);
+    const period = String(request.data?.period || "").trim();
+    if (!["daily", "weekly", "monthly"].includes(period)) {
+        throw new https_1.HttpsError("invalid-argument", "Período inválido.");
+    }
+    await closeReferralRankingJob(period);
+    return { ok: true };
 });
 //# sourceMappingURL=index.js.map

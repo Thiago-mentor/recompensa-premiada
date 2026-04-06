@@ -9,6 +9,7 @@ import { BackButton } from "@/components/navigation/BackButton";
 
 const links = [
   { href: ROUTES.admin.dashboard, label: "Dashboard" },
+  { href: ROUTES.admin.indicacoes, label: "Indicações" },
   { href: ROUTES.admin.jogos, label: "Jogos" },
   { href: ROUTES.admin.usuarios, label: "Usuários" },
   { href: ROUTES.admin.rankings, label: "Rankings" },

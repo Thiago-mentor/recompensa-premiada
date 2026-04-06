@@ -169,7 +169,8 @@ export function CadastroForm() {
             id="convite"
             className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white outline-none focus:border-violet-500"
             value={codigoConvite}
-            onChange={(e) => setCodigoConvite(e.target.value)}
+            onChange={(e) => setCodigoConvite(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+            placeholder="Ex.: PREMIA45"
           />
         </div>
         <Button type="submit" className="w-full" disabled={loading}>

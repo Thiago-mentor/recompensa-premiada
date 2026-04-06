@@ -36,6 +36,12 @@ export default function PerfilPage() {
           <span className="text-white/50">Risco fraude:</span> {profile?.riscoFraude ?? "—"}
         </p>
       </div>
+      <Link
+        href={ROUTES.convidar}
+        className="block rounded-xl border border-cyan-500/30 bg-cyan-950/30 px-4 py-3 text-center text-cyan-100"
+      >
+        Abrir área de convites
+      </Link>
       {isAdmin ? (
         <Link
           href={ROUTES.admin.dashboard}
