@@ -179,7 +179,7 @@ export default function AdminConfigPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Configurações da economia</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Ajuste recompensas básicas, limites diários, referral e custo de entrada dos jogos.
+          Ajuste recompensas básicas, limites diários, referral e custo de entrada dos confrontos.
         </p>
       </div>
       {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
@@ -414,7 +414,7 @@ export default function AdminConfigPage() {
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-        <h2 className="text-lg font-semibold text-white">Custo de entrada dos jogos</h2>
+        <h2 className="text-lg font-semibold text-white">Custo de entrada dos confrontos</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="PPT" value={pptEntryCost} onChange={setPptEntryCost} />
           <Field label="Quiz" value={quizEntryCost} onChange={setQuizEntryCost} />

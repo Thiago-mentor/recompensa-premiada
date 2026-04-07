@@ -19,7 +19,7 @@ import { DailyRewardModalHost } from "@/components/dailyReward/DailyRewardModalH
 const nav = [
   { href: ROUTES.home, label: "Início", icon: Home },
   { href: ROUTES.missoes, label: "Missões", icon: ListChecks },
-  { href: ROUTES.jogos, label: "Jogos", icon: Gamepad2 },
+  { href: ROUTES.jogos, label: "Arena", icon: Gamepad2 },
   { href: ROUTES.ranking, label: "Ranking", icon: Trophy },
   { href: ROUTES.carteira, label: "Carteira", icon: Wallet },
   { href: ROUTES.perfil, label: "Perfil", icon: User },

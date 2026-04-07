@@ -48,7 +48,11 @@ export interface UserProfile {
   referralBlockedCount?: number;
   referralInvitedCount?: number;
   referralTotalEarnedCoins?: number;
+  referralTotalEarnedGems?: number;
+  referralTotalEarnedRewardBalance?: number;
   referralInvitedRewardCoins?: number;
+  referralInvitedRewardGems?: number;
+  referralInvitedRewardBalance?: number;
   totalMissionRewardsClaimed?: number;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;

@@ -4,6 +4,7 @@ export const ROUTES = {
   home: "/home",
   missoes: "/missoes",
   jogos: "/jogos",
+  recursos: "/recursos",
   jogosFila: "/jogos/fila",
   ranking: "/ranking",
   recompensas: "/recompensas",

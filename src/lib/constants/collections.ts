@@ -34,4 +34,7 @@ export const COLLECTIONS = {
 export const SUBCOLLECTIONS = {
   userMissionsDaily: "daily",
   userMissionsWeekly: "weekly",
+  rankingEntries: "entries",
+  rankingGames: "games",
+  rankingMeta: "meta",
 } as const;

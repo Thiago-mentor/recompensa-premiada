@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils/cn";
-import { Timer, Zap } from "lucide-react";
+import { Gift, Timer, Zap } from "lucide-react";
 import type { GameCatalogEntry } from "../core/gameRegistry";
 import { GameCoverIllustration } from "./GameCoverIllustration";
 
@@ -67,6 +67,11 @@ export function GameCard({
               <Timer className="h-3 w-3 text-cyan-300" />
               {cooldownLabel}
             </span>
+            {game.highlightLabel ? (
+              <span className="absolute left-2 top-2 rounded-lg border border-white/15 bg-black/45 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white/70 backdrop-blur-sm">
+                {game.highlightLabel}
+              </span>
+            ) : null}
             <div className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8 sm:px-4 sm:pb-4">
               <h2 className="text-balance text-lg font-black leading-tight tracking-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] sm:text-xl">
                 {game.title}
@@ -76,14 +81,15 @@ export function GameCard({
 
           <div className="flex flex-1 flex-col gap-2.5 p-4 sm:p-5">
             <p className="text-sm leading-relaxed text-white/60">{game.subtitle}</p>
-            {game.multiplayerReady ? (
+            {game.experienceKind === "arena" ? (
               <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-200/95">
                 <Zap className="h-3.5 w-3.5 text-amber-300" />
                 1v1 · matchmaking
               </span>
             ) : (
-              <span className="mt-auto inline-flex w-fit items-center rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/45">
-                Solo · servidor
+              <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-cyan-100/85">
+                <Gift className="h-3.5 w-3.5 text-cyan-200" />
+                Recurso solo
               </span>
             )}
           </div>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useExperienceCatalogBuckets } from "@/hooks/useExperienceCatalogBuckets";
 import { useHomeDashboard } from "@/hooks/useHomeDashboard";
 import { StatCard } from "@/components/cards/StatCard";
 import { MissionCard } from "@/components/cards/MissionCard";
@@ -13,13 +14,15 @@ import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { runRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
 import { processDailyLogin } from "@/services/streak/dailyLoginService";
 import { claimMissionRewardCallable } from "@/services/missoes/missionService";
-import { ROUTES, routeJogosFilaBuscar } from "@/lib/constants/routes";
-import { Banknote, CirclePlay, Coins, Ticket, TrendingUp } from "lucide-react";
+import { ROUTES } from "@/lib/constants/routes";
+import { resolveAvatarUrl } from "@/lib/users/avatar";
+import { ArrowRight, Banknote, CirclePlay, Coins, Flame, Gift, Sparkles, Ticket, TrendingUp, Wallet } from "lucide-react";
 import Link from "next/link";
 import { getDailyRewardUiState } from "@/utils/dailyRewardUiState";
 
 export default function HomePage() {
   const { user, profile, profileLoading } = useAuth();
+  const { arena: arenaCatalog, utility: utilityCatalog } = useExperienceCatalogBuckets();
   const { dailyPreview, ranking, loadError, refreshRanking, streakCardPreview } = useHomeDashboard();
   const [banner, setBanner] = useState<{
     tone: "success" | "error" | "info";
@@ -96,10 +99,55 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6 pb-4">
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="text-sm text-white/55">Olá,</p>
-          <h1 className="text-2xl font-bold text-white">{nome}</h1>
+      <header className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_32%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_36%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-4 shadow-[0_0_56px_-26px_rgba(34,211,238,0.28)] sm:p-5">
+        <div className="flex items-start gap-4">
+          <div
+            aria-label={nome}
+            className="h-16 w-16 shrink-0 rounded-[22px] border border-white/10 bg-cover bg-center shadow-[0_0_32px_-16px_rgba(34,211,238,0.55)]"
+            style={{
+              backgroundImage: `url(${resolveAvatarUrl({
+                photoUrl: profile?.foto ?? user?.photoURL,
+                name: profile?.nome ?? user?.displayName,
+                username: profile?.username,
+                uid: profile?.uid ?? user?.uid,
+              })})`,
+            }}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200/70">
+              Painel premium
+            </p>
+            <h1 className="mt-1 text-2xl font-black tracking-tight text-white">{nome}</h1>
+            <p className="mt-1 text-sm text-white/55">
+              Continue acumulando PR, tickets e posição no ranking do dia.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-white/70">
+                Nível {profile?.level ?? "—"}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-orange-100/85">
+                <Flame className="h-3 w-3" />
+                streak {profile?.streakAtual ?? 0}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <Link
+            href={ROUTES.ranking}
+            className="flex min-h-[48px] items-center justify-between rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/15"
+          >
+            <span>Ver ranking</span>
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href={ROUTES.carteira}
+            className="flex min-h-[48px] items-center justify-between rounded-2xl border border-violet-400/20 bg-violet-500/10 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/15"
+          >
+            <span>Abrir carteira</span>
+            <Wallet className="h-4 w-4" />
+          </Link>
         </div>
       </header>
 
@@ -163,7 +211,7 @@ export default function HomePage() {
               <p className="mt-1 text-sm font-semibold text-white">PR, ticket e XP no mesmo fluxo</p>
             </div>
             <div className="rounded-2xl border border-amber-400/15 bg-amber-500/10 px-3 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/75">Jogos</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/75">Confrontos</p>
               <p className="mt-1 text-sm font-semibold text-white">Ranqueie e acumule recompensas</p>
             </div>
           </div>
@@ -192,9 +240,10 @@ export default function HomePage() {
         claimedToday={claimedToday}
       />
 
-      <section>
+      <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Missões</p>
             <h2 className="text-lg font-semibold text-white">Missões do dia</h2>
             <p className="text-xs text-white/45">Missões rápidas para manter seu progresso ativo</p>
           </div>
@@ -220,54 +269,91 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section>
+      <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Jogos</h2>
-            <p className="text-xs text-white/45">Cards mais claros, recompensa visível e clique maior</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Games</p>
+            <h2 className="text-lg font-semibold text-white">Confrontos</h2>
+            <p className="text-xs text-white/45">Jogos competitivos com foco em ranking e progresso.</p>
           </div>
           <Link href={ROUTES.jogos} className="text-sm text-violet-300 hover:underline">
             Ver todos
           </Link>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <GameCard
-            href={routeJogosFilaBuscar("ppt")}
-            title="PPT"
-            subtitle="1v1 rápido e competitivo"
-            reward="PR + ranking"
-          />
-          <GameCard
-            href={routeJogosFilaBuscar("quiz")}
-            title="Quiz"
-            subtitle="acerto e velocidade contam"
-            reward="PR + ranking"
-          />
-          <GameCard
-            href={routeJogosFilaBuscar("reaction_tap")}
-            title="Reaction"
-            subtitle="reflexo puro contra outro jogador"
-            reward="PR + ranking"
-          />
-          <GameCard
-            href={`${ROUTES.jogos}/bau`}
-            title="Baú"
-            subtitle="cooldown curto com loot"
-            reward="PR e bônus"
-          />
-          <GameCard
-            href={`${ROUTES.jogos}/roleta`}
-            title="Roleta"
-            subtitle="gire e busque prêmio rápido"
-            reward="PR imediato"
-            className="col-span-2"
-          />
+          {arenaCatalog.length === 0 ? (
+            <div className="col-span-2 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/45">
+              Nenhum confronto ativo na arena neste momento.
+            </div>
+          ) : (
+            arenaCatalog.map((game, index) => (
+              <GameCard
+                key={game.id}
+                href={game.href}
+                title={game.title}
+                subtitle={game.subtitle}
+                reward={homeExperienceReward(game.id)}
+                className={arenaCatalog.length % 2 === 1 && index === arenaCatalog.length - 1 ? "col-span-2" : undefined}
+              />
+            ))
+          )}
+        </div>
+
+        <div className="mt-5 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
+                Recursos extras
+              </p>
+              <p className="text-xs text-white/45">
+                As experiências classificadas como recurso continuam disponíveis nesta área do app.
+              </p>
+            </div>
+            <Link href={ROUTES.recursos} className="text-sm text-cyan-300 hover:underline">
+              Abrir recursos
+            </Link>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {utilityCatalog.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/45 sm:col-span-2">
+                Nenhum recurso extra configurado no momento.
+              </div>
+            ) : (
+              utilityCatalog.map((resource) => (
+                <Link
+                  key={resource.id}
+                  href={resource.href}
+                  className={resource.id === "bau"
+                    ? "rounded-[1.4rem] border border-amber-400/20 bg-amber-500/10 px-4 py-4 transition hover:bg-amber-500/15"
+                    : "rounded-[1.4rem] border border-cyan-400/20 bg-cyan-500/10 px-4 py-4 transition hover:bg-cyan-500/15"}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{resource.title}</p>
+                      <p className="mt-1 text-xs text-white/60">
+                        {resource.id === "bau"
+                          ? "Recurso com cooldown para liberar bônus e recompensas extras."
+                          : "Acesso rápido para buscar PR e movimentar sua economia no app."}
+                      </p>
+                    </div>
+                    {resource.id === "bau" ? (
+                      <Gift className="h-5 w-5 text-amber-200" />
+                    ) : (
+                      <Sparkles className="h-5 w-5 text-cyan-200" />
+                    )}
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
         </div>
       </section>
 
-      <section>
+      <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Ranking</p>
             <h2 className="text-lg font-semibold text-white">Ranking de hoje</h2>
             <p className="text-xs text-white/45">Acompanhe seu avanço e quanto falta para subir</p>
           </div>
@@ -305,4 +391,10 @@ export default function HomePage() {
       </section>
     </div>
   );
+}
+
+function homeExperienceReward(gameId: string) {
+  if (gameId === "roleta") return "PR imediato";
+  if (gameId === "bau") return "PR e bônus";
+  return "PR + ranking";
 }

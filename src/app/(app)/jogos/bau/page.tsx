@@ -1,5 +1,6 @@
-import { BauGameScreen } from "@/modules/jogos";
+import { ROUTES } from "@/lib/constants/routes";
+import { redirect } from "next/navigation";
 
 export default function BauPage() {
-  return <BauGameScreen />;
+  redirect(`${ROUTES.recursos}/bau`);
 }

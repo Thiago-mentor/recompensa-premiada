@@ -13,6 +13,7 @@ export const CALLABLES = {
   confirmRewardClaimPix: "confirmRewardClaimPix",
   riskAnalysisOnUserEvent: "riskAnalysisOnUserEvent",
   initializeUserProfile: "initializeUserProfile",
+  updateUserAvatar: "updateUserAvatar",
   joinAutoMatch: "joinAutoMatch",
   leaveAutoMatch: "leaveAutoMatch",
   submitPptPick: "submitPptPick",
@@ -26,6 +27,8 @@ export const CALLABLES = {
   reactionSyncDuelRefill: "reactionSyncDuelRefill",
   convertCurrency: "convertCurrency",
   adminGrantEconomy: "adminGrantEconomy",
+  adminCloseRanking: "adminCloseRanking",
   adminReviewReferral: "adminReviewReferral",
+  adminReprocessReferral: "adminReprocessReferral",
   adminCloseReferralRanking: "adminCloseReferralRanking",
 } as const;

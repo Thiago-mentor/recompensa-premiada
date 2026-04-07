@@ -1,5 +1,6 @@
-import { RoletaGameScreen } from "@/modules/jogos";
+import { ROUTES } from "@/lib/constants/routes";
+import { redirect } from "next/navigation";
 
 export default function RoletaPage() {
-  return <RoletaGameScreen />;
+  redirect(`${ROUTES.recursos}/roleta`);
 }

@@ -1,5 +1,13 @@
-export { GAME_CATALOG, getGameBySlug } from "./core/gameRegistry";
-export type { GameCatalogEntry } from "./core/gameRegistry";
+export {
+  GAME_CATALOG,
+  ARENA_GAME_CATALOG,
+  UTILITY_EXPERIENCE_CATALOG,
+  getGameBySlug,
+  normalizeGameCatalogConfig,
+  resolveConfiguredGameCatalog,
+  splitConfiguredGameCatalog,
+} from "./core/gameRegistry";
+export type { GameCatalogEntry, GameCatalogConfig } from "./core/gameRegistry";
 export {
   MULTIPLAYER_COLLECTIONS,
   type GameRoom,

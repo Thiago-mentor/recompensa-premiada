@@ -81,10 +81,12 @@ service cloud.firestore {
     }
 
     match /referrals/{id} {
-      allow read: if isSignedIn()
-        && (resource.data.inviterUserId == request.auth.uid
-          || resource.data.invitedUserId == request.auth.uid
-          || isAdmin());
+      allow get: if isSignedIn()
+        && (request.auth.uid == id
+          || isAdmin()
+          || (resource != null && resource.data.inviterUserId == request.auth.uid));
+      allow list: if isSignedIn()
+        && (isAdmin() || resource.data.inviterUserId == request.auth.uid);
       allow write: if false;
     }
 

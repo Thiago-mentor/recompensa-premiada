@@ -10,6 +10,7 @@ import { WalletRow } from "@/components/cards/WalletRow";
 import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
 import { ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
+import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { ArrowRight, ArrowRightLeft, Banknote, Coins, ListTree, ShieldCheck, Sparkles, Ticket, Wallet } from "lucide-react";
 
 const filtros = [
@@ -53,13 +54,38 @@ export default function CarteiraPage() {
   }, [user, filtro]);
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Carteira</h1>
-        <p className="mt-1 text-sm text-white/50">
-          Área central para saldo, conversão, saque PIX e extrato.
-        </p>
-      </div>
+    <div className="space-y-6 pb-4">
+      <section className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-4 shadow-[0_0_56px_-26px_rgba(139,92,246,0.35)] sm:p-5">
+        <div className="flex items-start gap-4">
+          <div
+            aria-label={profile?.nome || user?.displayName || "Carteira"}
+            className="h-16 w-16 shrink-0 rounded-[22px] border border-white/10 bg-cover bg-center shadow-[0_0_32px_-16px_rgba(34,211,238,0.5)]"
+            style={{
+              backgroundImage: `url(${resolveAvatarUrl({
+                photoUrl: profile?.foto ?? user?.photoURL,
+                name: profile?.nome ?? user?.displayName,
+                username: profile?.username,
+                uid: profile?.uid ?? user?.uid,
+              })})`,
+            }}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200/70">
+              Economia premium
+            </p>
+            <h1 className="mt-1 text-2xl font-black tracking-tight text-white sm:text-3xl">Carteira</h1>
+            <p className="mt-1 text-sm text-white/55">
+              Sua central de PR, TICKET, CASH, conversão, saque PIX e extrato.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <QuickBalancePill label="PR" value={profile ? String(profile.coins) : "—"} />
+          <QuickBalancePill label="TICKET" value={profile ? String(profile.gems) : "—"} />
+          <QuickBalancePill label="CASH" value={profile ? String(profile.rewardBalance) : "—"} />
+        </div>
+      </section>
 
       <div
         className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-gradient-to-b from-white/8 to-white/[0.03] p-1.5"
@@ -79,7 +105,7 @@ export default function CarteiraPage() {
             aria-selected={aba === id}
             onClick={() => setAba(id)}
             className={cn(
-              "flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition",
+              "flex min-h-[48px] min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition",
               aba === id
                 ? "bg-gradient-to-r from-cyan-600/25 via-violet-600/30 to-fuchsia-600/25 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                 : "text-white/55 hover:bg-white/5 hover:text-white/85",
@@ -253,6 +279,15 @@ export default function CarteiraPage() {
           </div>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+function QuickBalancePill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
     </div>
   );
 }

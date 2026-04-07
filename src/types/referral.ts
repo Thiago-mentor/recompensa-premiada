@@ -2,6 +2,7 @@ import type { Timestamp } from "./firestore";
 
 export type ReferralStatus = "pending" | "valid" | "rewarded" | "blocked" | "invalid";
 export type ReferralRankingPeriod = "daily" | "weekly" | "monthly" | "all";
+export type ReferralRewardCurrency = "coins" | "gems" | "rewardBalance";
 
 export interface ReferralFraudFlags {
   suspectedFraud: boolean;
@@ -9,6 +10,15 @@ export interface ReferralFraudFlags {
   duplicateRewardBlocked: boolean;
   manualReviewRequired: boolean;
   sameIpFlag: boolean;
+}
+
+export interface ReferralQualificationProgress {
+  emailVerified: boolean;
+  profileCompleted: boolean;
+  adsWatched: number;
+  matchesPlayed: number;
+  missionRewardsClaimed: number;
+  updatedAt?: Timestamp | null;
 }
 
 /** `referrals/{invitedUserId}` — convite rastreado */
@@ -28,6 +38,10 @@ export interface ReferralRecord {
   referralStatus: ReferralStatus;
   referralQualified: boolean;
   referralRewardGiven: boolean;
+  inviterRewardAmount?: number;
+  inviterRewardCurrency?: ReferralRewardCurrency | null;
+  invitedRewardAmount?: number;
+  invitedRewardCurrency?: ReferralRewardCurrency | null;
   inviterRewardCoins: number;
   invitedRewardCoins: number;
   inviterRewardGrantedAt?: Timestamp | null;
@@ -38,6 +52,7 @@ export interface ReferralRecord {
   campaignName?: string | null;
   inviteSource?: string | null;
   qualificationSnapshot?: ReferralQualificationRules | null;
+  progressSnapshot?: ReferralQualificationProgress | null;
   fraudFlags: ReferralFraudFlags;
   notes?: string | null;
 }
@@ -52,13 +67,15 @@ export interface ReferralQualificationRules {
 
 export interface ReferralRankingPrizeTier {
   posicaoMax: number;
-  coins: number;
-  gems: number;
+  amount: number;
+  currency: ReferralRewardCurrency;
 }
 
 export interface ReferralCampaignConfig {
-  inviterRewardCoins: number;
-  invitedRewardCoins: number;
+  inviterRewardAmount: number;
+  inviterRewardCurrency: ReferralRewardCurrency;
+  invitedRewardAmount: number;
+  invitedRewardCurrency: ReferralRewardCurrency;
   invitedRewardEnabled: boolean;
   qualificationRules: ReferralQualificationRules;
   rankingPrizes: {
@@ -98,9 +115,12 @@ export interface ReferralSystemConfig {
   id: "referral_system";
   enabled: boolean;
   codeRequired: boolean;
-  defaultInviterRewardCoins: number;
-  defaultInvitedRewardCoins: number;
+  defaultInviterRewardAmount: number;
+  defaultInviterRewardCurrency: ReferralRewardCurrency;
+  defaultInvitedRewardAmount: number;
+  defaultInvitedRewardCurrency: ReferralRewardCurrency;
   invitedRewardEnabled: boolean;
+  rankingEnabled: boolean;
   limitValidPerDay: number;
   limitRewardedPerUser: number;
   qualificationRules: ReferralQualificationRules;
@@ -111,10 +131,10 @@ export interface ReferralSystemConfig {
     requireManualReviewForSuspected: boolean;
   };
   rankingRules: {
-    topDailyWinners: number;
-    topWeeklyWinners: number;
-    topMonthlyWinners: number;
-    topAllWinners: number;
+    daily: ReferralRankingPrizeTier[];
+    weekly: ReferralRankingPrizeTier[];
+    monthly: ReferralRankingPrizeTier[];
+    all: ReferralRankingPrizeTier[];
   };
   activeCampaignId?: string | null;
   campaignText?: string | null;

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.initializeUserProfile = void 0;
+exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -73,6 +73,15 @@ const COL = {
     multiplayerSlots: "multiplayer_slots",
 };
 const AUTO_QUEUE_GAMES = new Set(["ppt", "quiz", "reaction_tap"]);
+const RANKING_GAME_IDS = ["ppt", "quiz", "reaction_tap", "roleta", "bau", "numero_secreto"];
+const GAME_TITLES = {
+    ppt: "Pedra, papel e tesoura",
+    quiz: "Quiz rápido 1x1",
+    reaction_tap: "Reaction tap",
+    roleta: "Roleta de PR",
+    bau: "Baú com cooldown",
+    numero_secreto: "Número secreto",
+};
 /** PPT em sala: primeiro a chegar nesta pontuação vence a partida (cada rodada sem empate = 1 ponto). */
 const PPT_MATCH_TARGET_POINTS = 5;
 const QUIZ_MATCH_TARGET_POINTS = 5;
@@ -382,6 +391,7 @@ async function getEconomy() {
         referralBonusIndicador: typeof d.referralBonusIndicador === "number" ? d.referralBonusIndicador : 200,
         referralBonusConvidado: typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
         matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
+        rankingPrizes: normalizeRankingPrizeConfig(d.rankingPrizes),
         streakTable: (0, streakEconomy_1.normalizeStreakTable)(d.streakTable),
         pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
         /** PR por ticket ao comprar TICKET com PR (mín. 1). */
@@ -433,6 +443,40 @@ function weeklyKey(d = new Date()) {
 function monthlyKey(d = new Date()) {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
+function rankingCollectionForPeriod(period) {
+    switch (period) {
+        case "diario":
+            return COL.rankingsDaily;
+        case "semanal":
+            return COL.rankingsWeekly;
+        case "mensal":
+        default:
+            return COL.rankingsMonthly;
+    }
+}
+function rankingKeyForPeriod(period, when = new Date()) {
+    switch (period) {
+        case "diario":
+            return dailyKey(when);
+        case "semanal":
+            return weeklyKey(when);
+        case "mensal":
+        default:
+            return monthlyKey(when);
+    }
+}
+function rankingScoreFieldForPeriod(period) {
+    return period === "diario"
+        ? "scoreRankingDiario"
+        : period === "semanal"
+            ? "scoreRankingSemanal"
+            : "scoreRankingMensal";
+}
+function rankingReferenceDateForClose(period, when = new Date()) {
+    if (period === "mensal")
+        return new Date(when.getTime() - 60000);
+    return new Date(when.getTime() - 1000);
+}
 function referralAllTimeKey() {
     return "global";
 }
@@ -462,17 +506,146 @@ function referralRankingKey(period, when = new Date()) {
             return referralAllTimeKey();
     }
 }
+function isRewardCurrency(value) {
+    return value === "coins" || value === "gems" || value === "rewardBalance";
+}
+function normalizeRewardCurrency(value, fallback = "coins") {
+    return isRewardCurrency(value) ? value : fallback;
+}
 function normalizePrizeTierList(raw) {
     if (!Array.isArray(raw))
         return [];
     return raw
-        .map((item) => ({
-        posicaoMax: Math.max(1, Math.floor(Number(item.posicaoMax) || 0)),
-        coins: Math.max(0, Math.floor(Number(item.coins) || 0)),
-        gems: Math.max(0, Math.floor(Number(item.gems) || 0)),
-    }))
-        .filter((item) => item.posicaoMax >= 1 && (item.coins > 0 || item.gems > 0))
+        .map((item) => {
+        const data = item;
+        const amount = Math.max(0, Math.floor(Number(data.amount) || 0));
+        const currency = normalizeRewardCurrency(data.currency, "coins");
+        const legacyCoins = Math.max(0, Math.floor(Number(data.coins) || 0));
+        const legacyGems = Math.max(0, Math.floor(Number(data.gems) || 0));
+        if (amount > 0) {
+            return {
+                posicaoMax: Math.max(1, Math.floor(Number(data.posicaoMax) || 0)),
+                amount,
+                currency,
+            };
+        }
+        if (legacyCoins > 0) {
+            return {
+                posicaoMax: Math.max(1, Math.floor(Number(data.posicaoMax) || 0)),
+                amount: legacyCoins,
+                currency: "coins",
+            };
+        }
+        return {
+            posicaoMax: Math.max(1, Math.floor(Number(data.posicaoMax) || 0)),
+            amount: legacyGems,
+            currency: "gems",
+        };
+    })
+        .filter((item) => item.posicaoMax >= 1 && item.amount > 0)
         .sort((a, b) => a.posicaoMax - b.posicaoMax);
+}
+function emptyRankingPrizeRewards() {
+    return { coins: 0, gems: 0, rewardBalance: 0 };
+}
+function hasRankingPrizeRewards(rewards) {
+    return rewards.coins + rewards.gems + rewards.rewardBalance > 0;
+}
+function emptyRankingPeriodPrizeConfig() {
+    return { diario: [], semanal: [], mensal: [] };
+}
+const DEFAULT_GLOBAL_RANKING_PRIZES = {
+    diario: [
+        { posicaoMax: 1, rewards: { coins: 500, gems: 25, rewardBalance: 0 } },
+        { posicaoMax: 3, rewards: { coins: 250, gems: 10, rewardBalance: 0 } },
+        { posicaoMax: 10, rewards: { coins: 100, gems: 5, rewardBalance: 0 } },
+    ],
+    semanal: [
+        { posicaoMax: 1, rewards: { coins: 1500, gems: 60, rewardBalance: 30 } },
+        { posicaoMax: 3, rewards: { coins: 800, gems: 30, rewardBalance: 15 } },
+        { posicaoMax: 10, rewards: { coins: 300, gems: 10, rewardBalance: 5 } },
+    ],
+    mensal: [
+        { posicaoMax: 1, rewards: { coins: 5000, gems: 150, rewardBalance: 150 } },
+        { posicaoMax: 3, rewards: { coins: 2500, gems: 70, rewardBalance: 70 } },
+        { posicaoMax: 10, rewards: { coins: 1000, gems: 25, rewardBalance: 20 } },
+    ],
+};
+function normalizeRankingPrizeTierList(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    return raw
+        .map((item) => {
+        const data = item;
+        const rewards = emptyRankingPrizeRewards();
+        rewards.coins = Math.max(0, Math.floor(Number(data.coins) || 0));
+        rewards.gems = Math.max(0, Math.floor(Number(data.gems) || 0));
+        rewards.rewardBalance = Math.max(0, Math.floor(Number(data.rewardBalance) || 0));
+        const amount = Math.max(0, Math.floor(Number(data.amount) || 0));
+        if (!hasRankingPrizeRewards(rewards) && amount > 0) {
+            const currency = normalizeRewardCurrency(data.currency, "coins");
+            rewards[currency] = amount;
+        }
+        return {
+            posicaoMax: Math.max(1, Math.floor(Number(data.posicaoMax) || 0)),
+            rewards,
+        };
+    })
+        .filter((item) => item.posicaoMax >= 1 && hasRankingPrizeRewards(item.rewards))
+        .sort((a, b) => a.posicaoMax - b.posicaoMax);
+}
+function normalizeRankingPrizeConfig(raw) {
+    const data = raw && typeof raw === "object" ? raw : {};
+    const globalSource = data.global && typeof data.global === "object"
+        ? data.global
+        : data;
+    const byGameSource = data.byGame && typeof data.byGame === "object"
+        ? data.byGame
+        : {};
+    const global = {
+        diario: normalizeRankingPrizeTierList(globalSource.diario),
+        semanal: normalizeRankingPrizeTierList(globalSource.semanal),
+        mensal: normalizeRankingPrizeTierList(globalSource.mensal),
+    };
+    if (global.diario.length === 0)
+        global.diario = DEFAULT_GLOBAL_RANKING_PRIZES.diario;
+    if (global.semanal.length === 0)
+        global.semanal = DEFAULT_GLOBAL_RANKING_PRIZES.semanal;
+    if (global.mensal.length === 0)
+        global.mensal = DEFAULT_GLOBAL_RANKING_PRIZES.mensal;
+    const byGame = {};
+    for (const gameId of RANKING_GAME_IDS) {
+        const gameSource = byGameSource[gameId] && typeof byGameSource[gameId] === "object"
+            ? byGameSource[gameId]
+            : {};
+        const normalized = {
+            diario: normalizeRankingPrizeTierList(gameSource.diario),
+            semanal: normalizeRankingPrizeTierList(gameSource.semanal),
+            mensal: normalizeRankingPrizeTierList(gameSource.mensal),
+        };
+        if (normalized.diario.length || normalized.semanal.length || normalized.mensal.length) {
+            byGame[gameId] = normalized;
+        }
+    }
+    return { global, byGame };
+}
+function rankingPrizeTiersForScope(config, period, gameId) {
+    if (gameId)
+        return config.byGame[gameId]?.[period] ?? [];
+    return config.global[period];
+}
+function rankingPrizeTierForPosition(tiers, position) {
+    return tiers.find((tier) => position <= tier.posicaoMax) ?? null;
+}
+function formatRankingRewardSummary(rewards) {
+    const parts = [];
+    if (rewards.coins > 0)
+        parts.push(`${rewards.coins} PR`);
+    if (rewards.gems > 0)
+        parts.push(`${rewards.gems} TICKET`);
+    if (rewards.rewardBalance > 0)
+        parts.push(`${rewards.rewardBalance} CASH`);
+    return parts.length > 0 ? parts.join(" · ") : "sem prêmio";
 }
 function buildReferralCodeSeed(name, username) {
     const raw = `${username || ""}${name || ""}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -481,6 +654,48 @@ function buildReferralCodeSeed(name, username) {
 }
 function randomReferralCode(seed) {
     return `${seed}${randomCode(4)}`.slice(0, 8);
+}
+function avatarInitials(name) {
+    const parts = String(name || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2);
+    if (parts.length === 0)
+        return "?";
+    return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+function hashString(value) {
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+        hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+}
+function buildDefaultAvatarDataUrl(seed, displayName) {
+    const palettes = [
+        ["#06B6D4", "#7C3AED"],
+        ["#8B5CF6", "#EC4899"],
+        ["#F59E0B", "#EF4444"],
+        ["#10B981", "#06B6D4"],
+        ["#6366F1", "#A855F7"],
+    ];
+    const normalizedSeed = seed.trim() || "user";
+    const palette = palettes[hashString(normalizedSeed) % palettes.length];
+    const initials = avatarInitials(displayName || normalizedSeed);
+    const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+      <defs>
+        <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${palette[0]}" />
+          <stop offset="100%" stop-color="${palette[1]}" />
+        </linearGradient>
+      </defs>
+      <rect width="128" height="128" rx="32" fill="url(#g)" />
+      <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="700">${initials}</text>
+    </svg>
+  `.trim();
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 async function generateUniqueReferralCode(seed) {
     for (let i = 0; i < 12; i++) {
@@ -497,9 +712,12 @@ async function getReferralConfig() {
     return {
         enabled: d.enabled !== false,
         codeRequired: d.codeRequired === true,
-        defaultInviterRewardCoins: Math.max(0, Math.floor(Number(d.defaultInviterRewardCoins) || 100)),
-        defaultInvitedRewardCoins: Math.max(0, Math.floor(Number(d.defaultInvitedRewardCoins) || 50)),
+        defaultInviterRewardAmount: Math.max(0, Math.floor(Number(d.defaultInviterRewardAmount ?? d.defaultInviterRewardCoins) || 100)),
+        defaultInviterRewardCurrency: normalizeRewardCurrency(d.defaultInviterRewardCurrency, "coins"),
+        defaultInvitedRewardAmount: Math.max(0, Math.floor(Number(d.defaultInvitedRewardAmount ?? d.defaultInvitedRewardCoins) || 50)),
+        defaultInvitedRewardCurrency: normalizeRewardCurrency(d.defaultInvitedRewardCurrency, "coins"),
         invitedRewardEnabled: d.invitedRewardEnabled !== false,
+        rankingEnabled: d.rankingEnabled !== false,
         limitValidPerDay: Math.max(0, Math.floor(Number(d.limitValidPerDay) || 20)),
         limitRewardedPerUser: Math.max(0, Math.floor(Number(d.limitRewardedPerUser) || 500)),
         qualificationRules: {
@@ -546,8 +764,20 @@ async function getActiveReferralCampaign(config) {
                 id: snap.id,
                 name: String(d.name || "Campanha de indicação"),
                 config: {
-                    inviterRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.inviterRewardCoins : config.defaultInviterRewardCoins) || config.defaultInviterRewardCoins)),
-                    invitedRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.invitedRewardCoins : config.defaultInvitedRewardCoins) || config.defaultInvitedRewardCoins)),
+                    inviterRewardAmount: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object"
+                        ? d.config.inviterRewardAmount ??
+                            d.config.inviterRewardCoins
+                        : config.defaultInviterRewardAmount) || config.defaultInviterRewardAmount)),
+                    inviterRewardCurrency: d.config && typeof d.config === "object"
+                        ? normalizeRewardCurrency(d.config.inviterRewardCurrency, config.defaultInviterRewardCurrency)
+                        : config.defaultInviterRewardCurrency,
+                    invitedRewardAmount: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object"
+                        ? d.config.invitedRewardAmount ??
+                            d.config.invitedRewardCoins
+                        : config.defaultInvitedRewardAmount) || config.defaultInvitedRewardAmount)),
+                    invitedRewardCurrency: d.config && typeof d.config === "object"
+                        ? normalizeRewardCurrency(d.config.invitedRewardCurrency, config.defaultInvitedRewardCurrency)
+                        : config.defaultInvitedRewardCurrency,
                     invitedRewardEnabled: d.config && typeof d.config === "object"
                         ? d.config.invitedRewardEnabled !== false
                         : config.invitedRewardEnabled,
@@ -583,8 +813,20 @@ async function getActiveReferralCampaign(config) {
             id: item.id,
             name: String(d.name || "Campanha de indicação"),
             config: {
-                inviterRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.inviterRewardCoins : config.defaultInviterRewardCoins) || config.defaultInviterRewardCoins)),
-                invitedRewardCoins: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object" ? d.config.invitedRewardCoins : config.defaultInvitedRewardCoins) || config.defaultInvitedRewardCoins)),
+                inviterRewardAmount: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object"
+                    ? d.config.inviterRewardAmount ??
+                        d.config.inviterRewardCoins
+                    : config.defaultInviterRewardAmount) || config.defaultInviterRewardAmount)),
+                inviterRewardCurrency: d.config && typeof d.config === "object"
+                    ? normalizeRewardCurrency(d.config.inviterRewardCurrency, config.defaultInviterRewardCurrency)
+                    : config.defaultInviterRewardCurrency,
+                invitedRewardAmount: Math.max(0, Math.floor(Number(d.config && typeof d.config === "object"
+                    ? d.config.invitedRewardAmount ??
+                        d.config.invitedRewardCoins
+                    : config.defaultInvitedRewardAmount) || config.defaultInvitedRewardAmount)),
+                invitedRewardCurrency: d.config && typeof d.config === "object"
+                    ? normalizeRewardCurrency(d.config.invitedRewardCurrency, config.defaultInvitedRewardCurrency)
+                    : config.defaultInvitedRewardCurrency,
                 invitedRewardEnabled: d.config && typeof d.config === "object"
                     ? d.config.invitedRewardEnabled !== false
                     : config.invitedRewardEnabled,
@@ -658,6 +900,44 @@ function addWalletTxInTx(tx, input) {
         criadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
 }
+function rewardCurrencyLabel(currency) {
+    return currency === "coins" ? "PR" : currency === "gems" ? "TICKET" : "CASH";
+}
+function getUserBalanceByCurrency(userData, currency) {
+    return currency === "coins"
+        ? Number(userData.coins || 0)
+        : currency === "gems"
+            ? Number(userData.gems || 0)
+            : Number(userData.rewardBalance || 0);
+}
+function rewardFieldName(currency) {
+    return currency === "coins" ? "coins" : currency === "gems" ? "gems" : "rewardBalance";
+}
+function applyRewardPatch(currentData, reward) {
+    const current = getUserBalanceByCurrency(currentData, reward.currency);
+    return {
+        patch: {
+            [rewardFieldName(reward.currency)]: firestore_2.FieldValue.increment(reward.amount),
+        },
+        balanceAfter: current + reward.amount,
+    };
+}
+function applyMultiCurrencyRewardPatch(currentData, rewards) {
+    const patch = {};
+    const balancesAfter = {
+        coins: Number(currentData.coins || 0),
+        gems: Number(currentData.gems || 0),
+        rewardBalance: Number(currentData.rewardBalance || 0),
+    };
+    for (const currency of ["coins", "gems", "rewardBalance"]) {
+        const amount = Math.max(0, Math.floor(Number(rewards[currency]) || 0));
+        if (amount <= 0)
+            continue;
+        patch[rewardFieldName(currency)] = firestore_2.FieldValue.increment(amount);
+        balancesAfter[currency] += amount;
+    }
+    return { patch, balancesAfter };
+}
 function referralMeetsQualification(rules, userData, emailVerified) {
     if (rules.requireEmailVerified && !emailVerified)
         return false;
@@ -672,6 +952,16 @@ function referralMeetsQualification(rules, userData, emailVerified) {
     if (Number(userData.totalMissionRewardsClaimed || 0) < rules.minMissionRewardsClaimed)
         return false;
     return true;
+}
+function buildReferralProgressSnapshot(userData, emailVerified) {
+    return {
+        emailVerified,
+        profileCompleted: Boolean(String(userData.nome || "").trim() && String(userData.username || "").trim()),
+        adsWatched: Number(userData.totalAdsAssistidos || 0),
+        matchesPlayed: Number(userData.totalPartidas || 0),
+        missionRewardsClaimed: Number(userData.totalMissionRewardsClaimed || 0),
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    };
 }
 async function evaluateReferralForUser(uid) {
     const referralRef = db.doc(`${COL.referrals}/${uid}`);
@@ -701,6 +991,12 @@ async function evaluateReferralForUser(uid) {
         const inviterData = inviterSnap.data();
         const authUser = await admin.auth().getUser(invitedUid);
         const rules = campaign?.config.qualificationRules ?? config.qualificationRules;
+        const progressSnapshot = buildReferralProgressSnapshot(invitedData, authUser.emailVerified === true);
+        tx.update(referralRef, {
+            qualificationSnapshot: rules,
+            progressSnapshot,
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        });
         const isQualified = referralMeetsQualification(rules, invitedData, authUser.emailVerified === true);
         if (!isQualified)
             return;
@@ -757,13 +1053,19 @@ async function evaluateReferralForUser(uid) {
             await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1 });
             return;
         }
-        const inviterReward = Math.max(0, campaign?.config.inviterRewardCoins ?? config.defaultInviterRewardCoins);
+        const inviterReward = {
+            amount: Math.max(0, campaign?.config.inviterRewardAmount ?? config.defaultInviterRewardAmount),
+            currency: campaign?.config.inviterRewardCurrency ?? config.defaultInviterRewardCurrency,
+        };
         const invitedRewardEnabled = campaign?.config.invitedRewardEnabled ?? config.invitedRewardEnabled;
         const invitedReward = invitedRewardEnabled
-            ? Math.max(0, campaign?.config.invitedRewardCoins ?? config.defaultInvitedRewardCoins)
-            : 0;
-        const inviterCoinsAfter = Number(inviterData.coins || 0) + inviterReward;
-        const invitedCoinsAfter = Number(invitedData.coins || 0) + invitedReward;
+            ? {
+                amount: Math.max(0, campaign?.config.invitedRewardAmount ?? config.defaultInvitedRewardAmount),
+                currency: campaign?.config.invitedRewardCurrency ?? config.defaultInvitedRewardCurrency,
+            }
+            : { amount: 0, currency: config.defaultInvitedRewardCurrency };
+        const inviterRewardPatch = applyRewardPatch(inviterData, inviterReward);
+        const invitedRewardPatch = applyRewardPatch(invitedData, invitedReward);
         tx.update(referralRef, {
             status: "rewarded",
             referralStatus: "rewarded",
@@ -771,54 +1073,66 @@ async function evaluateReferralForUser(uid) {
             referralRewardGiven: true,
             qualifiedAt: firestore_2.FieldValue.serverTimestamp(),
             rewardedAt: firestore_2.FieldValue.serverTimestamp(),
-            inviterRewardCoins: inviterReward,
-            invitedRewardCoins: invitedReward,
+            inviterRewardAmount: inviterReward.amount,
+            inviterRewardCurrency: inviterReward.currency,
+            invitedRewardAmount: invitedReward.amount,
+            invitedRewardCurrency: invitedReward.currency,
+            inviterRewardCoins: inviterReward.currency === "coins" ? inviterReward.amount : 0,
+            invitedRewardCoins: invitedReward.currency === "coins" ? invitedReward.amount : 0,
             inviterRewardGrantedAt: firestore_2.FieldValue.serverTimestamp(),
-            invitedRewardGrantedAt: invitedReward > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
+            invitedRewardGrantedAt: invitedReward.amount > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
             campaignId: campaign?.id ?? null,
             campaignName: campaign?.name ?? null,
             qualificationSnapshot: rules,
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
         });
         tx.update(db.doc(`${COL.users}/${inviterUid}`), {
-            coins: firestore_2.FieldValue.increment(inviterReward),
+            ...inviterRewardPatch.patch,
             referralPendingCount: firestore_2.FieldValue.increment(-1),
             referralQualifiedCount: firestore_2.FieldValue.increment(1),
             referralRewardedCount: firestore_2.FieldValue.increment(1),
             referralInvitedCount: firestore_2.FieldValue.increment(1),
-            referralTotalEarnedCoins: firestore_2.FieldValue.increment(inviterReward),
+            ...(inviterReward.currency === "coins"
+                ? { referralTotalEarnedCoins: firestore_2.FieldValue.increment(inviterReward.amount) }
+                : inviterReward.currency === "gems"
+                    ? { referralTotalEarnedGems: firestore_2.FieldValue.increment(inviterReward.amount) }
+                    : { referralTotalEarnedRewardBalance: firestore_2.FieldValue.increment(inviterReward.amount) }),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         tx.update(db.doc(`${COL.users}/${invitedUid}`), {
-            coins: firestore_2.FieldValue.increment(invitedReward),
+            ...invitedRewardPatch.patch,
             referralBonusGranted: true,
             referralStatus: "rewarded",
-            referralInvitedRewardCoins: firestore_2.FieldValue.increment(invitedReward),
+            ...(invitedReward.currency === "coins"
+                ? { referralInvitedRewardCoins: firestore_2.FieldValue.increment(invitedReward.amount) }
+                : invitedReward.currency === "gems"
+                    ? { referralInvitedRewardGems: firestore_2.FieldValue.increment(invitedReward.amount) }
+                    : { referralInvitedRewardBalance: firestore_2.FieldValue.increment(invitedReward.amount) }),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         addWalletTxInTx(tx, {
             id: `referral_inviter_${inviterUid}_${invitedUid}`,
             userId: inviterUid,
             tipo: "referral",
-            moeda: "coins",
-            valor: inviterReward,
-            saldoApos: inviterCoinsAfter,
-            descricao: `Indicação válida${campaign?.name ? ` · ${campaign.name}` : ""}`,
+            moeda: inviterReward.currency,
+            valor: inviterReward.amount,
+            saldoApos: inviterRewardPatch.balanceAfter,
+            descricao: `Indicação válida${campaign?.name ? ` · ${campaign.name}` : ""} · ${rewardCurrencyLabel(inviterReward.currency)}`,
             referenciaId: invitedUid,
         });
-        if (invitedReward > 0) {
+        if (invitedReward.amount > 0) {
             addWalletTxInTx(tx, {
                 id: `referral_invited_${invitedUid}_${inviterUid}`,
                 userId: invitedUid,
                 tipo: "referral",
-                moeda: "coins",
-                valor: invitedReward,
-                saldoApos: invitedCoinsAfter,
-                descricao: `Bônus por convite${campaign?.name ? ` · ${campaign.name}` : ""}`,
+                moeda: invitedReward.currency,
+                valor: invitedReward.amount,
+                saldoApos: invitedRewardPatch.balanceAfter,
+                descricao: `Bônus por convite${campaign?.name ? ` · ${campaign.name}` : ""} · ${rewardCurrencyLabel(invitedReward.currency)}`,
                 referenciaId: inviterUid,
             });
         }
-        await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1, rewarded: 1, rewards: inviterReward });
+        await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1, rewarded: 1, rewards: inviterReward.amount });
     });
 }
 function parseRewardedAdCompletionToken(raw) {
@@ -877,30 +1191,116 @@ async function logMatchFraud(uid, tipo, detalhes) {
         /* ignore */
     }
 }
-async function upsertRanking(uid, nome, foto, deltaScore, win) {
+async function upsertRanking(input) {
     const batch = db.batch();
-    const userRef = db.doc(`${COL.users}/${uid}`);
+    const userRef = db.doc(`${COL.users}/${input.uid}`);
     batch.update(userRef, {
-        scoreRankingDiario: firestore_2.FieldValue.increment(deltaScore),
-        scoreRankingSemanal: firestore_2.FieldValue.increment(deltaScore),
-        scoreRankingMensal: firestore_2.FieldValue.increment(deltaScore),
+        scoreRankingDiario: firestore_2.FieldValue.increment(input.deltaScore),
+        scoreRankingSemanal: firestore_2.FieldValue.increment(input.deltaScore),
+        scoreRankingMensal: firestore_2.FieldValue.increment(input.deltaScore),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
     const periods = [
-        { col: COL.rankingsDaily, key: dailyKey() },
-        { col: COL.rankingsWeekly, key: weeklyKey() },
-        { col: COL.rankingsMonthly, key: monthlyKey() },
+        { period: "diario", col: COL.rankingsDaily, key: dailyKey() },
+        { period: "semanal", col: COL.rankingsWeekly, key: weeklyKey() },
+        { period: "mensal", col: COL.rankingsMonthly, key: monthlyKey() },
     ];
     for (const p of periods) {
-        const entryRef = db.doc(`${p.col}/${p.key}/entries/${uid}`);
-        batch.set(entryRef, {
-            uid,
-            nome,
-            foto,
-            score: firestore_2.FieldValue.increment(deltaScore),
-            partidas: firestore_2.FieldValue.increment(1),
-            vitorias: firestore_2.FieldValue.increment(win ? 1 : 0),
+        batch.set(db.doc(`${p.col}/${p.key}`), {
+            periodoChave: p.key,
+            tipo: p.period,
+            scope: "global",
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        const entryRef = db.doc(`${p.col}/${p.key}/entries/${input.uid}`);
+        batch.set(entryRef, {
+            uid: input.uid,
+            nome: input.nome,
+            username: input.username ?? null,
+            foto: input.foto,
+            score: firestore_2.FieldValue.increment(input.deltaScore),
+            partidas: firestore_2.FieldValue.increment(1),
+            vitorias: firestore_2.FieldValue.increment(input.win ? 1 : 0),
+            scope: "global",
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        batch.set(db.doc(`${p.col}/${p.key}/games/${input.gameId}`), {
+            periodoChave: p.key,
+            tipo: p.period,
+            scope: "game",
+            gameId: input.gameId,
+            gameTitle: GAME_TITLES[input.gameId],
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        batch.set(db.doc(`${p.col}/${p.key}/games/${input.gameId}/entries/${input.uid}`), {
+            uid: input.uid,
+            nome: input.nome,
+            username: input.username ?? null,
+            foto: input.foto,
+            score: firestore_2.FieldValue.increment(input.deltaScore),
+            partidas: firestore_2.FieldValue.increment(1),
+            vitorias: firestore_2.FieldValue.increment(input.win ? 1 : 0),
+            scope: "game",
+            gameId: input.gameId,
+            gameTitle: GAME_TITLES[input.gameId],
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+    await batch.commit();
+}
+async function syncUserPresentation(uid, nome, foto) {
+    const userSnap = await db.doc(`${COL.users}/${uid}`).get();
+    const username = userSnap.exists ? String(userSnap.data()?.username || "") : "";
+    const batch = db.batch();
+    const rankingTargets = [];
+    const gameRankingPeriods = [
+        { period: "diario", col: COL.rankingsDaily, key: dailyKey() },
+        { period: "semanal", col: COL.rankingsWeekly, key: weeklyKey() },
+        { period: "mensal", col: COL.rankingsMonthly, key: monthlyKey() },
+    ];
+    for (const p of gameRankingPeriods) {
+        rankingTargets.push({
+            ref: db.doc(`${p.col}/${p.key}/entries/${uid}`),
+            payload: {
+                uid,
+                nome,
+                username: username || null,
+                foto,
+                scope: "global",
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            },
+        });
+        for (const gameId of RANKING_GAME_IDS) {
+            rankingTargets.push({
+                ref: db.doc(`${p.col}/${p.key}/games/${gameId}/entries/${uid}`),
+                payload: {
+                    uid,
+                    nome,
+                    username: username || null,
+                    foto,
+                    scope: "game",
+                    gameId,
+                    gameTitle: GAME_TITLES[gameId],
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                },
+            });
+        }
+    }
+    const rankingSnapshots = rankingTargets.length
+        ? await db.getAll(...rankingTargets.map((target) => target.ref))
+        : [];
+    rankingTargets.forEach((target, index) => {
+        if (rankingSnapshots[index]?.exists) {
+            batch.set(target.ref, target.payload, { merge: true });
+        }
+    });
+    const referralPeriods = ["daily", "weekly", "monthly", "all"];
+    for (const period of referralPeriods) {
+        batch.set(db.doc(`${referralRankingCollection(period)}/${referralRankingKey(period)}/entries/${uid}`), {
+            userId: uid,
+            userName: nome,
+            photoURL: foto,
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
         }, { merge: true });
     }
     await batch.commit();
@@ -979,8 +1379,24 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking(hostUid, String(hSnap.data()?.nome || "Jogador"), hSnap.data()?.foto ?? null, ecoH.rankingPoints, hostRes === "vitoria");
-    await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
+    await upsertRanking({
+        uid: hostUid,
+        nome: String(hSnap.data()?.nome || "Jogador"),
+        username: String(hSnap.data()?.username || "") || null,
+        foto: hSnap.data()?.foto ?? null,
+        deltaScore: ecoH.rankingPoints,
+        win: hostRes === "vitoria",
+        gameId: "ppt",
+    });
+    await upsertRanking({
+        uid: guestUid,
+        nome: String(gSnap.data()?.nome || "Jogador"),
+        username: String(gSnap.data()?.username || "") || null,
+        foto: gSnap.data()?.foto ?? null,
+        deltaScore: ecoG.rankingPoints,
+        win: guestRes === "vitoria",
+        gameId: "ppt",
+    });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
 }
@@ -1001,22 +1417,39 @@ function resolveQuizRoundWinner(hostCorrect, guestCorrect, _hostResponseMs, _gue
 async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs) {
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
     const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
+    const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, {
         pvpRoomId: roomId,
         quizMatchWinner: matchWinner,
         responseTimeMs: hostResponseMs,
-    });
+    }, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, {
         pvpRoomId: roomId,
         quizMatchWinner: matchWinner,
         responseTimeMs: guestResponseMs,
-    });
+    }, economyConfig.matchRewardOverrides);
     const [hSnap, gSnap] = await Promise.all([
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking(hostUid, String(hSnap.data()?.nome || "Jogador"), hSnap.data()?.foto ?? null, ecoH.rankingPoints, hostRes === "vitoria");
-    await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
+    await upsertRanking({
+        uid: hostUid,
+        nome: String(hSnap.data()?.nome || "Jogador"),
+        username: String(hSnap.data()?.username || "") || null,
+        foto: hSnap.data()?.foto ?? null,
+        deltaScore: ecoH.rankingPoints,
+        win: hostRes === "vitoria",
+        gameId: "quiz",
+    });
+    await upsertRanking({
+        uid: guestUid,
+        nome: String(gSnap.data()?.nome || "Jogador"),
+        username: String(gSnap.data()?.username || "") || null,
+        foto: gSnap.data()?.foto ?? null,
+        deltaScore: ecoG.rankingPoints,
+        win: guestRes === "vitoria",
+        gameId: "quiz",
+    });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
 }
@@ -1044,24 +1477,41 @@ function resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs)
     return diff < 0 ? "host" : "guest";
 }
 async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestRes, hostMs, guestMs) {
+    const economyConfig = await getEconomy();
     const [ecoH, ecoG] = await Promise.all([
         (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", hostRes, 0, {
             pvpRoomId: roomId,
             responseTimeMs: hostMs,
             reactionMs: hostMs,
-        }),
+        }, economyConfig.matchRewardOverrides),
         (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", guestRes, 0, {
             pvpRoomId: roomId,
             responseTimeMs: guestMs,
             reactionMs: guestMs,
-        }),
+        }, economyConfig.matchRewardOverrides),
     ]);
     const [hSnap, gSnap] = await Promise.all([
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking(hostUid, String(hSnap.data()?.nome || "Jogador"), hSnap.data()?.foto ?? null, ecoH.rankingPoints, hostRes === "vitoria");
-    await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
+    await upsertRanking({
+        uid: hostUid,
+        nome: String(hSnap.data()?.nome || "Jogador"),
+        username: String(hSnap.data()?.username || "") || null,
+        foto: hSnap.data()?.foto ?? null,
+        deltaScore: ecoH.rankingPoints,
+        win: hostRes === "vitoria",
+        gameId: "reaction_tap",
+    });
+    await upsertRanking({
+        uid: guestUid,
+        nome: String(gSnap.data()?.nome || "Jogador"),
+        username: String(gSnap.data()?.username || "") || null,
+        foto: gSnap.data()?.foto ?? null,
+        deltaScore: ecoG.rankingPoints,
+        win: guestRes === "vitoria",
+        gameId: "reaction_tap",
+    });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
 }
@@ -2058,7 +2508,7 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const username = String(request.data?.username || "")
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, "");
-    const foto = request.data?.foto ?? null;
+    const rawFoto = typeof request.data?.foto === "string" ? request.data.foto.trim() : "";
     const email = request.data?.email ?? null;
     const codigoConvite = request.data?.codigoConvite
         ? String(request.data.codigoConvite).toUpperCase()
@@ -2066,6 +2516,7 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     if (nome.length < 2 || username.length < 3 || username.length > 10) {
         throw new https_1.HttpsError("invalid-argument", "Nome ou username inválidos. Username: 3 a 10 caracteres (a-z, 0-9, _).");
     }
+    const foto = rawFoto || buildDefaultAvatarDataUrl(username || uid, nome);
     const userRef = db.doc(`${COL.users}/${uid}`);
     const existing = await userRef.get();
     if (existing.exists) {
@@ -2126,7 +2577,11 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             referralBlockedCount: 0,
             referralInvitedCount: 0,
             referralTotalEarnedCoins: 0,
+            referralTotalEarnedGems: 0,
+            referralTotalEarnedRewardBalance: 0,
             referralInvitedRewardCoins: 0,
+            referralInvitedRewardGems: 0,
+            referralInvitedRewardBalance: 0,
             totalMissionRewardsClaimed: 0,
             coins: economy.welcomeBonus,
             gems: 0,
@@ -2168,12 +2623,23 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 referralStatus: "pending",
                 referralQualified: false,
                 referralRewardGiven: false,
+                inviterRewardAmount: 0,
+                inviterRewardCurrency: "coins",
+                invitedRewardAmount: 0,
+                invitedRewardCurrency: referralConfig.defaultInvitedRewardCurrency,
                 inviterRewardCoins: 0,
                 invitedRewardCoins: 0,
                 campaignId: campaign?.id ?? null,
                 campaignName: campaign?.name ?? null,
                 inviteSource: "cadastro",
                 qualificationSnapshot: campaign?.config.qualificationRules ?? referralConfig.qualificationRules,
+                progressSnapshot: buildReferralProgressSnapshot({
+                    nome,
+                    username,
+                    totalAdsAssistidos: 0,
+                    totalPartidas: 0,
+                    totalMissionRewardsClaimed: 0,
+                }, false),
                 fraudFlags: {
                     suspectedFraud: false,
                     selfReferralBlocked: false,
@@ -2200,6 +2666,29 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         referenciaId: "welcome",
     });
     return { ok: true, codigoConvite: codigo };
+});
+exports.updateUserAvatar = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const rawPhotoUrl = typeof request.data?.photoURL === "string" ? request.data.photoURL.trim() : "";
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Perfil do usuário não encontrado.");
+    }
+    const userData = userSnap.data();
+    const nome = String(userData.nome || request.auth?.token.name || "Jogador").trim() || "Jogador";
+    const username = String(userData.username || uid).trim() || uid;
+    const photoURL = rawPhotoUrl || buildDefaultAvatarDataUrl(username, nome);
+    await Promise.all([
+        userRef.set({
+            foto: photoURL,
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true }),
+        admin.auth().updateUser(uid, { photoURL }),
+        syncUserPresentation(uid, nome, photoURL),
+    ]);
+    return { ok: true, photoURL };
 });
 exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -2525,7 +3014,15 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
             referenciaId: matchRef.id,
         });
     }
-    await upsertRanking(uid, String(u.nome || "Jogador"), u.foto ?? null, rankingPoints, win);
+    await upsertRanking({
+        uid,
+        nome: String(u.nome || "Jogador"),
+        username: String(u.username || "") || null,
+        foto: u.foto ?? null,
+        deltaScore: rankingPoints,
+        win,
+        gameId,
+    });
     await bumpPlayMatchMissions(uid);
     await evaluateReferralForUser(uid);
     return {
@@ -3000,6 +3497,35 @@ exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         rewarded: referral.referralRewardGiven === true,
     };
 });
+exports.adminReprocessReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    await assertAdmin(uid);
+    const referralId = String(request.data?.referralId || "").trim();
+    if (!referralId) {
+        throw new https_1.HttpsError("invalid-argument", "referralId obrigatório.");
+    }
+    const referralRef = db.doc(`${COL.referrals}/${referralId}`);
+    const beforeSnap = await referralRef.get();
+    if (!beforeSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Indicação não encontrada.");
+    }
+    const referral = beforeSnap.data();
+    const invitedUid = String(referral.invitedUserId || "");
+    if (!invitedUid) {
+        throw new https_1.HttpsError("failed-precondition", "Indicação sem convidado vinculado.");
+    }
+    await evaluateReferralForUser(invitedUid);
+    const afterSnap = await referralRef.get();
+    const after = (afterSnap.data() || {});
+    return {
+        ok: true,
+        referralId,
+        status: String(after.status || "pending"),
+        qualified: after.referralQualified === true,
+        rewarded: after.referralRewardGiven === true,
+    };
+});
 exports.adminReviewReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
@@ -3068,11 +3594,26 @@ exports.adminReviewReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
             return;
         }
         if (action === "reward" && status !== "rewarded") {
-            const inviterReward = Math.max(0, Number(referral.inviterRewardCoins || campaign?.config.inviterRewardCoins || referralConfig.defaultInviterRewardCoins || 0));
-            const invitedReward = Math.max(0, Number(referral.invitedRewardCoins ||
-                (campaign?.config.invitedRewardEnabled ?? referralConfig.invitedRewardEnabled
-                    ? campaign?.config.invitedRewardCoins ?? referralConfig.defaultInvitedRewardCoins
-                    : 0)));
+            const inviterReward = {
+                amount: Math.max(0, Number(referral.inviterRewardAmount ??
+                    referral.inviterRewardCoins ??
+                    campaign?.config.inviterRewardAmount ??
+                    referralConfig.defaultInviterRewardAmount ??
+                    0)),
+                currency: normalizeRewardCurrency(referral.inviterRewardCurrency ?? campaign?.config.inviterRewardCurrency, referralConfig.defaultInviterRewardCurrency),
+            };
+            const invitedReward = campaign?.config.invitedRewardEnabled ?? referralConfig.invitedRewardEnabled
+                ? {
+                    amount: Math.max(0, Number(referral.invitedRewardAmount ??
+                        referral.invitedRewardCoins ??
+                        campaign?.config.invitedRewardAmount ??
+                        referralConfig.defaultInvitedRewardAmount ??
+                        0)),
+                    currency: normalizeRewardCurrency(referral.invitedRewardCurrency ?? campaign?.config.invitedRewardCurrency, referralConfig.defaultInvitedRewardCurrency),
+                }
+                : { amount: 0, currency: referralConfig.defaultInvitedRewardCurrency };
+            const inviterRewardPatch = applyRewardPatch(inviterData, inviterReward);
+            const invitedRewardPatch = applyRewardPatch(invitedData, invitedReward);
             tx.update(referralRef, {
                 status: "rewarded",
                 referralStatus: "rewarded",
@@ -3080,48 +3621,60 @@ exports.adminReviewReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
                 referralRewardGiven: true,
                 qualifiedAt: referral.qualifiedAt ?? firestore_2.FieldValue.serverTimestamp(),
                 rewardedAt: firestore_2.FieldValue.serverTimestamp(),
-                inviterRewardCoins: inviterReward,
-                invitedRewardCoins: invitedReward,
+                inviterRewardAmount: inviterReward.amount,
+                inviterRewardCurrency: inviterReward.currency,
+                invitedRewardAmount: invitedReward.amount,
+                invitedRewardCurrency: invitedReward.currency,
+                inviterRewardCoins: inviterReward.currency === "coins" ? inviterReward.amount : 0,
+                invitedRewardCoins: invitedReward.currency === "coins" ? invitedReward.amount : 0,
                 inviterRewardGrantedAt: firestore_2.FieldValue.serverTimestamp(),
-                invitedRewardGrantedAt: invitedReward > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
+                invitedRewardGrantedAt: invitedReward.amount > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
                 updatedAt: firestore_2.FieldValue.serverTimestamp(),
                 notes: "Recompensa concedida manualmente pelo admin.",
             });
             tx.update(inviterRef, {
-                coins: firestore_2.FieldValue.increment(inviterReward),
+                ...inviterRewardPatch.patch,
                 referralPendingCount: firestore_2.FieldValue.increment(status === "pending" ? -1 : 0),
                 referralQualifiedCount: firestore_2.FieldValue.increment(status === "pending" ? 1 : 0),
                 referralRewardedCount: firestore_2.FieldValue.increment(1),
                 referralInvitedCount: firestore_2.FieldValue.increment(1),
-                referralTotalEarnedCoins: firestore_2.FieldValue.increment(inviterReward),
+                ...(inviterReward.currency === "coins"
+                    ? { referralTotalEarnedCoins: firestore_2.FieldValue.increment(inviterReward.amount) }
+                    : inviterReward.currency === "gems"
+                        ? { referralTotalEarnedGems: firestore_2.FieldValue.increment(inviterReward.amount) }
+                        : { referralTotalEarnedRewardBalance: firestore_2.FieldValue.increment(inviterReward.amount) }),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
             tx.update(invitedRef, {
-                coins: firestore_2.FieldValue.increment(invitedReward),
+                ...invitedRewardPatch.patch,
                 referralBonusGranted: true,
                 referralStatus: "rewarded",
-                referralInvitedRewardCoins: firestore_2.FieldValue.increment(invitedReward),
+                ...(invitedReward.currency === "coins"
+                    ? { referralInvitedRewardCoins: firestore_2.FieldValue.increment(invitedReward.amount) }
+                    : invitedReward.currency === "gems"
+                        ? { referralInvitedRewardGems: firestore_2.FieldValue.increment(invitedReward.amount) }
+                        : { referralInvitedRewardBalance: firestore_2.FieldValue.increment(invitedReward.amount) }),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
             addWalletTxInTx(tx, {
                 id: `referral_inviter_${inviterUid}_${invitedUid}`,
                 userId: inviterUid,
                 tipo: "referral",
-                moeda: "coins",
-                valor: inviterReward,
-                saldoApos: Number(inviterData.coins || 0) + inviterReward,
-                descricao: "Indicação recompensada manualmente",
+                moeda: inviterReward.currency,
+                valor: inviterReward.amount,
+                saldoApos: inviterRewardPatch.balanceAfter,
+                descricao: `Indicação recompensada manualmente · ${rewardCurrencyLabel(inviterReward.currency)}`,
                 referenciaId: invitedUid,
             });
-            if (invitedReward > 0) {
+            if (invitedReward.amount > 0) {
                 addWalletTxInTx(tx, {
                     id: `referral_invited_${invitedUid}_${inviterUid}`,
                     userId: invitedUid,
                     tipo: "referral",
-                    moeda: "coins",
-                    valor: invitedReward,
-                    saldoApos: Number(invitedData.coins || 0) + invitedReward,
-                    descricao: "Bônus manual de indicação",
+                    moeda: invitedReward.currency,
+                    valor: invitedReward.amount,
+                    saldoApos: invitedRewardPatch.balanceAfter,
+                    descricao: `Bônus manual de indicação · ${rewardCurrencyLabel(invitedReward.currency)}`,
                     referenciaId: inviterUid,
                 });
             }
@@ -3129,7 +3682,7 @@ exports.adminReviewReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
                 pending: status === "pending" ? -1 : 0,
                 valid: status === "pending" ? 1 : 0,
                 rewarded: 1,
-                rewards: inviterReward,
+                rewards: inviterReward.amount,
             });
         }
     });
@@ -3777,8 +4330,24 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking(hostUid, String(hSnap.data()?.nome || "Jogador"), hSnap.data()?.foto ?? null, ecoH.rankingPoints, hostRes === "vitoria");
-    await upsertRanking(guestUid, String(gSnap.data()?.nome || "Jogador"), gSnap.data()?.foto ?? null, ecoG.rankingPoints, guestRes === "vitoria");
+    await upsertRanking({
+        uid: hostUid,
+        nome: String(hSnap.data()?.nome || "Jogador"),
+        username: String(hSnap.data()?.username || "") || null,
+        foto: hSnap.data()?.foto ?? null,
+        deltaScore: ecoH.rankingPoints,
+        win: hostRes === "vitoria",
+        gameId: "ppt",
+    });
+    await upsertRanking({
+        uid: guestUid,
+        nome: String(gSnap.data()?.nome || "Jogador"),
+        username: String(gSnap.data()?.username || "") || null,
+        foto: gSnap.data()?.foto ?? null,
+        deltaScore: ecoG.rankingPoints,
+        win: guestRes === "vitoria",
+        gameId: "ppt",
+    });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
     return {
@@ -4447,9 +5016,127 @@ exports.riskAnalysisOnUserEvent = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asy
     });
     return { ok: true };
 });
+async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
+    const collectionName = rankingCollectionForPeriod(period);
+    const rankingRootPath = gameId
+        ? `${collectionName}/${periodKey}/games/${gameId}`
+        : `${collectionName}/${periodKey}`;
+    const rankingRootRef = db.doc(rankingRootPath);
+    const payoutFlagRef = gameId
+        ? db.doc(`${rankingRootPath}/meta/payout`)
+        : db.doc(`${collectionName}/${periodKey}/meta/payout_global`);
+    const payoutFlagSnap = await payoutFlagRef.get();
+    if (payoutFlagSnap.exists)
+        return;
+    const maxPos = prizeTiers[prizeTiers.length - 1]?.posicaoMax ?? 0;
+    if (maxPos < 1)
+        return;
+    const entriesPath = gameId
+        ? `${rankingRootPath}/entries`
+        : `${collectionName}/${periodKey}/entries`;
+    const entriesSnap = await db.collection(entriesPath).orderBy("score", "desc").limit(maxPos).get();
+    if (entriesSnap.empty) {
+        await payoutFlagRef.set({
+            period,
+            periodKey,
+            scope: gameId ? "game" : "global",
+            gameId: gameId ?? null,
+            gameTitle: gameId ? GAME_TITLES[gameId] : null,
+            processedAt: firestore_2.FieldValue.serverTimestamp(),
+            winners: 0,
+            note: "Sem entradas para premiar.",
+        });
+        return;
+    }
+    const winners = entriesSnap.docs.map((docSnap, index) => ({
+        pos: index + 1,
+        uid: docSnap.id,
+        entryRef: docSnap.ref,
+        tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
+    }));
+    const rewardedWinners = winners.filter((winner) => winner.tier != null && hasRankingPrizeRewards(winner.tier.rewards));
+    if (rewardedWinners.length === 0)
+        return;
+    const userRefs = rewardedWinners.map((winner) => db.doc(`${COL.users}/${winner.uid}`));
+    const userSnapshots = userRefs.length ? await db.getAll(...userRefs) : [];
+    const userMap = new Map(userSnapshots
+        .filter((snap) => snap.exists)
+        .map((snap) => [snap.id, snap.data()]));
+    const batch = db.batch();
+    let grantedCount = 0;
+    for (const winner of rewardedWinners) {
+        if (!winner.tier)
+            continue;
+        const userData = userMap.get(winner.uid);
+        if (!userData)
+            continue;
+        const userRef = db.doc(`${COL.users}/${winner.uid}`);
+        const rewardPatch = applyMultiCurrencyRewardPatch(userData, winner.tier.rewards);
+        if (Object.keys(rewardPatch.patch).length === 0)
+            continue;
+        batch.set(userRef, {
+            ...rewardPatch.patch,
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        for (const currency of ["coins", "gems", "rewardBalance"]) {
+            const amount = winner.tier.rewards[currency];
+            if (amount <= 0)
+                continue;
+            batch.set(db.doc(`${COL.wallet}/${hashId("ranking", period, periodKey, gameId ?? "global", winner.uid, currency)}`), {
+                userId: winner.uid,
+                tipo: "ranking",
+                moeda: currency,
+                valor: amount,
+                saldoApos: rewardPatch.balancesAfter[currency],
+                descricao: gameId
+                    ? `Premiação ranking ${period} · ${GAME_TITLES[gameId]} · ${rewardCurrencyLabel(currency)}`
+                    : `Premiação ranking ${period} geral · ${rewardCurrencyLabel(currency)}`,
+                referenciaId: gameId
+                    ? `${period}:${periodKey}:${gameId}:#${winner.pos}`
+                    : `${period}:${periodKey}:global:#${winner.pos}`,
+                criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+        batch.set(winner.entryRef, {
+            posicao: winner.pos,
+            premioRecebido: winner.tier.rewards,
+            premioProcessadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        grantedCount += 1;
+    }
+    batch.set(payoutFlagRef, {
+        period,
+        periodKey,
+        scope: gameId ? "game" : "global",
+        gameId: gameId ?? null,
+        gameTitle: gameId ? GAME_TITLES[gameId] : null,
+        processedAt: firestore_2.FieldValue.serverTimestamp(),
+        winners: grantedCount,
+    });
+    batch.set(rankingRootRef, {
+        periodoChave: periodKey,
+        tipo: period,
+        scope: gameId ? "game" : "global",
+        gameId: gameId ?? null,
+        gameTitle: gameId ? GAME_TITLES[gameId] : null,
+        prizeProcessedAt: firestore_2.FieldValue.serverTimestamp(),
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await batch.commit();
+}
 async function closeRankingJob(period) {
-    // Snapshot + premiação: expandir com consulta ordenada e distribuição por system_configs
-    console.log(`closeRanking ${period} tick`);
+    const economy = await getEconomy();
+    const periodKey = rankingKeyForPeriod(period, rankingReferenceDateForClose(period));
+    const globalPrizeTiers = rankingPrizeTiersForScope(economy.rankingPrizes, period);
+    if (globalPrizeTiers.length > 0) {
+        await closeRankingScopePayout(period, periodKey, globalPrizeTiers);
+    }
+    for (const gameId of RANKING_GAME_IDS) {
+        const gamePrizeTiers = rankingPrizeTiersForScope(economy.rankingPrizes, period, gameId);
+        if (gamePrizeTiers.length === 0)
+            continue;
+        await closeRankingScopePayout(period, periodKey, gamePrizeTiers, gameId);
+    }
 }
 function referralPrizeTiersForPeriod(configDoc, campaign, period) {
     const campaignTiers = campaign?.config.rankingPrizes?.[period];
@@ -4466,6 +5153,8 @@ async function closeReferralRankingJob(period) {
         return;
     const configDoc = configSnap.data();
     if (configDoc.enabled === false)
+        return;
+    if (configDoc.rankingEnabled === false)
         return;
     const referralConfig = await getReferralConfig();
     const campaign = await getActiveReferralCampaign(referralConfig);
@@ -4510,44 +5199,31 @@ async function closeReferralRankingJob(period) {
     });
     const batch = db.batch();
     for (const winner of winners) {
-        if (!winner.tier || (winner.tier.coins <= 0 && winner.tier.gems <= 0))
+        if (!winner.tier || winner.tier.amount <= 0)
             continue;
         const userRef = db.doc(`${COL.users}/${winner.uid}`);
         const userSnap = await userRef.get();
         if (!userSnap.exists)
             continue;
         const userData = userSnap.data();
-        const newCoins = Number(userData.coins || 0) + winner.tier.coins;
-        const newGems = Number(userData.gems || 0) + winner.tier.gems;
+        const rewardPatch = applyRewardPatch(userData, {
+            amount: winner.tier.amount,
+            currency: winner.tier.currency,
+        });
         batch.set(userRef, {
-            coins: firestore_2.FieldValue.increment(winner.tier.coins),
-            gems: firestore_2.FieldValue.increment(winner.tier.gems),
+            ...rewardPatch.patch,
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         }, { merge: true });
-        if (winner.tier.coins > 0) {
-            batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_coins`), {
-                userId: winner.uid,
-                tipo: "referral",
-                moeda: "coins",
-                valor: winner.tier.coins,
-                saldoApos: newCoins,
-                descricao: `Premiação ranking de indicações ${period}`,
-                referenciaId: `${period}:${periodKey}:#${winner.pos}`,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-        }
-        if (winner.tier.gems > 0) {
-            batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_gems`), {
-                userId: winner.uid,
-                tipo: "referral",
-                moeda: "gems",
-                valor: winner.tier.gems,
-                saldoApos: newGems,
-                descricao: `Premiação ranking de indicações ${period} (TICKET)`,
-                referenciaId: `${period}:${periodKey}:#${winner.pos}`,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-        }
+        batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_${winner.tier.currency}`), {
+            userId: winner.uid,
+            tipo: "referral",
+            moeda: winner.tier.currency,
+            valor: winner.tier.amount,
+            saldoApos: rewardPatch.balanceAfter,
+            descricao: `Premiação ranking de indicações ${period} · ${rewardCurrencyLabel(winner.tier.currency)}`,
+            referenciaId: `${period}:${periodKey}:#${winner.pos}`,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
     }
     batch.set(payoutFlagRef, {
         period,
@@ -4645,6 +5321,17 @@ exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * 
 });
 exports.closeMonthlyRanking = (0, scheduler_1.onSchedule)({ schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" }, async () => {
     await closeRankingJob("mensal");
+});
+exports.adminCloseRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    await assertAdmin(uid);
+    const period = String(request.data?.period || "").trim();
+    if (!["diario", "semanal", "mensal"].includes(period)) {
+        throw new https_1.HttpsError("invalid-argument", "Período inválido.");
+    }
+    await closeRankingJob(period);
+    return { ok: true };
 });
 exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * *", timeZone: "America/Sao_Paulo" }, async () => {
     await closeReferralRankingJob("daily");

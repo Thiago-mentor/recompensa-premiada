@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils/cn";
+import { resolveAvatarUrl } from "@/lib/users/avatar";
 import type { RankingEntry } from "@/types/ranking";
 import { Crown, Medal, Sparkles, TrendingUp } from "lucide-react";
 
@@ -31,8 +32,14 @@ export function RankingCard({
         )}
       </div>
       <div
-        className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-cover bg-center"
-        style={entry.foto ? { backgroundImage: `url(${entry.foto})` } : undefined}
+        className="h-9 w-9 shrink-0 rounded-full bg-cover bg-center"
+        style={{
+          backgroundImage: `url(${resolveAvatarUrl({
+            photoUrl: entry.foto,
+            name: entry.nome,
+            uid: entry.uid,
+          })})`,
+        }}
       />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-white">{entry.nome}</p>

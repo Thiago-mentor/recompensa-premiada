@@ -1,5 +1,10 @@
 import type { Timestamp } from "./firestore";
-import type { ReferralQualificationRules, ReferralRankingPrizeTier } from "./referral";
+import type { GameId } from "./game";
+import type {
+  ReferralQualificationRules,
+  ReferralRankingPrizeTier,
+  ReferralRewardCurrency,
+} from "./referral";
 
 /** Tabela de streak: dia -> recompensa */
 export interface StreakRewardTier {
@@ -13,6 +18,7 @@ export interface RankingPrizeTier {
   posicaoMax: number;
   coins: number;
   gems: number;
+  rewardBalance: number;
 }
 
 export interface GameRewardOverrideConfig {
@@ -24,6 +30,36 @@ export interface GameRewardOverrideConfig {
   lossRankingPoints?: number;
 }
 
+export type ExperienceCategory = "arena" | "utility";
+
+export interface ExperienceCatalogConfigEntry {
+  category: ExperienceCategory;
+  title?: string;
+  subtitle?: string;
+  badgeLabel?: string;
+  order?: number;
+}
+
+export interface RankingPrizePeriodConfig {
+  diario: RankingPrizeTier[];
+  semanal: RankingPrizeTier[];
+  mensal: RankingPrizeTier[];
+}
+
+export interface RankingPrizeGameConfig extends Partial<RankingPrizePeriodConfig> {
+  enabled?: boolean;
+  title?: string;
+}
+
+/**
+ * Mantém compatibilidade com o shape legado (`diario|semanal|mensal` na raiz)
+ * e suporta a nova configuração por escopo (`global` / `byGame`).
+ */
+export interface RankingPrizeConfig extends Partial<RankingPrizePeriodConfig> {
+  global?: Partial<RankingPrizePeriodConfig>;
+  byGame?: Partial<Record<GameId | string, RankingPrizeGameConfig>>;
+}
+
 /** `system_configs/economy` (documento único ou id fixo) */
 export interface SystemEconomyConfig {
   id: "economy";
@@ -32,12 +68,9 @@ export interface SystemEconomyConfig {
   streakTable: StreakRewardTier[];
   gameEntryCost: Partial<Record<string, number>>;
   chestCooldownSegundos: number;
-  rankingPrizes: {
-    diario: RankingPrizeTier[];
-    semanal: RankingPrizeTier[];
-    mensal: RankingPrizeTier[];
-  };
+  rankingPrizes: RankingPrizeConfig;
   matchRewardOverrides?: Partial<Record<string, GameRewardOverrideConfig>>;
+  experienceCatalog?: Partial<Record<GameId | string, ExperienceCatalogConfigEntry>>;
   referralBonusIndicador: number;
   referralBonusConvidado: number;
   limiteDiarioAds: number;
@@ -61,9 +94,12 @@ export interface ReferralCampaignSystemConfig {
   id: "referral_system";
   enabled: boolean;
   codeRequired: boolean;
-  defaultInviterRewardCoins: number;
-  defaultInvitedRewardCoins: number;
+  defaultInviterRewardAmount: number;
+  defaultInviterRewardCurrency: ReferralRewardCurrency;
+  defaultInvitedRewardAmount: number;
+  defaultInvitedRewardCurrency: ReferralRewardCurrency;
   invitedRewardEnabled: boolean;
+  rankingEnabled: boolean;
   limitValidPerDay: number;
   limitRewardedPerUser: number;
   qualificationRules: ReferralQualificationRules;
