@@ -2,6 +2,7 @@
 
 import { rewardedAdMockEnabled } from "@/lib/firebase/config";
 import { getFirebaseAuth } from "@/lib/firebase/client";
+import type { ChestActionSnapshot } from "@/types/chest";
 import {
   PPT_DUEL_CHARGES_PER_AD,
   PPT_PVP_DUELS_PLACEMENT_ID,
@@ -17,6 +18,7 @@ import {
 import { callFunction } from "@/services/callables/client";
 
 const PLACEMENT_HOME = "home_rewarded";
+const PLACEMENT_CHEST_SPEEDUP = "chest_speedup";
 
 export type RewardedAdResult =
   | { status: "granted"; coins: number }
@@ -44,6 +46,7 @@ export async function simulateRewardedAd(): Promise<RewardedAdResult> {
 export type ProcessRewardedAdServerResult = {
   ok: boolean;
   coins?: number;
+  boostCoins?: number;
   pptPvPDuelsAdded?: number;
   pptPvPDuelsRemaining?: number;
   quizPvPDuelsAdded?: number;
@@ -65,6 +68,7 @@ export async function processRewardedAdOnServer(input: {
       { placementId: string; mockCompletionToken?: string },
       {
         coins?: number;
+        boostCoins?: number;
         pptPvPDuelsAdded?: number;
         pptPvPDuelsRemaining?: number;
         quizPvPDuelsAdded?: number;
@@ -80,6 +84,7 @@ export async function processRewardedAdOnServer(input: {
     return {
       ok: true,
       coins: d?.coins,
+      boostCoins: d?.boostCoins,
       pptPvPDuelsAdded: d?.pptPvPDuelsAdded,
       pptPvPDuelsRemaining: d?.pptPvPDuelsRemaining,
       quizPvPDuelsAdded: d?.quizPvPDuelsAdded,
@@ -95,6 +100,7 @@ export async function processRewardedAdOnServer(input: {
 export async function runRewardedAdFlow(): Promise<{
   ok: boolean;
   coins?: number;
+  boostCoins?: number;
   message: string;
 }> {
   const simulated = await simulateRewardedAd();
@@ -117,7 +123,11 @@ export async function runRewardedAdFlow(): Promise<{
   return {
     ok: true,
     coins: server.coins,
-    message: `+${server.coins ?? 0} PR creditados!`,
+    boostCoins: server.boostCoins,
+    message:
+      server.boostCoins && server.boostCoins > 0
+        ? `+${server.coins ?? 0} PR creditados! Boost +${server.boostCoins} PR.`
+        : `+${server.coins ?? 0} PR creditados!`,
   };
 }
 
@@ -227,4 +237,44 @@ export async function runReactionDuelRewardedAdFlow(): Promise<{
         ? `+${server.reactionPvPDuelsAdded ?? REACTION_DUEL_CHARGES_PER_AD} duelos · total ${total}`
         : `+${server.reactionPvPDuelsAdded ?? REACTION_DUEL_CHARGES_PER_AD} duelos liberados`,
   };
+}
+
+export async function runChestSpeedupRewardedAdFlow(chestId: string): Promise<
+  | ({ ok: true } & ChestActionSnapshot & { reducedMs: number; dailyAdsUsed: number; message: string })
+  | { ok: false; message: string }
+> {
+  const simulated = await simulateRewardedAd();
+  if (simulated.status !== "granted") {
+    return {
+      ok: false,
+      message:
+        simulated.status === "skipped"
+          ? "Anúncio não concluído."
+          : simulated.reason || "Tente novamente.",
+    };
+  }
+
+  try {
+    const res = await callFunction<
+      { chestId: string; mockCompletionToken?: string },
+      ChestActionSnapshot & { reducedMs: number; dailyAdsUsed: number }
+    >("speedUpChestUnlock", {
+      chestId,
+      mockCompletionToken: rewardedAdMockEnabled ? `mock_${Date.now()}` : undefined,
+    });
+    const d = res.data;
+    return {
+      ok: true,
+      ...d,
+      message:
+        d.status === "ready"
+          ? "Baú pronto para coletar."
+          : `Tempo reduzido em ${Math.max(1, Math.ceil(d.reducedMs / 60000))} min.`,
+    };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : `Erro ao validar anúncio ${PLACEMENT_CHEST_SPEEDUP}.`,
+    };
+  }
 }

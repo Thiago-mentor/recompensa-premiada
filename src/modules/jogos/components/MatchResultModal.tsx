@@ -2,6 +2,8 @@
 
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
+import { ChestGrantNotice } from "@/components/chests/ChestGrantNotice";
+import type { GrantedChestSummary } from "@/types/chest";
 import { Trophy, Skull, Equal, X } from "lucide-react";
 
 export type MatchResultKind = "vitoria" | "derrota" | "empate";
@@ -14,6 +16,7 @@ export function MatchResultModal({
   subtitle,
   rewardCoins,
   rankingPoints,
+  grantedChest,
   error,
 }: {
   open: boolean;
@@ -23,6 +26,7 @@ export function MatchResultModal({
   subtitle?: string;
   rewardCoins?: number;
   rankingPoints?: number;
+  grantedChest?: GrantedChestSummary | null;
   error?: string | null;
 }) {
   if (!open) return null;
@@ -87,6 +91,13 @@ export function MatchResultModal({
                 </div>
               </div>
             </div>
+            {grantedChest ? (
+              <ChestGrantNotice
+                grantedChest={grantedChest}
+                label="Baú liberado nesta partida"
+                className="mt-4"
+              />
+            ) : null}
           </>
         )}
         <Button className="mt-6 w-full" variant="secondary" onClick={onClose}>

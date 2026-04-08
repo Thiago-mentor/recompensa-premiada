@@ -2,14 +2,17 @@
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import { callFunction } from "@/services/callables/client";
+import type { GrantedChestSummary } from "@/types/chest";
 
 type ProcessDailyLoginData = {
   streak: number;
   coins: number;
+  boostCoins?: number;
   gems?: number;
   tipoBonus?: string;
   message?: string;
   alreadyCheckedIn?: boolean;
+  grantedChest?: GrantedChestSummary | null;
 };
 
 const MSG_ALREADY_TODAY =
@@ -17,11 +20,13 @@ const MSG_ALREADY_TODAY =
 
 function formatDailyLoginSuccess(d: {
   coins: number;
+  boostCoins?: number;
   gems?: number;
   tipoBonus?: string;
 }): string {
   const parts: string[] = [];
   if (d.coins > 0) parts.push(`+${d.coins} PR`);
+  if (d.boostCoins && d.boostCoins > 0) parts.push(`boost +${d.boostCoins} PR`);
   if (d.gems && d.gems > 0) parts.push(`+${d.gems} TICKET`);
   if (d.tipoBonus === "bau") parts.push("Marco: baú especial");
   if (d.tipoBonus === "especial") parts.push("Marco: bônus especial");
@@ -33,8 +38,10 @@ export async function processDailyLogin(): Promise<{
   ok: boolean;
   streak?: number;
   coins?: number;
+  boostCoins?: number;
   gems?: number;
   alreadyCheckedIn?: boolean;
+  grantedChest?: GrantedChestSummary | null;
   message?: string;
   error?: string;
 }> {
@@ -57,6 +64,7 @@ export async function processDailyLogin(): Promise<{
         coins: 0,
         gems: 0,
         alreadyCheckedIn: true,
+        grantedChest: null,
         message: MSG_ALREADY_TODAY,
       };
     }
@@ -64,10 +72,13 @@ export async function processDailyLogin(): Promise<{
       ok: true,
       streak: d.streak,
       coins: d.coins,
+        boostCoins: d.boostCoins,
       gems: d.gems,
       alreadyCheckedIn: false,
+      grantedChest: d.grantedChest ?? null,
       message: formatDailyLoginSuccess({
         coins: d.coins ?? 0,
+          boostCoins: d.boostCoins,
         gems: d.gems,
         tipoBonus: d.tipoBonus,
       }),

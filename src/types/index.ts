@@ -7,5 +7,6 @@ export * from "./ad";
 export * from "./reward";
 export * from "./referral";
 export * from "./game";
+export * from "./chest";
 export * from "./systemConfig";
 export * from "./firestore";

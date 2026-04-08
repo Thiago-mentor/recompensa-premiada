@@ -6,6 +6,7 @@ import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { ChestSystemConfigPanel } from "@/components/admin/ChestSystemConfigPanel";
 import type { StreakRewardTier, SystemEconomyConfig } from "@/types/systemConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
 import { clampPvpChoiceSeconds, parsePvpChoiceSeconds } from "@/lib/games/pvpTiming";
@@ -30,6 +31,10 @@ export default function AdminConfigPage() {
   const [refIndicador, setRefIndicador] = useState("100");
   const [refConvidado, setRefConvidado] = useState("50");
   const [chestCooldown, setChestCooldown] = useState("3600");
+  const [boostPercent, setBoostPercent] = useState("25");
+  const [fragmentsPerBoostCraft, setFragmentsPerBoostCraft] = useState("10");
+  const [boostMinutesPerCraft, setBoostMinutesPerCraft] = useState("15");
+  const [boostActivationMinutes, setBoostActivationMinutes] = useState("15");
   const [pptEntryCost, setPptEntryCost] = useState("0");
   const [quizEntryCost, setQuizEntryCost] = useState("0");
   const [reactionEntryCost, setReactionEntryCost] = useState("0");
@@ -63,6 +68,16 @@ export default function AdminConfigPage() {
         if (typeof d.referralBonusIndicador === "number") setRefIndicador(String(d.referralBonusIndicador));
         if (typeof d.referralBonusConvidado === "number") setRefConvidado(String(d.referralBonusConvidado));
         if (typeof d.chestCooldownSegundos === "number") setChestCooldown(String(d.chestCooldownSegundos));
+        if (typeof d.boostRewardPercent === "number") setBoostPercent(String(d.boostRewardPercent));
+        if (typeof d.fragmentsPerBoostCraft === "number") {
+          setFragmentsPerBoostCraft(String(d.fragmentsPerBoostCraft));
+        }
+        if (typeof d.boostMinutesPerCraft === "number") {
+          setBoostMinutesPerCraft(String(d.boostMinutesPerCraft));
+        }
+        if (typeof d.boostActivationMinutes === "number") {
+          setBoostActivationMinutes(String(d.boostActivationMinutes));
+        }
         if (typeof d.gameEntryCost?.ppt === "number") setPptEntryCost(String(d.gameEntryCost.ppt));
         if (typeof d.gameEntryCost?.quiz === "number") setQuizEntryCost(String(d.gameEntryCost.quiz));
         if (typeof d.gameEntryCost?.reaction_tap === "number") {
@@ -102,6 +117,10 @@ export default function AdminConfigPage() {
           referralBonusIndicador: Number(refIndicador),
           referralBonusConvidado: Number(refConvidado),
           chestCooldownSegundos: Number(chestCooldown),
+          boostRewardPercent: Math.max(0, Math.floor(Number(boostPercent)) || 0),
+          fragmentsPerBoostCraft: Math.max(1, Math.floor(Number(fragmentsPerBoostCraft)) || 10),
+          boostMinutesPerCraft: Math.max(1, Math.floor(Number(boostMinutesPerCraft)) || 15),
+          boostActivationMinutes: Math.max(1, Math.floor(Number(boostActivationMinutes)) || 15),
           gameEntryCost: {
             ppt: Number(pptEntryCost),
             quiz: Number(quizEntryCost),
@@ -179,7 +198,8 @@ export default function AdminConfigPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Configurações da economia</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Ajuste recompensas básicas, limites diários, referral e custo de entrada dos confrontos.
+          Ajuste recompensas básicas, limites diários, referral, mini-jogo Baú e custo de entrada
+          dos confrontos. O sistema novo de baús fica no painel dedicado logo abaixo.
         </p>
       </div>
       {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
@@ -194,11 +214,11 @@ export default function AdminConfigPage() {
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-          <h2 className="text-lg font-semibold text-white">Referral e baú</h2>
+          <h2 className="text-lg font-semibold text-white">Referral e mini-jogo Baú</h2>
           <Field label="Bônus do indicador" value={refIndicador} onChange={setRefIndicador} />
           <Field label="Bônus do convidado" value={refConvidado} onChange={setRefConvidado} />
           <Field
-            label="Cooldown do baú (segundos)"
+            label="Cooldown do mini-jogo Baú (segundos)"
             value={chestCooldown}
             onChange={setChestCooldown}
           />
@@ -305,6 +325,32 @@ export default function AdminConfigPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-fuchsia-400/20 bg-fuchsia-950/15 p-4">
+        <h2 className="text-lg font-semibold text-white">Boost e fragmentos</h2>
+        <p className="text-xs text-slate-400">
+          Define o custo para transformar fragmentos em boost armazenado e o ganho extra de PR
+          enquanto o boost estiver ativo.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Boost extra de PR (%)" value={boostPercent} onChange={setBoostPercent} />
+          <Field
+            label="Fragmentos por craft"
+            value={fragmentsPerBoostCraft}
+            onChange={setFragmentsPerBoostCraft}
+          />
+          <Field
+            label="Minutos por craft"
+            value={boostMinutesPerCraft}
+            onChange={setBoostMinutesPerCraft}
+          />
+          <Field
+            label="Minutos ativados por uso"
+            value={boostActivationMinutes}
+            onChange={setBoostActivationMinutes}
+          />
+        </div>
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
@@ -439,6 +485,8 @@ export default function AdminConfigPage() {
           <Field label="Reaction tap" value={pvpSecReaction} onChange={setPvpSecReaction} />
         </div>
       </section>
+
+      <ChestSystemConfigPanel />
 
       <div className="flex justify-end">
         <Button onClick={save}>Salvar economia</Button>

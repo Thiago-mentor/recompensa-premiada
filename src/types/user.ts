@@ -26,6 +26,14 @@ export interface UserProfile {
   /** CASH — pontos para saque; conversão em reais (R$) só no fluxo de resgate, via taxa definida por vocês. */
   rewardBalance: number;
   xp: number;
+  /** Fragmentos de crafting / upgrades futuros, concedidos por baús e eventos. */
+  fragments?: number;
+  /** Minutos de boost armazenados para uso futuro. */
+  storedBoostMinutes?: number;
+  /** Quando o boost de PR ativo termina; null/ausente = sem boost em execução. */
+  activeBoostUntil?: Timestamp | null;
+  /** Créditos raros para super prêmios / jackpots futuros. */
+  superPrizeEntries?: number;
   level: number;
   streakAtual: number;
   melhorStreak: number;

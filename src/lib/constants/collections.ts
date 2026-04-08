@@ -22,6 +22,7 @@ export const COLLECTIONS = {
   quizQuestions: "quiz_questions",
   announcements: "announcements",
   supportTickets: "support_tickets",
+  userChests: "user_chests",
   /** Fila automática: `matchmaking_queue/{gameId}/waiting/{uid}` — só Functions */
   matchmakingQueue: "matchmaking_queue",
   /** Sala 1v1 após pareamento */
@@ -34,6 +35,7 @@ export const COLLECTIONS = {
 export const SUBCOLLECTIONS = {
   userMissionsDaily: "daily",
   userMissionsWeekly: "weekly",
+  chestItems: "items",
   rankingEntries: "entries",
   rankingGames: "games",
   rankingMeta: "meta",

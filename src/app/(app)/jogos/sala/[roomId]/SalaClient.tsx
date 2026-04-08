@@ -13,12 +13,14 @@ import {
   parsePvpChoiceSeconds,
   type PvpChoiceSecondsConfig,
 } from "@/lib/games/pvpTiming";
+import { ChestGrantNotice } from "@/components/chests/ChestGrantNotice";
 import type { GameRoomDocument } from "@/types/gameRoom";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { callFunction } from "@/services/callables/client";
 import { isAutoQueueGame } from "@/services/matchmaking/autoQueueService";
+import type { GrantedChestSummary } from "@/types/chest";
 import type { GameId } from "@/types/game";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { cn } from "@/lib/utils/cn";
@@ -31,6 +33,34 @@ type PptHand = (typeof PPT_HANDS)[number];
 const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1800;
 
 /** Padrão de segundos para UI; valores reais vêm de `system_configs/economy.pvpChoiceSeconds`. */
+
+function firestoreTimeToMs(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+  if ("toMillis" in value && typeof (value as { toMillis?: () => number }).toMillis === "function") {
+    try {
+      return (value as { toMillis: () => number }).toMillis();
+    } catch {
+      return null;
+    }
+  }
+  if ("toDate" in value && typeof (value as { toDate?: () => Date }).toDate === "function") {
+    try {
+      return (value as { toDate: () => Date }).toDate().getTime();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function resolveClientBoostedReward(baseCoins: number, boostPercent: number, boostActive: boolean) {
+  const normalizedBase = Math.max(0, Math.floor(Number(baseCoins) || 0));
+  if (normalizedBase <= 0 || !boostActive || boostPercent <= 0) {
+    return { totalCoins: normalizedBase, boostCoins: 0 };
+  }
+  const boostCoins = Math.max(1, Math.floor((normalizedBase * boostPercent) / 100));
+  return { totalCoins: normalizedBase + boostCoins, boostCoins };
+}
 
 function handLabel(h: string) {
   if (h === "pedra") return "Pedra";
@@ -439,6 +469,8 @@ function ResultSummaryPanel({
   tertiaryLine,
   rankingPoints,
   rewardCoins,
+  boostCoins,
+  grantedChest,
 }: {
   gameLabel: string;
   title: string;
@@ -452,6 +484,8 @@ function ResultSummaryPanel({
   tertiaryLine?: string | null;
   rankingPoints?: number | null;
   rewardCoins?: number | null;
+  boostCoins?: number | null;
+  grantedChest?: GrantedChestSummary | null;
 }) {
   return (
     <section
@@ -509,8 +543,20 @@ function ResultSummaryPanel({
                   +{rewardCoins} PR
                 </span>
               ) : null}
+              {boostCoins != null && boostCoins > 0 ? (
+                <span className="rounded-full border border-fuchsia-400/25 bg-fuchsia-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-fuchsia-100/85 shadow-[0_0_18px_-8px_rgba(217,70,239,0.55)]">
+                  boost +{boostCoins} PR
+                </span>
+              ) : null}
             </div>
           )}
+          {grantedChest ? (
+            <ChestGrantNotice
+              grantedChest={grantedChest}
+              label="Baú liberado nesta vitória"
+              className="mt-1"
+            />
+          ) : null}
         </div>
 
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-[1.4rem] border border-white/10 bg-black/25 p-3 sm:gap-3 sm:rounded-[1.7rem] sm:p-4">
@@ -955,6 +1001,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const lastShownRoundFlashKeyRef = useRef<string | null>(null);
   const skipInitialRoundFlashRef = useRef(true);
   const roundFlashTimeoutRef = useRef<number | null>(null);
+  const [boostRewardPercent, setBoostRewardPercent] = useState(25);
   const [pvpChoiceSec, setPvpChoiceSec] = useState<PvpChoiceSecondsConfig>(() =>
     parsePvpChoiceSeconds(undefined),
   );
@@ -968,7 +1015,13 @@ export function SalaClient({ roomId }: { roomId: string }) {
       ref,
       (snap) => {
         if (!snap.exists()) return;
-        setPvpChoiceSec(parsePvpChoiceSeconds(snap.data()));
+        const data = snap.data();
+        setPvpChoiceSec(parsePvpChoiceSeconds(data));
+        setBoostRewardPercent(
+          typeof data.boostRewardPercent === "number"
+            ? Math.max(0, Math.floor(data.boostRewardPercent))
+            : 25,
+        );
       },
       (err) => {
         console.error(
@@ -1662,6 +1715,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
     showReactionPlay && actionDeadlineAtMs != null ? Math.max(0, actionDeadlineAtMs - reactionClock) : 0;
   const reactionRoundExpired =
     showReactionPlay && actionDeadlineAtMs != null && reactionClock >= actionDeadlineAtMs;
+  const rewardResolvedAtMs = firestoreTimeToMs(room.atualizadoEm) ?? Date.now();
+  const activeBoostUntilMs = firestoreTimeToMs(profile?.activeBoostUntil);
+  const rewardBoostActive = activeBoostUntilMs != null && activeBoostUntilMs > rewardResolvedAtMs;
   const duelTarget = isQuiz ? quizTarget : isReaction ? reactionTarget : target;
   const duelMyPts = isQuiz ? myQuizPts : isReaction ? myReactionPts : myPts;
   const duelOppPts = isQuiz ? oppQuizPts : isReaction ? oppReactionPts : oppPts;
@@ -1675,22 +1731,43 @@ export function SalaClient({ roomId }: { roomId: string }) {
           const eco = resolveMatchEconomy("quiz", result, 0, {
             responseTimeMs: Number(myQuizResponseMs ?? 8000),
           });
-          return { ranking: eco.rankingPoints, coins: eco.rewardCoins };
+          const boosted = resolveClientBoostedReward(
+            eco.rewardCoins,
+            boostRewardPercent,
+            rewardBoostActive,
+          );
+          return { ranking: eco.rankingPoints, coins: boosted.totalCoins, boostCoins: boosted.boostCoins };
         }
         if (isReaction && room.reactionMatchWinner) {
           const result = reactionYouWonMatch ? "vitoria" : "derrota";
           const eco = resolveMatchEconomy("reaction_tap", result, 0, {
             reactionMs: Number(myReactionMs ?? 9999),
           });
-          return { ranking: eco.rankingPoints, coins: eco.rewardCoins };
+          const boosted = resolveClientBoostedReward(
+            eco.rewardCoins,
+            boostRewardPercent,
+            rewardBoostActive,
+          );
+          return { ranking: eco.rankingPoints, coins: boosted.totalCoins, boostCoins: boosted.boostCoins };
         }
         if (isPpt && room.pptMatchWinner) {
           const eco = resolveMatchEconomy("ppt", youWonMatch ? "vitoria" : "derrota", 0, {});
-          return { ranking: eco.rankingPoints, coins: eco.rewardCoins };
+          const boosted = resolveClientBoostedReward(
+            eco.rewardCoins,
+            boostRewardPercent,
+            rewardBoostActive,
+          );
+          return { ranking: eco.rankingPoints, coins: boosted.totalCoins, boostCoins: boosted.boostCoins };
         }
         return null;
       })()
     : null;
+  const rewardBoostLine =
+    rewardSummary?.boostCoins && rewardSummary.boostCoins > 0
+      ? `Boost ativo aplicado no fechamento da partida: +${rewardSummary.boostCoins} PR extras.`
+      : null;
+  const myGrantedChest =
+    room == null ? null : isHost ? room.pvpHostGrantedChest ?? null : room.pvpGuestGrantedChest ?? null;
 
   const timerActive = showPptPlay && !myPickDone && !matchDone;
   const timerProgress = timerActive ? secondsLeft / Math.max(pvpChoiceSec.ppt, 1) : 0;
@@ -1855,6 +1932,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[0.18em] text-amber-100/80 sm:px-2 sm:text-[8px] sm:tracking-[0.25em]">
                       +{rewardSummary.coins} PR
                     </span>
+                    {rewardSummary.boostCoins > 0 ? (
+                      <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[0.18em] text-fuchsia-100/80 sm:px-2 sm:text-[8px] sm:tracking-[0.25em]">
+                        boost +{rewardSummary.boostCoins} PR
+                      </span>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="mt-0.5 rounded-full border border-amber-300/15 bg-amber-300/8 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[0.18em] text-amber-100/75 sm:mt-1 sm:px-2 sm:text-[8px] sm:tracking-[0.25em]">
@@ -1879,6 +1961,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-2 py-1 text-[8px] font-bold uppercase tracking-[0.16em] text-amber-100/80">
                     +{rewardSummary.coins} PR
                   </span>
+                  {rewardSummary.boostCoins > 0 ? (
+                    <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-2 py-1 text-[8px] font-bold uppercase tracking-[0.16em] text-fuchsia-100/80">
+                      boost +{rewardSummary.boostCoins} PR
+                    </span>
+                  ) : null}
                 </div>
               ) : (
                 <div className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-white/40">
@@ -1961,10 +2048,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
               myScore={myPts}
               oppScore={oppPts}
               primaryLine={youWonMatch ? "Você fechou a série antes do rival." : "O adversário levou a melhor nesta série."}
-              secondaryLine={null}
+              secondaryLine={rewardBoostLine}
               tertiaryLine={null}
               rankingPoints={rewardSummary?.ranking}
               rewardCoins={rewardSummary?.coins}
+              boostCoins={rewardSummary?.boostCoins}
+              grantedChest={myGrantedChest}
             />
           ) : null}
 
@@ -1995,10 +2084,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   myScore={myQuizPts}
                   oppScore={oppQuizPts}
                   primaryLine="Conhecimento e timing definiram o placar final."
-                  secondaryLine={null}
+                  secondaryLine={rewardBoostLine}
                   tertiaryLine={null}
                   rankingPoints={rewardSummary?.ranking}
                   rewardCoins={rewardSummary?.coins}
+                  boostCoins={rewardSummary?.boostCoins}
+                  grantedChest={myGrantedChest}
                 />
               ) : null}
               {quizEndedNoWinner ? (
@@ -2032,10 +2123,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
               myScore={myReactionPts}
               oppScore={oppReactionPts}
               primaryLine="O reflexo definiu a vitória no tempo certo."
-              secondaryLine={null}
+              secondaryLine={rewardBoostLine}
               tertiaryLine={null}
               rankingPoints={rewardSummary?.ranking}
               rewardCoins={rewardSummary?.coins}
+              boostCoins={rewardSummary?.boostCoins}
+              grantedChest={myGrantedChest}
             />
           ) : null}
 

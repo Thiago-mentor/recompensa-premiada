@@ -10,7 +10,21 @@ import Link from "next/link";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { resetUserAvatar, uploadUserAvatar } from "@/services/users/avatarService";
 import { formatFirebaseError } from "@/lib/firebase/errors";
-import { Banknote, Coins, ShieldAlert, Sparkles, Ticket, Trophy } from "lucide-react";
+import { Banknote, Coins, Flame, ShieldAlert, Sparkles, Ticket, Trophy } from "lucide-react";
+
+function boostStatusLabel(value: unknown): string {
+  if (!value || typeof value !== "object") return "Inativo";
+  if ("toDate" in value && typeof (value as { toDate?: () => Date }).toDate === "function") {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      if (date.getTime() <= Date.now()) return "Inativo";
+      return `Ativo até ${date.toLocaleString("pt-BR")}`;
+    } catch {
+      return "Inativo";
+    }
+  }
+  return "Inativo";
+}
 
 export default function PerfilPage() {
   const { user, profile, isAdmin, refreshProfile } = useAuth();
@@ -128,6 +142,44 @@ export default function PerfilPage() {
         <ProfileMetric label="Vitórias" value={profile ? String(profile.totalVitorias ?? 0) : "—"} icon={<Trophy className="h-4 w-4 text-amber-200" />} />
       </section>
 
+      <section className="rounded-[1.6rem] border border-white/10 bg-gradient-to-br from-slate-950/95 via-amber-950/10 to-slate-950 p-4 shadow-[0_0_42px_-18px_rgba(251,191,36,0.2)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/60">
+              Inventário premium
+            </p>
+            <h2 className="mt-1 text-lg font-black tracking-tight text-white">
+              Recursos vindos dos baús
+            </h2>
+            <p className="mt-1 text-sm text-white/55">
+              Fragmentos, boost armazenado e entradas de super prêmio ficam aqui para uso em
+              eventos e sistemas futuros.
+            </p>
+          </div>
+          <Sparkles className="mt-1 h-5 w-5 text-amber-200/75" />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <ProfileMetric
+            label="Fragmentos"
+            value={profile ? String(profile.fragments ?? 0) : "—"}
+            icon={<Sparkles className="h-4 w-4 text-fuchsia-200" />}
+          />
+          <ProfileMetric
+            label="Boost acumulado"
+            value={profile ? `${profile.storedBoostMinutes ?? 0} min` : "—"}
+            icon={<Flame className="h-4 w-4 text-orange-200" />}
+          />
+          <ProfileMetric
+            label="Super prêmio"
+            value={profile ? String(profile.superPrizeEntries ?? 0) : "—"}
+            icon={<Trophy className="h-4 w-4 text-amber-200" />}
+          />
+        </div>
+        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white/65">
+          {boostStatusLabel(profile?.activeBoostUntil)}
+        </div>
+      </section>
+
       <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Dados da conta</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -137,6 +189,16 @@ export default function PerfilPage() {
           <AccountRow label="Nível / XP" value={`${profile?.level ?? "—"} · ${profile?.xp ?? "—"} XP`} />
           <AccountRow label="Streak atual" value={String(profile?.streakAtual ?? 0)} />
           <AccountRow label="Risco" value={String(profile?.riscoFraude ?? "—")} />
+          <AccountRow label="Fragmentos" value={String(profile?.fragments ?? 0)} />
+          <AccountRow
+            label="Boost armazenado"
+            value={`${profile?.storedBoostMinutes ?? 0} min`}
+          />
+          <AccountRow
+            label="Entradas de super prêmio"
+            value={String(profile?.superPrizeEntries ?? 0)}
+          />
+          <AccountRow label="Boost ativo" value={boostStatusLabel(profile?.activeBoostUntil)} />
         </div>
       </section>
 

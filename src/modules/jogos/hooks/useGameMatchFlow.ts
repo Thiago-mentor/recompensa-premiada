@@ -6,6 +6,7 @@ import {
   type FinalizeMatchInput,
   type FinalizeMatchResult,
 } from "@/services/jogos/matchService";
+import type { GrantedChestSummary } from "@/types/chest";
 import type { MatchResultKind } from "../components/MatchResultModal";
 
 type ModalState =
@@ -17,6 +18,7 @@ type ModalState =
       subtitle?: string;
       rewardCoins: number;
       rankingPoints: number;
+      grantedChest: GrantedChestSummary | null;
       error: string | null;
     };
 
@@ -42,6 +44,7 @@ export function useGameMatchFlow() {
           subtitle: uiSubtitle,
           rewardCoins: r.rewardCoins ?? 0,
           rankingPoints: r.rankingPoints ?? 0,
+          grantedChest: r.grantedChest ?? null,
           error: null,
         });
         if ((r.rewardCoins ?? 0) > 0) {
@@ -55,6 +58,7 @@ export function useGameMatchFlow() {
           subtitle: undefined,
           rewardCoins: 0,
           rankingPoints: 0,
+          grantedChest: null,
           error: r.error ?? "Erro desconhecido",
         });
       }

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
+exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -51,6 +51,7 @@ const db = firestoreDbId && firestoreDbId !== "(default)"
     : (0, firestore_1.getFirestore)((0, app_1.getApp)());
 const COL = {
     users: "users",
+    userChests: "user_chests",
     referrals: "referrals",
     referralCampaigns: "referral_campaigns",
     referralRankingsDaily: "referral_rankings_daily",
@@ -177,6 +178,148 @@ const REWARDED_AD_TOKEN_MAX_LEN = 256;
 const rewardAdMockAllowed = process.env.ALLOW_REWARDED_AD_MOCK === "true" ||
     process.env.FUNCTIONS_EMULATOR === "true" ||
     Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
+const CHEST_SYSTEM_CONFIG_ID = "chest_system";
+const CHEST_SPEEDUP_PLACEMENT_ID = "chest_speedup";
+const CHEST_RARITIES = ["comum", "raro", "epico", "lendario"];
+const CHEST_SOURCES = [
+    "multiplayer_win",
+    "mission_claim",
+    "daily_streak",
+    "ranking_reward",
+    "event",
+];
+const CHEST_BONUS_REWARD_KINDS = [
+    "bonusCoins",
+    "fragments",
+    "boostMinutes",
+    "superPrizeEntries",
+];
+const DEFAULT_CHEST_SYSTEM_CONFIG = {
+    enabled: true,
+    slotCount: 4,
+    queueCapacity: 4,
+    unlockDurationsByRarity: {
+        comum: 60 * 60,
+        raro: 3 * 60 * 60,
+        epico: 8 * 60 * 60,
+        lendario: 12 * 60 * 60,
+    },
+    dropTablesBySource: {
+        multiplayer_win: [
+            { rarity: "comum", weight: 70 },
+            { rarity: "raro", weight: 22 },
+            { rarity: "epico", weight: 7 },
+            { rarity: "lendario", weight: 1 },
+        ],
+        mission_claim: [
+            { rarity: "comum", weight: 20 },
+            { rarity: "raro", weight: 55 },
+            { rarity: "epico", weight: 22 },
+            { rarity: "lendario", weight: 3 },
+        ],
+        daily_streak: [
+            { rarity: "comum", weight: 0 },
+            { rarity: "raro", weight: 55 },
+            { rarity: "epico", weight: 35 },
+            { rarity: "lendario", weight: 10 },
+        ],
+        ranking_reward: [
+            { rarity: "comum", weight: 0 },
+            { rarity: "raro", weight: 20 },
+            { rarity: "epico", weight: 60 },
+            { rarity: "lendario", weight: 20 },
+        ],
+        event: [
+            { rarity: "comum", weight: 0 },
+            { rarity: "raro", weight: 10 },
+            { rarity: "epico", weight: 60 },
+            { rarity: "lendario", weight: 30 },
+        ],
+    },
+    rewardTablesByRarity: {
+        comum: {
+            coins: { min: 40, max: 90 },
+            gems: { min: 0, max: 2 },
+            xp: { min: 12, max: 22 },
+        },
+        raro: {
+            coins: { min: 90, max: 180 },
+            gems: { min: 1, max: 4 },
+            xp: { min: 25, max: 45 },
+        },
+        epico: {
+            coins: { min: 200, max: 380 },
+            gems: { min: 4, max: 10 },
+            xp: { min: 50, max: 80 },
+        },
+        lendario: {
+            coins: { min: 450, max: 800 },
+            gems: { min: 10, max: 25 },
+            xp: { min: 90, max: 150 },
+        },
+    },
+    bonusWeightsByRarity: {
+        comum: [
+            { kind: "bonusCoins", weight: 78 },
+            { kind: "fragments", weight: 16 },
+            { kind: "boostMinutes", weight: 5 },
+            { kind: "superPrizeEntries", weight: 1 },
+        ],
+        raro: [
+            { kind: "bonusCoins", weight: 55 },
+            { kind: "fragments", weight: 25 },
+            { kind: "boostMinutes", weight: 15 },
+            { kind: "superPrizeEntries", weight: 5 },
+        ],
+        epico: [
+            { kind: "bonusCoins", weight: 35 },
+            { kind: "fragments", weight: 30 },
+            { kind: "boostMinutes", weight: 25 },
+            { kind: "superPrizeEntries", weight: 10 },
+        ],
+        lendario: [
+            { kind: "bonusCoins", weight: 25 },
+            { kind: "fragments", weight: 25 },
+            { kind: "boostMinutes", weight: 30 },
+            { kind: "superPrizeEntries", weight: 20 },
+        ],
+    },
+    bonusRewardTablesByRarity: {
+        comum: {
+            bonusCoins: { min: 15, max: 40 },
+            fragments: { min: 1, max: 2 },
+            boostMinutes: { min: 5, max: 10 },
+            superPrizeEntries: { min: 1, max: 1 },
+        },
+        raro: {
+            bonusCoins: { min: 30, max: 90 },
+            fragments: { min: 2, max: 4 },
+            boostMinutes: { min: 10, max: 20 },
+            superPrizeEntries: { min: 1, max: 2 },
+        },
+        epico: {
+            bonusCoins: { min: 80, max: 180 },
+            fragments: { min: 4, max: 8 },
+            boostMinutes: { min: 20, max: 40 },
+            superPrizeEntries: { min: 1, max: 3 },
+        },
+        lendario: {
+            bonusCoins: { min: 160, max: 360 },
+            fragments: { min: 8, max: 15 },
+            boostMinutes: { min: 45, max: 90 },
+            superPrizeEntries: { min: 2, max: 5 },
+        },
+    },
+    adSpeedupPercent: 0.33,
+    maxAdsPerChest: 3,
+    adCooldownSeconds: 3 * 60,
+    dailyChestAdsLimit: 12,
+    pityRules: {
+        rareAt: 4,
+        epicAt: 12,
+        legendaryAt: 40,
+    },
+};
 function readPptDuelCharges(data) {
     if (!data)
         return PPT_DEFAULT_DUEL_CHARGES;
@@ -387,9 +530,25 @@ async function getEconomy() {
     const rawBuy = Math.floor(Number(d.conversionCoinsPerGemBuy));
     const rawSell = Math.floor(Number(d.conversionCoinsPerGemSell));
     const rawCash = Math.floor(Number(d.cashPointsPerReal));
+    const rawBoostPercent = Math.floor(Number(d.boostRewardPercent));
+    const rawFragmentsPerCraft = Math.floor(Number(d.fragmentsPerBoostCraft));
+    const rawBoostMinutesPerCraft = Math.floor(Number(d.boostMinutesPerCraft));
+    const rawBoostActivationMinutes = Math.floor(Number(d.boostActivationMinutes));
     return {
         rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
         dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
+        boostRewardPercent: Number.isFinite(rawBoostPercent) && rawBoostPercent >= 0
+            ? Math.min(300, rawBoostPercent)
+            : 25,
+        fragmentsPerBoostCraft: Number.isFinite(rawFragmentsPerCraft) && rawFragmentsPerCraft >= 1
+            ? rawFragmentsPerCraft
+            : 10,
+        boostMinutesPerCraft: Number.isFinite(rawBoostMinutesPerCraft) && rawBoostMinutesPerCraft >= 1
+            ? rawBoostMinutesPerCraft
+            : 15,
+        boostActivationMinutes: Number.isFinite(rawBoostActivationMinutes) && rawBoostActivationMinutes >= 1
+            ? rawBoostActivationMinutes
+            : 15,
         limiteDiarioAds: typeof d.limiteDiarioAds === "number" ? d.limiteDiarioAds : 20,
         welcomeBonus: typeof d.welcomeBonus === "number" ? d.welcomeBonus : 100,
         referralBonusIndicador: typeof d.referralBonusIndicador === "number" ? d.referralBonusIndicador : 200,
@@ -404,6 +563,552 @@ async function getEconomy() {
         conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
         /** Pontos CASH por R$ 1,00 (ex.: 100 → 100 pts = R$ 1). */
         cashPointsPerReal: Number.isFinite(rawCash) && rawCash >= 1 ? rawCash : 100,
+    };
+}
+function readStoredBoostMinutes(data) {
+    if (!data)
+        return 0;
+    return Math.max(0, Math.floor(Number(data.storedBoostMinutes) || 0));
+}
+function readFragmentsBalance(data) {
+    if (!data)
+        return 0;
+    return Math.max(0, Math.floor(Number(data.fragments) || 0));
+}
+function readActiveBoostUntilMs(data) {
+    if (!data)
+        return 0;
+    return millisFromFirestoreTime(data.activeBoostUntil);
+}
+function resolveBoostedCoins(baseCoins, userData, economy, nowMs = Date.now()) {
+    const normalizedBase = Math.max(0, Math.floor(Number(baseCoins) || 0));
+    if (normalizedBase <= 0) {
+        return { totalCoins: 0, boostCoins: 0, boostActive: false };
+    }
+    const activeUntilMs = readActiveBoostUntilMs(userData);
+    const boostPercent = Math.max(0, Math.floor(Number(economy.boostRewardPercent) || 0));
+    if (activeUntilMs <= nowMs || boostPercent <= 0) {
+        return { totalCoins: normalizedBase, boostCoins: 0, boostActive: false };
+    }
+    const boostCoins = Math.max(1, Math.floor((normalizedBase * boostPercent) / 100));
+    return {
+        totalCoins: normalizedBase + boostCoins,
+        boostCoins,
+        boostActive: true,
+    };
+}
+function withBoostDescription(description, boostCoins) {
+    return boostCoins > 0 ? `${description} · boost +${boostCoins} PR` : description;
+}
+function isChestRarity(value) {
+    return CHEST_RARITIES.includes(value);
+}
+function isChestSource(value) {
+    return CHEST_SOURCES.includes(value);
+}
+function clampPositiveInt(value, fallback, min = 1) {
+    const raw = Math.floor(Number(value));
+    if (!Number.isFinite(raw))
+        return fallback;
+    return Math.max(min, raw);
+}
+function normalizeChestRewardRange(raw, fallback) {
+    const value = raw && typeof raw === "object" ? raw : {};
+    const min = Math.max(0, Math.floor(Number(value.min) || fallback.min));
+    const max = Math.max(min, Math.floor(Number(value.max) || fallback.max));
+    return { min, max };
+}
+function normalizeChestRewardTable(raw, fallback) {
+    const value = raw && typeof raw === "object" ? raw : {};
+    return {
+        coins: normalizeChestRewardRange(value.coins, fallback.coins),
+        gems: normalizeChestRewardRange(value.gems, fallback.gems),
+        xp: normalizeChestRewardRange(value.xp, fallback.xp),
+    };
+}
+function normalizeChestDropWeights(raw, fallback) {
+    if (!Array.isArray(raw))
+        return fallback;
+    const normalized = raw
+        .map((entry) => {
+        const value = entry && typeof entry === "object" ? entry : {};
+        const rarity = isChestRarity(value.rarity) ? value.rarity : null;
+        const weight = Math.max(0, Math.floor(Number(value.weight) || 0));
+        if (!rarity || weight <= 0)
+            return null;
+        return { rarity, weight };
+    })
+        .filter((entry) => entry !== null);
+    return normalized.length > 0 ? normalized : fallback;
+}
+function isChestBonusRewardKind(value) {
+    return typeof value === "string" && CHEST_BONUS_REWARD_KINDS.includes(value);
+}
+function normalizeChestBonusWeights(raw, fallback) {
+    if (!Array.isArray(raw))
+        return fallback;
+    const normalized = raw
+        .map((entry) => {
+        const value = entry && typeof entry === "object" ? entry : {};
+        const kind = isChestBonusRewardKind(value.kind) ? value.kind : null;
+        const weight = Math.max(0, Math.floor(Number(value.weight) || 0));
+        if (!kind || weight <= 0)
+            return null;
+        return { kind, weight };
+    })
+        .filter((entry) => entry !== null);
+    return normalized.length > 0 ? normalized : fallback;
+}
+function normalizeChestBonusRewardTable(raw, fallback) {
+    const value = raw && typeof raw === "object" ? raw : {};
+    return {
+        bonusCoins: normalizeChestRewardRange(value.bonusCoins, fallback.bonusCoins),
+        fragments: normalizeChestRewardRange(value.fragments, fallback.fragments),
+        boostMinutes: normalizeChestRewardRange(value.boostMinutes, fallback.boostMinutes),
+        superPrizeEntries: normalizeChestRewardRange(value.superPrizeEntries, fallback.superPrizeEntries),
+    };
+}
+async function getChestSystemConfig() {
+    const snap = await db.doc(`${COL.systemConfigs}/${CHEST_SYSTEM_CONFIG_ID}`).get();
+    const d = (snap.data() || {});
+    const rawDurations = d.unlockDurationsByRarity && typeof d.unlockDurationsByRarity === "object"
+        ? d.unlockDurationsByRarity
+        : {};
+    const rawDrops = d.dropTablesBySource && typeof d.dropTablesBySource === "object"
+        ? d.dropTablesBySource
+        : {};
+    const rawRewards = d.rewardTablesByRarity && typeof d.rewardTablesByRarity === "object"
+        ? d.rewardTablesByRarity
+        : {};
+    const rawBonusWeights = d.bonusWeightsByRarity && typeof d.bonusWeightsByRarity === "object"
+        ? d.bonusWeightsByRarity
+        : {};
+    const rawBonusRewards = d.bonusRewardTablesByRarity && typeof d.bonusRewardTablesByRarity === "object"
+        ? d.bonusRewardTablesByRarity
+        : {};
+    const rawPity = d.pityRules && typeof d.pityRules === "object" ? d.pityRules : {};
+    return {
+        enabled: d.enabled !== false,
+        slotCount: clampPositiveInt(d.slotCount, DEFAULT_CHEST_SYSTEM_CONFIG.slotCount),
+        queueCapacity: clampPositiveInt(d.queueCapacity, DEFAULT_CHEST_SYSTEM_CONFIG.queueCapacity, 0),
+        unlockDurationsByRarity: {
+            comum: clampPositiveInt(rawDurations.comum, DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.comum),
+            raro: clampPositiveInt(rawDurations.raro, DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.raro),
+            epico: clampPositiveInt(rawDurations.epico, DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.epico),
+            lendario: clampPositiveInt(rawDurations.lendario, DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.lendario),
+        },
+        dropTablesBySource: {
+            multiplayer_win: normalizeChestDropWeights(rawDrops.multiplayer_win, DEFAULT_CHEST_SYSTEM_CONFIG.dropTablesBySource.multiplayer_win),
+            mission_claim: normalizeChestDropWeights(rawDrops.mission_claim, DEFAULT_CHEST_SYSTEM_CONFIG.dropTablesBySource.mission_claim),
+            daily_streak: normalizeChestDropWeights(rawDrops.daily_streak, DEFAULT_CHEST_SYSTEM_CONFIG.dropTablesBySource.daily_streak),
+            ranking_reward: normalizeChestDropWeights(rawDrops.ranking_reward, DEFAULT_CHEST_SYSTEM_CONFIG.dropTablesBySource.ranking_reward),
+            event: normalizeChestDropWeights(rawDrops.event, DEFAULT_CHEST_SYSTEM_CONFIG.dropTablesBySource.event),
+        },
+        rewardTablesByRarity: {
+            comum: normalizeChestRewardTable(rawRewards.comum, DEFAULT_CHEST_SYSTEM_CONFIG.rewardTablesByRarity.comum),
+            raro: normalizeChestRewardTable(rawRewards.raro, DEFAULT_CHEST_SYSTEM_CONFIG.rewardTablesByRarity.raro),
+            epico: normalizeChestRewardTable(rawRewards.epico, DEFAULT_CHEST_SYSTEM_CONFIG.rewardTablesByRarity.epico),
+            lendario: normalizeChestRewardTable(rawRewards.lendario, DEFAULT_CHEST_SYSTEM_CONFIG.rewardTablesByRarity.lendario),
+        },
+        bonusWeightsByRarity: {
+            comum: normalizeChestBonusWeights(rawBonusWeights.comum, DEFAULT_CHEST_SYSTEM_CONFIG.bonusWeightsByRarity.comum),
+            raro: normalizeChestBonusWeights(rawBonusWeights.raro, DEFAULT_CHEST_SYSTEM_CONFIG.bonusWeightsByRarity.raro),
+            epico: normalizeChestBonusWeights(rawBonusWeights.epico, DEFAULT_CHEST_SYSTEM_CONFIG.bonusWeightsByRarity.epico),
+            lendario: normalizeChestBonusWeights(rawBonusWeights.lendario, DEFAULT_CHEST_SYSTEM_CONFIG.bonusWeightsByRarity.lendario),
+        },
+        bonusRewardTablesByRarity: {
+            comum: normalizeChestBonusRewardTable(rawBonusRewards.comum, DEFAULT_CHEST_SYSTEM_CONFIG.bonusRewardTablesByRarity.comum),
+            raro: normalizeChestBonusRewardTable(rawBonusRewards.raro, DEFAULT_CHEST_SYSTEM_CONFIG.bonusRewardTablesByRarity.raro),
+            epico: normalizeChestBonusRewardTable(rawBonusRewards.epico, DEFAULT_CHEST_SYSTEM_CONFIG.bonusRewardTablesByRarity.epico),
+            lendario: normalizeChestBonusRewardTable(rawBonusRewards.lendario, DEFAULT_CHEST_SYSTEM_CONFIG.bonusRewardTablesByRarity.lendario),
+        },
+        adSpeedupPercent: Math.min(0.95, Math.max(0.05, Number.isFinite(Number(d.adSpeedupPercent))
+            ? Number(d.adSpeedupPercent)
+            : DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupPercent)),
+        maxAdsPerChest: clampPositiveInt(d.maxAdsPerChest, DEFAULT_CHEST_SYSTEM_CONFIG.maxAdsPerChest, 0),
+        adCooldownSeconds: clampPositiveInt(d.adCooldownSeconds, DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds, 0),
+        dailyChestAdsLimit: clampPositiveInt(d.dailyChestAdsLimit, DEFAULT_CHEST_SYSTEM_CONFIG.dailyChestAdsLimit, 0),
+        pityRules: {
+            rareAt: clampPositiveInt(rawPity.rareAt, DEFAULT_CHEST_SYSTEM_CONFIG.pityRules.rareAt),
+            epicAt: clampPositiveInt(rawPity.epicAt, DEFAULT_CHEST_SYSTEM_CONFIG.pityRules.epicAt),
+            legendaryAt: clampPositiveInt(rawPity.legendaryAt, DEFAULT_CHEST_SYSTEM_CONFIG.pityRules.legendaryAt),
+        },
+    };
+}
+function readUserChestMetaState(data) {
+    return {
+        totalGranted: Math.max(0, Math.floor(Number(data?.totalGranted) || 0)),
+        totalClaimed: Math.max(0, Math.floor(Number(data?.totalClaimed) || 0)),
+        dailySpeedupDayKey: String(data?.dailySpeedupDayKey || ""),
+        dailySpeedupCount: Math.max(0, Math.floor(Number(data?.dailySpeedupCount) || 0)),
+        noRareCount: Math.max(0, Math.floor(Number(data?.noRareCount) || 0)),
+        noEpicCount: Math.max(0, Math.floor(Number(data?.noEpicCount) || 0)),
+        noLegendaryCount: Math.max(0, Math.floor(Number(data?.noLegendaryCount) || 0)),
+    };
+}
+function readChestItemState(doc) {
+    const data = (doc.data() || {});
+    return {
+        id: doc.id,
+        userId: String(data.userId || ""),
+        rarity: isChestRarity(data.rarity) ? data.rarity : "comum",
+        source: isChestSource(data.source) ? data.source : "multiplayer_win",
+        status: data.status === "queued" ||
+            data.status === "locked" ||
+            data.status === "unlocking" ||
+            data.status === "ready"
+            ? data.status
+            : "locked",
+        slotIndex: Number.isFinite(Number(data.slotIndex)) && data.slotIndex !== null
+            ? Math.max(0, Math.floor(Number(data.slotIndex)))
+            : null,
+        queuePosition: Number.isFinite(Number(data.queuePosition)) && data.queuePosition !== null
+            ? Math.max(0, Math.floor(Number(data.queuePosition)))
+            : null,
+        unlockDurationSec: clampPositiveInt(data.unlockDurationSec, 3600),
+        rewardsSnapshot: {
+            coins: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.coins) || 0)),
+            bonusCoins: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.bonusCoins) || 0)),
+            gems: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.gems) || 0)),
+            xp: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.xp) || 0)),
+            fragments: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.fragments) || 0)),
+            boostMinutes: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.boostMinutes) || 0)),
+            superPrizeEntries: Math.max(0, Math.floor(Number(data.rewardsSnapshot?.superPrizeEntries) || 0)),
+        },
+        adsUsed: Math.max(0, Math.floor(Number(data.adsUsed) || 0)),
+        sourceRefId: typeof data.sourceRefId === "string" ? data.sourceRefId : null,
+        grantedAtMs: millisFromFirestoreTime(data.grantedAt),
+        unlockStartedAtMs: millisFromFirestoreTime(data.unlockStartedAt) || null,
+        readyAtMs: millisFromFirestoreTime(data.readyAt) || null,
+        nextAdAvailableAtMs: millisFromFirestoreTime(data.nextAdAvailableAt) || null,
+        raw: data,
+    };
+}
+function chestSlotSort(a, b) {
+    const slotA = a.slotIndex ?? Number.MAX_SAFE_INTEGER;
+    const slotB = b.slotIndex ?? Number.MAX_SAFE_INTEGER;
+    if (slotA !== slotB)
+        return slotA - slotB;
+    return a.grantedAtMs - b.grantedAtMs || a.id.localeCompare(b.id);
+}
+function chestQueueSort(a, b) {
+    const queueA = a.queuePosition ?? Number.MAX_SAFE_INTEGER;
+    const queueB = b.queuePosition ?? Number.MAX_SAFE_INTEGER;
+    if (queueA !== queueB)
+        return queueA - queueB;
+    return a.grantedAtMs - b.grantedAtMs || a.id.localeCompare(b.id);
+}
+function chestRarityOrder(rarity) {
+    return CHEST_RARITIES.indexOf(rarity);
+}
+function promoteChestRarity(current, minRarity) {
+    return chestRarityOrder(current) >= chestRarityOrder(minRarity) ? current : minRarity;
+}
+function normalizeChestSlotsAndQueue(items, config, nowMs) {
+    const cloned = items.map((item) => ({ ...item }));
+    for (const item of cloned) {
+        if (item.status === "unlocking" && item.readyAtMs != null && item.readyAtMs <= nowMs) {
+            item.status = "ready";
+        }
+    }
+    const unlocking = cloned
+        .filter((item) => item.status === "unlocking")
+        .sort((a, b) => (a.unlockStartedAtMs ?? a.grantedAtMs) - (b.unlockStartedAtMs ?? b.grantedAtMs));
+    const unlockingKeeperId = unlocking[0]?.id ?? null;
+    for (const item of cloned) {
+        if (item.status === "unlocking" && item.id !== unlockingKeeperId) {
+            item.status = "locked";
+            item.unlockStartedAtMs = null;
+            item.readyAtMs = null;
+            item.nextAdAvailableAtMs = null;
+        }
+    }
+    let slotItems = cloned.filter((item) => item.status !== "queued").sort(chestSlotSort);
+    const queueItems = cloned.filter((item) => item.status === "queued").sort(chestQueueSort);
+    if (slotItems.length > config.slotCount) {
+        const overflow = slotItems.splice(config.slotCount);
+        for (const item of overflow) {
+            item.status = "queued";
+            item.slotIndex = null;
+            item.unlockStartedAtMs = null;
+            item.readyAtMs = null;
+            item.nextAdAvailableAtMs = null;
+            queueItems.push(item);
+        }
+    }
+    while (slotItems.length < config.slotCount && queueItems.length > 0) {
+        const next = queueItems.shift();
+        next.status = "locked";
+        next.slotIndex = slotItems.length;
+        next.queuePosition = null;
+        next.unlockStartedAtMs = null;
+        next.readyAtMs = null;
+        next.nextAdAvailableAtMs = null;
+        slotItems.push(next);
+    }
+    slotItems = slotItems.sort(chestSlotSort);
+    slotItems.forEach((item, index) => {
+        item.slotIndex = index;
+        item.queuePosition = null;
+    });
+    queueItems.sort(chestQueueSort);
+    queueItems.forEach((item, index) => {
+        item.status = "queued";
+        item.slotIndex = null;
+        item.queuePosition = index;
+        item.unlockStartedAtMs = null;
+        item.readyAtMs = null;
+        item.nextAdAvailableAtMs = null;
+    });
+    return [...slotItems, ...queueItems];
+}
+function chestItemPatch(item) {
+    return {
+        status: item.status,
+        slotIndex: item.slotIndex,
+        queuePosition: item.queuePosition,
+        unlockDurationSec: item.unlockDurationSec,
+        rewardsSnapshot: item.rewardsSnapshot,
+        adsUsed: item.adsUsed,
+        sourceRefId: item.sourceRefId,
+        unlockStartedAt: item.unlockStartedAtMs != null ? firestore_2.Timestamp.fromMillis(item.unlockStartedAtMs) : null,
+        readyAt: item.readyAtMs != null ? firestore_2.Timestamp.fromMillis(item.readyAtMs) : null,
+        nextAdAvailableAt: item.nextAdAvailableAtMs != null ? firestore_2.Timestamp.fromMillis(item.nextAdAvailableAtMs) : null,
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    };
+}
+function chestStateChanged(before, after) {
+    return (before.status !== after.status ||
+        before.slotIndex !== after.slotIndex ||
+        before.queuePosition !== after.queuePosition ||
+        before.adsUsed !== after.adsUsed ||
+        before.unlockStartedAtMs !== after.unlockStartedAtMs ||
+        before.readyAtMs !== after.readyAtMs ||
+        before.nextAdAvailableAtMs !== after.nextAdAvailableAtMs);
+}
+function rollRewardAmount(range) {
+    if (range.max <= range.min)
+        return range.min;
+    return range.min + Math.floor(Math.random() * (range.max - range.min + 1));
+}
+function pickWeightedChestBonusRewardKind(weights) {
+    const total = weights.reduce((sum, entry) => sum + entry.weight, 0);
+    if (total <= 0)
+        return null;
+    let roll = Math.random() * total;
+    for (const entry of weights) {
+        roll -= entry.weight;
+        if (roll <= 0)
+            return entry.kind;
+    }
+    return weights[weights.length - 1]?.kind ?? null;
+}
+function rollChestRewards(rarity, config) {
+    const table = config.rewardTablesByRarity[rarity];
+    const rewards = {
+        coins: rollRewardAmount(table.coins),
+        bonusCoins: 0,
+        gems: rollRewardAmount(table.gems),
+        xp: rollRewardAmount(table.xp),
+        fragments: 0,
+        boostMinutes: 0,
+        superPrizeEntries: 0,
+    };
+    const bonusKind = pickWeightedChestBonusRewardKind(config.bonusWeightsByRarity[rarity]);
+    if (!bonusKind)
+        return rewards;
+    rewards[bonusKind] = rollRewardAmount(config.bonusRewardTablesByRarity[rarity][bonusKind]);
+    return rewards;
+}
+function pickWeightedChestRarity(weights) {
+    const total = weights.reduce((sum, entry) => sum + entry.weight, 0);
+    if (total <= 0)
+        return "comum";
+    let roll = Math.random() * total;
+    for (const entry of weights) {
+        roll -= entry.weight;
+        if (roll <= 0)
+            return entry.rarity;
+    }
+    return weights[weights.length - 1]?.rarity ?? "comum";
+}
+function applyChestPity(rarity, meta, config) {
+    if (meta.noLegendaryCount + 1 >= config.pityRules.legendaryAt) {
+        return "lendario";
+    }
+    if (meta.noEpicCount + 1 >= config.pityRules.epicAt) {
+        return promoteChestRarity(rarity, "epico");
+    }
+    if (meta.noRareCount + 1 >= config.pityRules.rareAt) {
+        return promoteChestRarity(rarity, "raro");
+    }
+    return rarity;
+}
+function nextChestMetaAfterGrant(meta, rarity) {
+    return {
+        ...meta,
+        totalGranted: meta.totalGranted + 1,
+        noRareCount: rarity === "comum" ? meta.noRareCount + 1 : 0,
+        noEpicCount: rarity === "epico" || rarity === "lendario" ? 0 : meta.noEpicCount + 1,
+        noLegendaryCount: rarity === "lendario" ? 0 : meta.noLegendaryCount + 1,
+    };
+}
+function grantedChestSummary(item) {
+    return {
+        id: item.id,
+        rarity: item.rarity,
+        status: item.status,
+        slotIndex: item.slotIndex,
+        queuePosition: item.queuePosition,
+        source: item.source,
+    };
+}
+async function grantChestIfEligible(input) {
+    const config = await getChestSystemConfig();
+    if (!config.enabled)
+        return null;
+    const metaRef = db.doc(`${COL.userChests}/${input.uid}`);
+    const itemsCol = db.collection(`${COL.userChests}/${input.uid}/items`);
+    return db.runTransaction(async (tx) => {
+        const [metaSnap, itemsSnap] = await Promise.all([tx.get(metaRef), tx.get(itemsCol)]);
+        const nowMs = Date.now();
+        const meta = readUserChestMetaState(metaSnap.exists ? (metaSnap.data() || {}) : undefined);
+        const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
+        const normalizedItems = normalizeChestSlotsAndQueue(rawItems, config, nowMs);
+        const normalizedById = new Map(normalizedItems.map((item) => [item.id, item]));
+        for (const docSnap of itemsSnap.docs) {
+            const before = rawItems.find((item) => item.id === docSnap.id);
+            const after = normalizedById.get(docSnap.id);
+            if (before && after && chestStateChanged(before, after)) {
+                tx.update(docSnap.ref, chestItemPatch(after));
+            }
+        }
+        const existingSameSource = input.sourceRefId != null
+            ? normalizedItems.find((item) => item.source === input.source && item.sourceRefId === input.sourceRefId)
+            : null;
+        if (existingSameSource) {
+            return grantedChestSummary(existingSameSource);
+        }
+        const occupiedSlots = normalizedItems.filter((item) => item.status !== "queued").length;
+        const queuedCount = normalizedItems.filter((item) => item.status === "queued").length;
+        if (occupiedSlots >= config.slotCount && queuedCount >= config.queueCapacity) {
+            return null;
+        }
+        const rolled = pickWeightedChestRarity(config.dropTablesBySource[input.source]);
+        const rarity = applyChestPity(rolled, meta, config);
+        const newItemRef = itemsCol.doc();
+        const slotIndex = occupiedSlots < config.slotCount ? occupiedSlots : null;
+        const queuePosition = slotIndex == null ? queuedCount : null;
+        const status = slotIndex == null ? "queued" : "locked";
+        const rewardsSnapshot = rollChestRewards(rarity, config);
+        tx.set(newItemRef, {
+            id: newItemRef.id,
+            userId: input.uid,
+            rarity,
+            source: input.source,
+            status,
+            slotIndex,
+            queuePosition,
+            unlockDurationSec: config.unlockDurationsByRarity[rarity],
+            rewardsSnapshot,
+            adsUsed: 0,
+            sourceRefId: input.sourceRefId ?? null,
+            grantedAt: firestore_2.FieldValue.serverTimestamp(),
+            unlockStartedAt: null,
+            readyAt: null,
+            nextAdAvailableAt: null,
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        });
+        const nextMeta = nextChestMetaAfterGrant(meta, rarity);
+        tx.set(metaRef, {
+            userId: input.uid,
+            totalGranted: nextMeta.totalGranted,
+            totalClaimed: nextMeta.totalClaimed,
+            dailySpeedupDayKey: nextMeta.dailySpeedupDayKey || null,
+            dailySpeedupCount: nextMeta.dailySpeedupCount,
+            noRareCount: nextMeta.noRareCount,
+            noEpicCount: nextMeta.noEpicCount,
+            noLegendaryCount: nextMeta.noLegendaryCount,
+            createdAt: metaSnap.exists ? metaSnap.get("createdAt") ?? firestore_2.FieldValue.serverTimestamp() : firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return {
+            id: newItemRef.id,
+            rarity,
+            status,
+            slotIndex,
+            queuePosition,
+            source: input.source,
+        };
+    });
+}
+async function grantPvpVictoryChestAndSyncRoom(input) {
+    const hostGrantedChest = input.matchWinner === "host"
+        ? await grantChestIfEligible({
+            uid: input.hostUid,
+            source: "multiplayer_win",
+            sourceRefId: `${input.roomId}:host`,
+        })
+        : null;
+    const guestGrantedChest = input.matchWinner === "guest"
+        ? await grantChestIfEligible({
+            uid: input.guestUid,
+            source: "multiplayer_win",
+            sourceRefId: `${input.roomId}:guest`,
+        })
+        : null;
+    await db.doc(`${COL.gameRooms}/${input.roomId}`).set({
+        pvpHostGrantedChest: hostGrantedChest,
+        pvpGuestGrantedChest: guestGrantedChest,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { hostGrantedChest, guestGrantedChest };
+}
+function applyNormalizedChestItemWrites(tx, docSnaps, beforeItems, afterItems) {
+    const afterById = new Map(afterItems.map((item) => [item.id, item]));
+    for (const docSnap of docSnaps) {
+        const before = beforeItems.find((item) => item.id === docSnap.id);
+        const after = afterById.get(docSnap.id);
+        if (before && after && chestStateChanged(before, after)) {
+            tx.update(docSnap.ref, chestItemPatch(after));
+        }
+    }
+}
+function writeChestMetaState(tx, metaRef, metaSnap, uid, meta) {
+    tx.set(metaRef, {
+        userId: uid,
+        totalGranted: meta.totalGranted,
+        totalClaimed: meta.totalClaimed,
+        dailySpeedupDayKey: meta.dailySpeedupDayKey || null,
+        dailySpeedupCount: meta.dailySpeedupCount,
+        noRareCount: meta.noRareCount,
+        noEpicCount: meta.noEpicCount,
+        noLegendaryCount: meta.noLegendaryCount,
+        createdAt: metaSnap.exists
+            ? metaSnap.get("createdAt") ?? firestore_2.FieldValue.serverTimestamp()
+            : firestore_2.FieldValue.serverTimestamp(),
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+}
+function chestActionStatus(item, nowMs) {
+    if (item.status === "unlocking" && item.readyAtMs != null && item.readyAtMs <= nowMs) {
+        return "ready";
+    }
+    return item.status;
+}
+function chestActionPayload(item, nowMs) {
+    const status = chestActionStatus(item, nowMs);
+    const readyAtMs = item.readyAtMs ?? null;
+    const remainingMs = status === "ready" || readyAtMs == null ? 0 : Math.max(0, readyAtMs - nowMs);
+    return {
+        chestId: item.id,
+        rarity: item.rarity,
+        status,
+        slotIndex: item.slotIndex,
+        queuePosition: item.queuePosition,
+        readyAtMs,
+        remainingMs,
+        adsUsed: item.adsUsed,
     };
 }
 function normalizeRewardOverride(value) {
@@ -1398,6 +2103,7 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
 }
 function clampQuizResponseMs(raw) {
     const ms = Number(raw);
@@ -1453,6 +2159,7 @@ async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWi
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
 }
 function clampReactionResponseMs(raw) {
     const ms = Number(raw);
@@ -1515,6 +2222,10 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    const matchWinner = hostRes === "vitoria" ? "host" : guestRes === "vitoria" ? "guest" : null;
+    if (matchWinner) {
+        await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+    }
 }
 async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, matchWinner, hostAnswerIndex, guestAnswerIndex, hostCorrect, guestCorrect, hostResponseMs, guestResponseMs, quizRevealOptions, quizRevealCorrectIndex, quizRevealQuestionText) {
     const hostUid = String(r.hostUid);
@@ -1558,6 +2269,8 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
+    const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hUSnap.data(), economyConfig);
+    const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gUSnap.data(), economyConfig);
     const finishedTs = firestore_2.Timestamp.now();
     const mHost = db.collection(COL.matches).doc();
     const mGuest = db.collection(COL.matches).doc();
@@ -1572,7 +2285,7 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
         resultado: hostRes,
         result: hostRes,
         score: ecoH.normalizedScore,
-        rewardCoins: ecoH.rewardCoins,
+        rewardCoins: boostedH.totalCoins,
         rankingPoints: ecoH.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -1590,7 +2303,7 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
         resultado: guestRes,
         result: guestRes,
         score: ecoG.normalizedScore,
-        rewardCoins: ecoG.rewardCoins,
+        rewardCoins: boostedG.totalCoins,
         rankingPoints: ecoG.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -1603,7 +2316,7 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
         xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
@@ -1611,32 +2324,32 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
         xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
-    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + ecoH.rewardCoins;
-    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + ecoG.rewardCoins;
-    if (ecoH.rewardCoins > 0) {
+    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + boostedH.totalCoins;
+    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + boostedG.totalCoins;
+    if (boostedH.totalCoins > 0) {
         tx.set(wHost, {
             userId: hostUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoH.rewardCoins,
+            valor: boostedH.totalCoins,
             saldoApos: hostCoinsAfter,
-            descricao: "Quiz 1v1",
+            descricao: withBoostDescription("Quiz 1v1", boostedH.boostCoins),
             referenciaId: mHost.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
     }
-    if (ecoG.rewardCoins > 0) {
+    if (boostedG.totalCoins > 0) {
         tx.set(wGuest, {
             userId: guestUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoG.rewardCoins,
+            valor: boostedG.totalCoins,
             saldoApos: guestCoinsAfter,
-            descricao: "Quiz 1v1",
+            descricao: withBoostDescription("Quiz 1v1", boostedG.boostCoins),
             referenciaId: mGuest.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
@@ -1712,6 +2425,8 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
+    const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hUSnap.data(), economyConfig);
+    const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gUSnap.data(), economyConfig);
     const finishedTs = firestore_2.Timestamp.now();
     const mHost = db.collection(COL.matches).doc();
     const mGuest = db.collection(COL.matches).doc();
@@ -1726,7 +2441,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
         resultado: hostRes,
         result: hostRes,
         score: ecoH.normalizedScore,
-        rewardCoins: ecoH.rewardCoins,
+        rewardCoins: boostedH.totalCoins,
         rankingPoints: ecoH.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -1744,7 +2459,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
         resultado: guestRes,
         result: guestRes,
         score: ecoG.normalizedScore,
-        rewardCoins: ecoG.rewardCoins,
+        rewardCoins: boostedG.totalCoins,
         rankingPoints: ecoG.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -1757,7 +2472,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
         xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
@@ -1765,32 +2480,32 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
         xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
-    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + ecoH.rewardCoins;
-    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + ecoG.rewardCoins;
-    if (ecoH.rewardCoins > 0) {
+    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + boostedH.totalCoins;
+    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + boostedG.totalCoins;
+    if (boostedH.totalCoins > 0) {
         tx.set(wHost, {
             userId: hostUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoH.rewardCoins,
+            valor: boostedH.totalCoins,
             saldoApos: hostCoinsAfter,
-            descricao: "Quiz 1v1",
+            descricao: withBoostDescription("Quiz 1v1", boostedH.boostCoins),
             referenciaId: mHost.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
     }
-    if (ecoG.rewardCoins > 0) {
+    if (boostedG.totalCoins > 0) {
         tx.set(wGuest, {
             userId: guestUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoG.rewardCoins,
+            valor: boostedG.totalCoins,
             saldoApos: guestCoinsAfter,
-            descricao: "Quiz 1v1",
+            descricao: withBoostDescription("Quiz 1v1", boostedG.boostCoins),
             referenciaId: mGuest.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
@@ -1887,6 +2602,8 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
+    const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hUSnap.data(), economyConfig);
+    const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gUSnap.data(), economyConfig);
     const finishedTs = firestore_2.Timestamp.now();
     const mHost = db.collection(COL.matches).doc();
     const mGuest = db.collection(COL.matches).doc();
@@ -1901,7 +2618,7 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
         resultado: hostRes,
         result: hostRes,
         score: ecoH.normalizedScore,
-        rewardCoins: ecoH.rewardCoins,
+        rewardCoins: boostedH.totalCoins,
         rankingPoints: ecoH.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -1919,7 +2636,7 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
         resultado: guestRes,
         result: guestRes,
         score: ecoG.normalizedScore,
-        rewardCoins: ecoG.rewardCoins,
+        rewardCoins: boostedG.totalCoins,
         rankingPoints: ecoG.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -1932,7 +2649,7 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
         xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : hostRes === "empate" ? 8 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
@@ -1940,32 +2657,32 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
         xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : guestRes === "empate" ? 8 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
-    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + ecoH.rewardCoins;
-    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + ecoG.rewardCoins;
-    if (ecoH.rewardCoins > 0) {
+    const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + boostedH.totalCoins;
+    const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + boostedG.totalCoins;
+    if (boostedH.totalCoins > 0) {
         tx.set(wHost, {
             userId: hostUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoH.rewardCoins,
+            valor: boostedH.totalCoins,
             saldoApos: hostCoinsAfter,
-            descricao: "Reaction Tap 1v1",
+            descricao: withBoostDescription("Reaction Tap 1v1", boostedH.boostCoins),
             referenciaId: mHost.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
     }
-    if (ecoG.rewardCoins > 0) {
+    if (boostedG.totalCoins > 0) {
         tx.set(wGuest, {
             userId: guestUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoG.rewardCoins,
+            valor: boostedG.totalCoins,
             saldoApos: guestCoinsAfter,
-            descricao: "Reaction Tap 1v1",
+            descricao: withBoostDescription("Reaction Tap 1v1", boostedG.boostCoins),
             referenciaId: mGuest.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
@@ -2090,6 +2807,8 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
+    const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu, economyConfig);
+    const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu, economyConfig);
     const finishedTs = firestore_2.Timestamp.now();
     const mHost = db.collection(COL.matches).doc();
     const mGuest = db.collection(COL.matches).doc();
@@ -2104,7 +2823,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
         resultado: hostRes,
         result: hostRes,
         score: ecoH.normalizedScore,
-        rewardCoins: ecoH.rewardCoins,
+        rewardCoins: boostedH.totalCoins,
         rankingPoints: ecoH.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -2122,7 +2841,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
         resultado: guestRes,
         result: guestRes,
         score: ecoG.normalizedScore,
-        rewardCoins: ecoG.rewardCoins,
+        rewardCoins: boostedG.totalCoins,
         rankingPoints: ecoG.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -2139,7 +2858,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(hWin ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hLoss ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
         xp: firestore_2.FieldValue.increment(hWin ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
@@ -2147,32 +2866,32 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(gWin ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(gLoss ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
         xp: firestore_2.FieldValue.increment(gWin ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
-    const coinsH = Number(hu.coins ?? 0) + ecoH.rewardCoins;
-    const coinsG = Number(gu.coins ?? 0) + ecoG.rewardCoins;
-    if (ecoH.rewardCoins > 0) {
+    const coinsH = Number(hu.coins ?? 0) + boostedH.totalCoins;
+    const coinsG = Number(gu.coins ?? 0) + boostedG.totalCoins;
+    if (boostedH.totalCoins > 0) {
         tx.set(wHost, {
             userId: hostUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoH.rewardCoins,
+            valor: boostedH.totalCoins,
             saldoApos: coinsH,
-            descricao: "PPT 1v1 · vitória por W.O.",
+            descricao: withBoostDescription("PPT 1v1 · vitória por W.O.", boostedH.boostCoins),
             referenciaId: mHost.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
     }
-    if (ecoG.rewardCoins > 0) {
+    if (boostedG.totalCoins > 0) {
         tx.set(wGuest, {
             userId: guestUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoG.rewardCoins,
+            valor: boostedG.totalCoins,
             saldoApos: coinsG,
-            descricao: "PPT 1v1 · vitória por W.O.",
+            descricao: withBoostDescription("PPT 1v1 · vitória por W.O.", boostedG.boostCoins),
             referenciaId: mGuest.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
@@ -2380,6 +3099,8 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
     }
     const hu = hUSnap.data();
     const gu = gUSnap.data();
+    const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu, economyConfig);
+    const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu, economyConfig);
     if (pickRefs) {
         tx.delete(pickRefs.hostRef);
         tx.delete(pickRefs.guestRef);
@@ -2398,7 +3119,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
         resultado: hostRes,
         result: hostRes,
         score: ecoH.normalizedScore,
-        rewardCoins: ecoH.rewardCoins,
+        rewardCoins: boostedH.totalCoins,
         rankingPoints: ecoH.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -2416,7 +3137,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
         resultado: guestRes,
         result: guestRes,
         score: ecoG.normalizedScore,
-        rewardCoins: ecoG.rewardCoins,
+        rewardCoins: boostedG.totalCoins,
         rankingPoints: ecoG.rankingPoints,
         startedAt: null,
         finishedAt: finishedTs,
@@ -2429,7 +3150,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoH.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
         xp: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
@@ -2437,32 +3158,32 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
         totalPartidas: firestore_2.FieldValue.increment(1),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(ecoG.rewardCoins),
+        coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
         xp: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     });
-    const coinsH = Number(hu.coins ?? 0) + ecoH.rewardCoins;
-    const coinsG = Number(gu.coins ?? 0) + ecoG.rewardCoins;
-    if (ecoH.rewardCoins > 0) {
+    const coinsH = Number(hu.coins ?? 0) + boostedH.totalCoins;
+    const coinsG = Number(gu.coins ?? 0) + boostedG.totalCoins;
+    if (boostedH.totalCoins > 0) {
         tx.set(wHost, {
             userId: hostUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoH.rewardCoins,
+            valor: boostedH.totalCoins,
             saldoApos: coinsH,
-            descricao: "PPT 1v1 (sala)",
+            descricao: withBoostDescription("PPT 1v1 (sala)", boostedH.boostCoins),
             referenciaId: mHost.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
     }
-    if (ecoG.rewardCoins > 0) {
+    if (boostedG.totalCoins > 0) {
         tx.set(wGuest, {
             userId: guestUid,
             tipo: "jogo_pvp",
             moeda: "coins",
-            valor: ecoG.rewardCoins,
+            valor: boostedG.totalCoins,
             saldoApos: coinsG,
-            descricao: "PPT 1v1 (sala)",
+            descricao: withBoostDescription("PPT 1v1 (sala)", boostedG.boostCoins),
             referenciaId: mGuest.id,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
@@ -2587,6 +3308,10 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             gems: 0,
             rewardBalance: 0,
             xp: 0,
+            fragments: 0,
+            storedBoostMinutes: 0,
+            activeBoostUntil: null,
+            superPrizeEntries: 0,
             level: 1,
             streakAtual: 0,
             melhorStreak: 0,
@@ -2730,10 +3455,11 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
                 streak = 1;
         }
         const reward = (0, streakEconomy_1.resolveStreakRewardForDay)(streak, economy.streakTable, economy.dailyLoginBonus);
+        const boostedCoins = resolveBoostedCoins(reward.coins, u, economy, now.getTime());
         const melhor = Math.max(Number(u.melhorStreak || 0), streak);
         const curCoins = Number(u.coins || 0);
         const curGems = Number(u.gems || 0);
-        const newCoins = curCoins + reward.coins;
+        const newCoins = curCoins + boostedCoins.totalCoins;
         const newGems = curGems + reward.gems;
         const patch = {
             streakAtual: streak,
@@ -2742,24 +3468,24 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             dailyLoginCount: firestore_2.FieldValue.increment(1),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         };
-        if (reward.coins > 0)
-            patch.coins = firestore_2.FieldValue.increment(reward.coins);
+        if (boostedCoins.totalCoins > 0)
+            patch.coins = firestore_2.FieldValue.increment(boostedCoins.totalCoins);
         if (reward.gems > 0)
             patch.gems = firestore_2.FieldValue.increment(reward.gems);
         tx.update(userRef, patch);
-        if (reward.coins > 0) {
+        if (boostedCoins.totalCoins > 0) {
             addWalletTxInTx(tx, {
                 id: `streak_${uid}_${todayKey}_coins`,
                 userId: uid,
                 tipo: "streak",
                 moeda: "coins",
-                valor: reward.coins,
+                valor: boostedCoins.totalCoins,
                 saldoApos: newCoins,
-                descricao: reward.tipoBonus === "bau"
+                descricao: withBoostDescription(reward.tipoBonus === "bau"
                     ? `Login diário · marco dia ${streak} (baú)`
                     : reward.tipoBonus === "especial"
                         ? `Login diário · marco dia ${streak} (especial)`
-                        : "Login diário / streak",
+                        : "Login diário / streak", boostedCoins.boostCoins),
                 referenciaId: todayKey,
             });
         }
@@ -2777,13 +3503,21 @@ exports.processDailyLogin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         }
         return {
             streak,
-            coins: reward.coins,
+            coins: boostedCoins.totalCoins,
+            boostCoins: boostedCoins.boostCoins,
             gems: reward.gems,
             tipoBonus: reward.tipoBonus,
         };
     }).then(async (result) => {
         await evaluateReferralForUser(uid);
-        return result;
+        const grantedChest = result.alreadyCheckedIn || result.tipoBonus !== "bau"
+            ? null
+            : await grantChestIfEligible({
+                uid,
+                source: "daily_streak",
+                sourceRefId: todayKey,
+            });
+        return { ...result, grantedChest };
     });
 });
 async function bumpWatchAdMissions(uid) {
@@ -2897,21 +3631,21 @@ exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
                 reactionPvPDuelsRemaining: cappedNext,
             };
         }
-        const coins = economy.rewardAdCoinAmount;
-        const newCoins = Number(u.coins ?? 0) + coins;
-        userPatch.coins = firestore_2.FieldValue.increment(coins);
+        const boostedCoins = resolveBoostedCoins(economy.rewardAdCoinAmount, u, economy);
+        const newCoins = Number(u.coins ?? 0) + boostedCoins.totalCoins;
+        userPatch.coins = firestore_2.FieldValue.increment(boostedCoins.totalCoins);
         tx.update(userRef, userPatch);
         addWalletTxInTx(tx, {
             id: `ad_${tokenHash}_coins`,
             userId: uid,
             tipo: "anuncio",
             moeda: "coins",
-            valor: coins,
+            valor: boostedCoins.totalCoins,
             saldoApos: newCoins,
-            descricao: "Anúncio recompensado",
+            descricao: withBoostDescription("Anúncio recompensado", boostedCoins.boostCoins),
             referenciaId: adRef.id,
         });
-        return { coins };
+        return { coins: boostedCoins.totalCoins, boostCoins: boostedCoins.boostCoins };
     });
     await bumpWatchAdMissions(uid);
     await evaluateReferralForUser(uid);
@@ -2968,7 +3702,8 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     const matchRef = db.collection(COL.matches).doc();
     const win = effectiveResult === "vitoria";
     const loss = effectiveResult === "derrota";
-    const rewardCoins = economy.rewardCoins;
+    const boostedCoins = resolveBoostedCoins(economy.rewardCoins, u, economyConfig, now);
+    const rewardCoins = boostedCoins.totalCoins;
     const rankingPoints = economy.rankingPoints;
     const coinsBefore = Number(u.coins ?? 0);
     const newCoins = coinsBefore + rewardCoins;
@@ -3011,7 +3746,7 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
             moeda: "coins",
             valor: rewardCoins,
             saldoApos: newCoins,
-            descricao: `Minijogo ${gameId}`,
+            descricao: withBoostDescription(`Minijogo ${gameId}`, boostedCoins.boostCoins),
             referenciaId: matchRef.id,
         });
     }
@@ -3026,11 +3761,20 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     });
     await bumpPlayMatchMissions(uid);
     await evaluateReferralForUser(uid);
+    const grantedChest = AUTO_QUEUE_GAMES.has(gameId) && effectiveResult === "vitoria"
+        ? await grantChestIfEligible({
+            uid,
+            source: "multiplayer_win",
+            sourceRefId: matchRef.id,
+        })
+        : null;
     return {
         matchId: matchRef.id,
         rewardCoins,
+        boostCoins: boostedCoins.boostCoins,
         rankingPoints,
         normalizedScore: economy.normalizedScore,
+        grantedChest,
     };
 });
 exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -3039,9 +3783,11 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
     const missionId = String(request.data?.missionId || "");
     if (!missionId)
         throw new https_1.HttpsError("invalid-argument", "missionId obrigatório.");
+    const economy = await getEconomy();
     const missionRef = db.doc(`${COL.missions}/${missionId}`);
     const progRef = db.doc(`${COL.userMissions}/${uid}/daily/${missionId}`);
     const userRef = db.doc(`${COL.users}/${uid}`);
+    let chestSourceRefId = missionId;
     await db.runTransaction(async (tx) => {
         const [mSnap, pSnap, uSnap] = await Promise.all([
             tx.get(missionRef),
@@ -3063,13 +3809,15 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
         if (u.banido)
             throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
         const c = Number(m.recompensaCoins || 0);
+        const boostedCoins = resolveBoostedCoins(c, u, economy);
         const g = Number(m.recompensaGems || 0);
         const xp = Number(m.recompensaXP || 0);
         const currentCoins = Number(u.coins || 0);
         const currentGems = Number(u.gems || 0);
         const periodKey = String(pSnap.data()?.periodoChave || dailyKey());
+        chestSourceRefId = `${missionId}:${periodKey}`;
         tx.update(userRef, {
-            coins: firestore_2.FieldValue.increment(c),
+            coins: firestore_2.FieldValue.increment(boostedCoins.totalCoins),
             gems: firestore_2.FieldValue.increment(g),
             xp: firestore_2.FieldValue.increment(xp),
             totalMissionRewardsClaimed: firestore_2.FieldValue.increment(1),
@@ -3079,15 +3827,15 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
             recompensaResgatada: true,
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
-        if (c > 0) {
+        if (boostedCoins.totalCoins > 0) {
             addWalletTxInTx(tx, {
                 id: `mission_${uid}_${missionId}_${periodKey}_coins`,
                 userId: uid,
                 tipo: "missao",
                 moeda: "coins",
-                valor: c,
-                saldoApos: currentCoins + c,
-                descricao: `Missão: ${m.titulo || missionId}`,
+                valor: boostedCoins.totalCoins,
+                saldoApos: currentCoins + boostedCoins.totalCoins,
+                descricao: withBoostDescription(`Missão: ${m.titulo || missionId}`, boostedCoins.boostCoins),
                 referenciaId: missionId,
             });
         }
@@ -3105,7 +3853,342 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
         }
     });
     await evaluateReferralForUser(uid);
-    return { ok: true };
+    const grantedChest = await grantChestIfEligible({
+        uid,
+        source: "mission_claim",
+        sourceRefId: chestSourceRefId,
+    });
+    return { ok: true, grantedChest };
+});
+exports.startChestUnlock = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const chestId = String(request.data?.chestId || "").trim();
+    if (!chestId) {
+        throw new https_1.HttpsError("invalid-argument", "chestId obrigatório.");
+    }
+    const config = await getChestSystemConfig();
+    if (!config.enabled) {
+        throw new https_1.HttpsError("failed-precondition", "Sistema de baús desativado.");
+    }
+    const chestRef = db.doc(`${COL.userChests}/${uid}/items/${chestId}`);
+    const itemsCol = db.collection(`${COL.userChests}/${uid}/items`);
+    return db.runTransaction(async (tx) => {
+        const [itemsSnap, chestSnap] = await Promise.all([tx.get(itemsCol), tx.get(chestRef)]);
+        if (!chestSnap.exists) {
+            throw new https_1.HttpsError("not-found", "Baú não encontrado.");
+        }
+        const nowMs = Date.now();
+        const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
+        const normalizedItems = normalizeChestSlotsAndQueue(rawItems, config, nowMs);
+        applyNormalizedChestItemWrites(tx, itemsSnap.docs, rawItems, normalizedItems);
+        const chest = normalizedItems.find((item) => item.id === chestId);
+        if (!chest) {
+            throw new https_1.HttpsError("not-found", "Baú não encontrado.");
+        }
+        if (chest.status === "queued") {
+            throw new https_1.HttpsError("failed-precondition", "Este baú ainda está na fila de espera.");
+        }
+        if (normalizedItems.some((item) => item.id !== chestId &&
+            item.status === "unlocking" &&
+            item.readyAtMs != null &&
+            item.readyAtMs > nowMs)) {
+            throw new https_1.HttpsError("failed-precondition", "Já existe um baú em abertura.");
+        }
+        const currentStatus = chestActionStatus(chest, nowMs);
+        if (currentStatus === "ready" || currentStatus === "unlocking") {
+            if (currentStatus === "ready" && chest.status !== "ready") {
+                chest.status = "ready";
+                tx.update(chestRef, chestItemPatch(chest));
+            }
+            return chestActionPayload(chest, nowMs);
+        }
+        chest.status = "unlocking";
+        chest.unlockStartedAtMs = nowMs;
+        chest.readyAtMs = nowMs + chest.unlockDurationSec * 1000;
+        chest.nextAdAvailableAtMs = null;
+        tx.update(chestRef, chestItemPatch(chest));
+        return chestActionPayload(chest, nowMs);
+    });
+});
+exports.speedUpChestUnlock = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const chestId = String(request.data?.chestId || "").trim();
+    if (!chestId) {
+        throw new https_1.HttpsError("invalid-argument", "chestId obrigatório.");
+    }
+    const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken);
+    const config = await getChestSystemConfig();
+    if (!config.enabled) {
+        throw new https_1.HttpsError("failed-precondition", "Sistema de baús desativado.");
+    }
+    const tokenHash = hashId(uid, CHEST_SPEEDUP_PLACEMENT_ID, chestId, completionToken);
+    const adRef = db.doc(`${COL.adEvents}/${tokenHash}`);
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const metaRef = db.doc(`${COL.userChests}/${uid}`);
+    const chestRef = db.doc(`${COL.userChests}/${uid}/items/${chestId}`);
+    const itemsCol = db.collection(`${COL.userChests}/${uid}/items`);
+    return db.runTransaction(async (tx) => {
+        const [userSnap, metaSnap, itemsSnap, chestSnap, adSnap] = await Promise.all([
+            tx.get(userRef),
+            tx.get(metaRef),
+            tx.get(itemsCol),
+            tx.get(chestRef),
+            tx.get(adRef),
+        ]);
+        if (!userSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        }
+        if (!chestSnap.exists) {
+            throw new https_1.HttpsError("not-found", "Baú não encontrado.");
+        }
+        if (adSnap.exists) {
+            throw new https_1.HttpsError("already-exists", "Este anúncio já foi processado.");
+        }
+        const userData = userSnap.data();
+        if (userData.banido) {
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        }
+        const nowMs = Date.now();
+        const meta = readUserChestMetaState(metaSnap.exists ? (metaSnap.data() || {}) : undefined);
+        const todayKey = dailyKey();
+        const currentDailyCount = meta.dailySpeedupDayKey === todayKey ? meta.dailySpeedupCount : 0;
+        if (currentDailyCount >= config.dailyChestAdsLimit) {
+            throw new https_1.HttpsError("resource-exhausted", "Limite diário de aceleração de baús atingido.");
+        }
+        const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
+        const normalizedItems = normalizeChestSlotsAndQueue(rawItems, config, nowMs);
+        applyNormalizedChestItemWrites(tx, itemsSnap.docs, rawItems, normalizedItems);
+        const chest = normalizedItems.find((item) => item.id === chestId);
+        if (!chest) {
+            throw new https_1.HttpsError("not-found", "Baú não encontrado.");
+        }
+        if (chestActionStatus(chest, nowMs) !== "unlocking" || chest.readyAtMs == null) {
+            throw new https_1.HttpsError("failed-precondition", "Este baú não está em abertura.");
+        }
+        if (chest.adsUsed >= config.maxAdsPerChest) {
+            throw new https_1.HttpsError("resource-exhausted", "Este baú já atingiu o limite de anúncios.");
+        }
+        if (chest.nextAdAvailableAtMs != null && chest.nextAdAvailableAtMs > nowMs) {
+            const waitSec = Math.max(1, Math.ceil((chest.nextAdAvailableAtMs - nowMs) / 1000));
+            throw new https_1.HttpsError("resource-exhausted", `Aguarde ${waitSec}s para acelerar este baú de novo.`);
+        }
+        const remainingMs = Math.max(0, chest.readyAtMs - nowMs);
+        const reducedMs = Math.max(1, Math.ceil(remainingMs * config.adSpeedupPercent));
+        const nextReadyAtMs = Math.max(nowMs, chest.readyAtMs - reducedMs);
+        chest.adsUsed += 1;
+        chest.readyAtMs = nextReadyAtMs;
+        if (nextReadyAtMs <= nowMs) {
+            chest.status = "ready";
+            chest.nextAdAvailableAtMs = null;
+        }
+        else {
+            chest.nextAdAvailableAtMs = nowMs + config.adCooldownSeconds * 1000;
+        }
+        tx.update(chestRef, chestItemPatch(chest));
+        tx.update(userRef, {
+            totalAdsAssistidos: firestore_2.FieldValue.increment(1),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        tx.set(adRef, {
+            id: adRef.id,
+            userId: uid,
+            status: "recompensado",
+            placementId: CHEST_SPEEDUP_PLACEMENT_ID,
+            rewardKind: "chest_speedup",
+            chestId,
+            mock: isMock,
+            tokenHash,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        writeChestMetaState(tx, metaRef, metaSnap, uid, {
+            ...meta,
+            dailySpeedupDayKey: todayKey,
+            dailySpeedupCount: currentDailyCount + 1,
+        });
+        return {
+            ...chestActionPayload(chest, nowMs),
+            reducedMs,
+            dailyAdsUsed: currentDailyCount + 1,
+        };
+    });
+});
+exports.claimChestReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const chestId = String(request.data?.chestId || "").trim();
+    if (!chestId) {
+        throw new https_1.HttpsError("invalid-argument", "chestId obrigatório.");
+    }
+    const config = await getChestSystemConfig();
+    if (!config.enabled) {
+        throw new https_1.HttpsError("failed-precondition", "Sistema de baús desativado.");
+    }
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const metaRef = db.doc(`${COL.userChests}/${uid}`);
+    const chestRef = db.doc(`${COL.userChests}/${uid}/items/${chestId}`);
+    const itemsCol = db.collection(`${COL.userChests}/${uid}/items`);
+    return db.runTransaction(async (tx) => {
+        const [userSnap, metaSnap, itemsSnap, chestSnap] = await Promise.all([
+            tx.get(userRef),
+            tx.get(metaRef),
+            tx.get(itemsCol),
+            tx.get(chestRef),
+        ]);
+        if (!userSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        }
+        if (!chestSnap.exists) {
+            throw new https_1.HttpsError("not-found", "Baú não encontrado.");
+        }
+        const userData = userSnap.data();
+        if (userData.banido) {
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        }
+        const nowMs = Date.now();
+        const meta = readUserChestMetaState(metaSnap.exists ? (metaSnap.data() || {}) : undefined);
+        const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
+        const normalizedItems = normalizeChestSlotsAndQueue(rawItems, config, nowMs);
+        applyNormalizedChestItemWrites(tx, itemsSnap.docs, rawItems, normalizedItems);
+        const chest = normalizedItems.find((item) => item.id === chestId);
+        if (!chest) {
+            throw new https_1.HttpsError("not-found", "Baú não encontrado.");
+        }
+        if (chestActionStatus(chest, nowMs) !== "ready") {
+            const remainingMs = chest.readyAtMs != null ? Math.max(0, chest.readyAtMs - nowMs) : chest.unlockDurationSec * 1000;
+            throw new https_1.HttpsError("failed-precondition", `Este baú ainda não está pronto. Faltam ${Math.max(1, Math.ceil(remainingMs / 1000))}s.`);
+        }
+        const rewards = chest.rewardsSnapshot;
+        const currentCoins = Number(userData.coins || 0);
+        const currentGems = Number(userData.gems || 0);
+        const totalCoinReward = rewards.coins + rewards.bonusCoins;
+        tx.update(userRef, {
+            coins: firestore_2.FieldValue.increment(totalCoinReward),
+            gems: firestore_2.FieldValue.increment(rewards.gems),
+            xp: firestore_2.FieldValue.increment(rewards.xp),
+            fragments: firestore_2.FieldValue.increment(rewards.fragments),
+            storedBoostMinutes: firestore_2.FieldValue.increment(rewards.boostMinutes),
+            superPrizeEntries: firestore_2.FieldValue.increment(rewards.superPrizeEntries),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        if (totalCoinReward > 0) {
+            addWalletTxInTx(tx, {
+                id: `chest_${uid}_${chestId}_coins`,
+                userId: uid,
+                tipo: "bau",
+                moeda: "coins",
+                valor: totalCoinReward,
+                saldoApos: currentCoins + totalCoinReward,
+                descricao: `Baú ${chest.rarity}`,
+                referenciaId: chestId,
+            });
+        }
+        if (rewards.gems > 0) {
+            addWalletTxInTx(tx, {
+                id: `chest_${uid}_${chestId}_gems`,
+                userId: uid,
+                tipo: "bau",
+                moeda: "gems",
+                valor: rewards.gems,
+                saldoApos: currentGems + rewards.gems,
+                descricao: `Baú ${chest.rarity} (TICKET)`,
+                referenciaId: chestId,
+            });
+        }
+        tx.delete(chestRef);
+        const remainingBefore = normalizedItems.filter((item) => item.id !== chestId);
+        const remainingAfter = normalizeChestSlotsAndQueue(remainingBefore, config, nowMs);
+        const remainingDocSnaps = itemsSnap.docs.filter((docSnap) => docSnap.id !== chestId);
+        applyNormalizedChestItemWrites(tx, remainingDocSnaps, remainingBefore, remainingAfter);
+        writeChestMetaState(tx, metaRef, metaSnap, uid, {
+            ...meta,
+            totalClaimed: meta.totalClaimed + 1,
+        });
+        return {
+            chestId,
+            rarity: chest.rarity,
+            rewards,
+            promotedChestId: remainingAfter.find((item) => item.status === "locked" && item.slotIndex != null)?.id ?? null,
+        };
+    });
+});
+exports.craftBoostFromFragments = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const economy = await getEconomy();
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    return db.runTransaction(async (tx) => {
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        }
+        const userData = userSnap.data();
+        if (userData.banido) {
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        }
+        const fragments = readFragmentsBalance(userData);
+        const storedBoostMinutes = readStoredBoostMinutes(userData);
+        const cost = Math.max(1, economy.fragmentsPerBoostCraft);
+        const gainMinutes = Math.max(1, economy.boostMinutesPerCraft);
+        if (fragments < cost) {
+            throw new https_1.HttpsError("failed-precondition", `Você precisa de ${cost} fragmentos para fabricar este boost.`);
+        }
+        const nextFragments = fragments - cost;
+        const nextStoredBoostMinutes = storedBoostMinutes + gainMinutes;
+        tx.update(userRef, {
+            fragments: firestore_2.FieldValue.increment(-cost),
+            storedBoostMinutes: firestore_2.FieldValue.increment(gainMinutes),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return {
+            ok: true,
+            fragmentsCost: cost,
+            boostMinutesAdded: gainMinutes,
+            fragmentsBalance: nextFragments,
+            storedBoostMinutes: nextStoredBoostMinutes,
+        };
+    });
+});
+exports.activateStoredBoost = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const economy = await getEconomy();
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    return db.runTransaction(async (tx) => {
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        }
+        const userData = userSnap.data();
+        if (userData.banido) {
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        }
+        const storedBoostMinutes = readStoredBoostMinutes(userData);
+        if (storedBoostMinutes <= 0) {
+            throw new https_1.HttpsError("failed-precondition", "Você não tem boost armazenado para ativar.");
+        }
+        const activationMinutes = Math.max(1, economy.boostActivationMinutes);
+        const minutesToActivate = Math.min(storedBoostMinutes, activationMinutes);
+        const nowMs = Date.now();
+        const currentActiveUntilMs = readActiveBoostUntilMs(userData);
+        const baseStartMs = currentActiveUntilMs > nowMs ? currentActiveUntilMs : nowMs;
+        const nextActiveUntilMs = baseStartMs + minutesToActivate * 60 * 1000;
+        const nextStoredBoostMinutes = storedBoostMinutes - minutesToActivate;
+        tx.update(userRef, {
+            storedBoostMinutes: firestore_2.FieldValue.increment(-minutesToActivate),
+            activeBoostUntil: firestore_2.Timestamp.fromMillis(nextActiveUntilMs),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return {
+            ok: true,
+            activatedMinutes: minutesToActivate,
+            storedBoostMinutes: nextStoredBoostMinutes,
+            activeBoostUntilMs: nextActiveUntilMs,
+            boostRewardPercent: economy.boostRewardPercent,
+        };
+    });
 });
 exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -4351,6 +5434,7 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
     return {
         status: "completed",
         matchWinner,

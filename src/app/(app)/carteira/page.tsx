@@ -11,7 +11,19 @@ import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
 import { ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
-import { ArrowRight, ArrowRightLeft, Banknote, Coins, ListTree, ShieldCheck, Sparkles, Ticket, Wallet } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowRightLeft,
+  Banknote,
+  Coins,
+  Flame,
+  ListTree,
+  ShieldCheck,
+  Sparkles,
+  Ticket,
+  Trophy,
+  Wallet,
+} from "lucide-react";
 
 const filtros = [
   "todos",
@@ -26,6 +38,20 @@ const filtros = [
 
 type FiltroExtrato = (typeof filtros)[number];
 type CarteiraTab = "resumo" | "troca" | "saque" | "extrato";
+
+function boostStatusLabel(value: unknown): string {
+  if (!value || typeof value !== "object") return "Inativo";
+  if ("toDate" in value && typeof (value as { toDate?: () => Date }).toDate === "function") {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      if (date.getTime() <= Date.now()) return "Inativo";
+      return `Ativo até ${date.toLocaleString("pt-BR")}`;
+    } catch {
+      return "Inativo";
+    }
+  }
+  return "Inativo";
+}
 
 function labelFiltro(f: FiltroExtrato): string {
   const m: Record<FiltroExtrato, string> = {
@@ -129,6 +155,44 @@ export default function CarteiraPage() {
               icon={Banknote}
             />
           </div>
+
+          <section className="rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-950/20 via-slate-950/90 to-slate-950 p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/65">
+                  Reservas especiais
+                </p>
+                <h2 className="mt-1 text-lg font-black tracking-tight text-white sm:text-xl">
+                  Inventário premium dos baús
+                </h2>
+                <p className="mt-1 text-sm text-white/50">
+                  Estes ativos não entram no extrato financeiro tradicional. Eles ficam guardados
+                  no perfil para futuras trocas, boosts e campanhas de super prêmio.
+                </p>
+              </div>
+              <Sparkles className="h-5 w-5 text-amber-200/75" aria-hidden />
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <StatCard
+                label="Fragmentos"
+                value={profile ? String(profile.fragments ?? 0) : "—"}
+                icon={Sparkles}
+              />
+              <StatCard
+                label="Boost acumulado"
+                value={profile ? `${profile.storedBoostMinutes ?? 0} min` : "—"}
+                icon={Flame}
+              />
+              <StatCard
+                label="Super prêmio"
+                value={profile ? String(profile.superPrizeEntries ?? 0) : "—"}
+                icon={Trophy}
+              />
+            </div>
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60">
+              {boostStatusLabel(profile?.activeBoostUntil)}
+            </div>
+          </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/30 via-slate-950/90 to-slate-950 p-4 sm:p-5">

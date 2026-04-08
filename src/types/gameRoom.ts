@@ -1,4 +1,5 @@
 import type { Timestamp } from "./firestore";
+import type { GrantedChestSummary } from "./chest";
 import type { GameId } from "./game";
 
 /** Documento `game_rooms/{roomId}` */
@@ -91,6 +92,9 @@ export interface GameRoomDocument {
   actionDeadlineAt?: Timestamp;
   /** Rodadas seguidas sem nenhuma ação dos dois lados; usado para anti-loop. */
   timeoutEmptyRounds?: number;
+  /** Feedback genérico de concessão de baú no fechamento da partida PvP. */
+  pvpHostGrantedChest?: GrantedChestSummary | null;
+  pvpGuestGrantedChest?: GrantedChestSummary | null;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
 }

@@ -1,5 +1,6 @@
 import type { Timestamp } from "./firestore";
 import type { GameId } from "./game";
+import type { ChestRarity, ChestSource } from "./chest";
 import type {
   ReferralQualificationRules,
   ReferralRankingPrizeTier,
@@ -28,6 +29,46 @@ export interface GameRewardOverrideConfig {
   winRankingPoints?: number;
   drawRankingPoints?: number;
   lossRankingPoints?: number;
+}
+
+export interface ChestRewardRange {
+  min: number;
+  max: number;
+}
+
+export interface ChestRewardTable {
+  coins: ChestRewardRange;
+  gems: ChestRewardRange;
+  xp: ChestRewardRange;
+}
+
+export type ChestBonusRewardKind =
+  | "bonusCoins"
+  | "fragments"
+  | "boostMinutes"
+  | "superPrizeEntries";
+
+export interface ChestBonusRewardWeight {
+  kind: ChestBonusRewardKind;
+  weight: number;
+}
+
+export interface ChestBonusRewardTable {
+  bonusCoins: ChestRewardRange;
+  fragments: ChestRewardRange;
+  boostMinutes: ChestRewardRange;
+  superPrizeEntries: ChestRewardRange;
+}
+
+export interface ChestDropWeight {
+  rarity: ChestRarity;
+  weight: number;
+}
+
+export interface ChestPityRules {
+  rareAt: number;
+  epicAt: number;
+  legendaryAt: number;
 }
 
 export type ExperienceCategory = "arena" | "utility";
@@ -65,6 +106,14 @@ export interface SystemEconomyConfig {
   id: "economy";
   rewardAdCoinAmount: number;
   dailyLoginBonus: number;
+  /** Percentual extra de PR quando o boost ativo está rodando (ex.: 25 = +25%). */
+  boostRewardPercent?: number;
+  /** Quantos fragmentos são consumidos para fabricar um pacote de boost. */
+  fragmentsPerBoostCraft?: number;
+  /** Quantos minutos de boost armazenado são creditados por craft. */
+  boostMinutesPerCraft?: number;
+  /** Quantos minutos são consumidos/ativados a cada uso do boost armazenado. */
+  boostActivationMinutes?: number;
   streakTable: StreakRewardTier[];
   gameEntryCost: Partial<Record<string, number>>;
   chestCooldownSegundos: number;
@@ -88,6 +137,25 @@ export interface SystemEconomyConfig {
     reaction_tap: number;
   }>;
   atualizadoEm: Timestamp;
+}
+
+/** `system_configs/chest_system` */
+export interface ChestSystemConfig {
+  id: "chest_system";
+  enabled: boolean;
+  slotCount: number;
+  queueCapacity: number;
+  unlockDurationsByRarity: Record<ChestRarity, number>;
+  dropTablesBySource: Record<ChestSource, ChestDropWeight[]>;
+  rewardTablesByRarity: Record<ChestRarity, ChestRewardTable>;
+  bonusWeightsByRarity: Record<ChestRarity, ChestBonusRewardWeight[]>;
+  bonusRewardTablesByRarity: Record<ChestRarity, ChestBonusRewardTable>;
+  adSpeedupPercent: number;
+  maxAdsPerChest: number;
+  adCooldownSeconds: number;
+  dailyChestAdsLimit: number;
+  pityRules: ChestPityRules;
+  updatedAt?: Timestamp;
 }
 
 export interface ReferralCampaignSystemConfig {

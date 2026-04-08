@@ -10,6 +10,8 @@ import { RewardButton } from "@/components/reward/RewardButton";
 import { RankingCard } from "@/components/ranking/RankingCard";
 import { GameCard } from "@/components/cards/GameCard";
 import { DailyStreakCard } from "@/components/cards/DailyStreakCard";
+import { HomeChestSummaryCard } from "@/components/chests/HomeChestSummaryCard";
+import { ChestGrantNotice } from "@/components/chests/ChestGrantNotice";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { runRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
 import { processDailyLogin } from "@/services/streak/dailyLoginService";
@@ -19,6 +21,7 @@ import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { ArrowRight, Banknote, CirclePlay, Coins, Flame, Gift, Sparkles, Ticket, TrendingUp, Wallet } from "lucide-react";
 import Link from "next/link";
 import { getDailyRewardUiState } from "@/utils/dailyRewardUiState";
+import type { GrantedChestSummary } from "@/types/chest";
 
 export default function HomePage() {
   const { user, profile, profileLoading } = useAuth();
@@ -28,6 +31,7 @@ export default function HomePage() {
     tone: "success" | "error" | "info";
     text: string;
   } | null>(null);
+  const [grantedChestNotice, setGrantedChestNotice] = useState<GrantedChestSummary | null>(null);
   const [adLoading, setAdLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -59,6 +63,7 @@ export default function HomePage() {
 
   async function onAd() {
     setBanner(null);
+    setGrantedChestNotice(null);
     setAdLoading(true);
     const res = await runRewardedAdFlow();
     setAdLoading(false);
@@ -71,6 +76,7 @@ export default function HomePage() {
 
   async function onDaily() {
     setBanner(null);
+    setGrantedChestNotice(null);
     setLoginLoading(true);
     const res = await processDailyLogin();
     setLoginLoading(false);
@@ -79,8 +85,10 @@ export default function HomePage() {
       return;
     }
     if (res.alreadyCheckedIn) {
+      setGrantedChestNotice(null);
       return;
     }
+    setGrantedChestNotice(res.grantedChest ?? null);
     setBanner({
       tone: "success",
       text: `${res.message ?? "Ok."} · Sequência: ${res.streak ?? "-"} dias`,
@@ -88,9 +96,11 @@ export default function HomePage() {
   }
 
   async function onClaim(missionId: string) {
+    setGrantedChestNotice(null);
     setClaimingId(missionId);
     const r = await claimMissionRewardCallable(missionId);
     setClaimingId(null);
+    setGrantedChestNotice(r.ok ? r.grantedChest ?? null : null);
     setBanner({
       tone: r.ok ? "success" : "error",
       text: r.ok ? "Recompensa resgatada!" : r.error || "Erro ao resgatar",
@@ -164,6 +174,13 @@ export default function HomePage() {
       ) : null}
 
       {banner ? <AlertBanner tone={banner.tone}>{banner.text}</AlertBanner> : null}
+
+      {grantedChestNotice ? (
+        <ChestGrantNotice
+          grantedChest={grantedChestNotice}
+          label="Novo baú concedido"
+        />
+      ) : null}
 
       {loadError ? (
         <AlertBanner tone="error" className="text-xs">
@@ -239,6 +256,8 @@ export default function HomePage() {
         preview={streakCardPreview}
         claimedToday={claimedToday}
       />
+
+      <HomeChestSummaryCard />
 
       <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex items-center justify-between">

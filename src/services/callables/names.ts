@@ -1,6 +1,11 @@
 /** Nomes das HTTPS Callable Functions (devem coincidir com `functions/src`) */
 export const CALLABLES = {
   processDailyLogin: "processDailyLogin",
+  startChestUnlock: "startChestUnlock",
+  speedUpChestUnlock: "speedUpChestUnlock",
+  claimChestReward: "claimChestReward",
+  craftBoostFromFragments: "craftBoostFromFragments",
+  activateStoredBoost: "activateStoredBoost",
   claimMissionReward: "claimMissionReward",
   processRewardedAd: "processRewardedAd",
   finalizeMatch: "finalizeMatch",

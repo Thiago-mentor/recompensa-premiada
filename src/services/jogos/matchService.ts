@@ -2,6 +2,7 @@
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import { callFunction } from "@/services/callables/client";
+import type { GrantedChestSummary } from "@/types/chest";
 import type { GameId } from "@/types/game";
 
 export type FinalizeMatchInput = {
@@ -18,8 +19,10 @@ export type FinalizeMatchResult = {
   ok: boolean;
   matchId?: string;
   rewardCoins?: number;
+  boostCoins?: number;
   rankingPoints?: number;
   normalizedScore?: number;
+  grantedChest?: GrantedChestSummary | null;
   error?: string;
 };
 
@@ -35,8 +38,10 @@ export async function finalizeMatchOnServer(input: FinalizeMatchInput): Promise<
       {
         matchId?: string;
         rewardCoins?: number;
+        boostCoins?: number;
         rankingPoints?: number;
         normalizedScore?: number;
+        grantedChest?: GrantedChestSummary | null;
       }
     >("finalizeMatch", {
       gameId: input.gameId,
@@ -51,8 +56,10 @@ export async function finalizeMatchOnServer(input: FinalizeMatchInput): Promise<
       ok: true,
       matchId: d.matchId,
       rewardCoins: d.rewardCoins,
+      boostCoins: d.boostCoins,
       rankingPoints: d.rankingPoints,
       normalizedScore: d.normalizedScore,
+      grantedChest: d.grantedChest ?? null,
     };
   } catch (e: unknown) {
     return {
