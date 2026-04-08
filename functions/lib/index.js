@@ -141,6 +141,10 @@ const DEFAULT_CALLABLE_OPTS = {
     region: MULTIPLAYER_FUNCTIONS_REGION,
     enforceAppCheck: APP_CHECK_ENFORCED,
 };
+const DEFAULT_SCHEDULE_OPTS = {
+    region: MULTIPLAYER_FUNCTIONS_REGION,
+    timeZone: "America/Sao_Paulo",
+};
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
 const PPT_DUEL_CHARGES_PER_AD = 3;
@@ -465,13 +469,6 @@ function rankingKeyForPeriod(period, when = new Date()) {
             return monthlyKey(when);
     }
 }
-function rankingScoreFieldForPeriod(period) {
-    return period === "diario"
-        ? "scoreRankingDiario"
-        : period === "semanal"
-            ? "scoreRankingSemanal"
-            : "scoreRankingMensal";
-}
 function rankingReferenceDateForClose(period, when = new Date()) {
     if (period === "mensal")
         return new Date(when.getTime() - 60000);
@@ -550,9 +547,6 @@ function emptyRankingPrizeRewards() {
 }
 function hasRankingPrizeRewards(rewards) {
     return rewards.coins + rewards.gems + rewards.rewardBalance > 0;
-}
-function emptyRankingPeriodPrizeConfig() {
-    return { diario: [], semanal: [], mensal: [] };
 }
 const DEFAULT_GLOBAL_RANKING_PRIZES = {
     diario: [
@@ -637,16 +631,6 @@ function rankingPrizeTiersForScope(config, period, gameId) {
 function rankingPrizeTierForPosition(tiers, position) {
     return tiers.find((tier) => position <= tier.posicaoMax) ?? null;
 }
-function formatRankingRewardSummary(rewards) {
-    const parts = [];
-    if (rewards.coins > 0)
-        parts.push(`${rewards.coins} PR`);
-    if (rewards.gems > 0)
-        parts.push(`${rewards.gems} TICKET`);
-    if (rewards.rewardBalance > 0)
-        parts.push(`${rewards.rewardBalance} CASH`);
-    return parts.length > 0 ? parts.join(" · ") : "sem prêmio";
-}
 function buildReferralCodeSeed(name, username) {
     const raw = `${username || ""}${name || ""}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
     const compact = raw.slice(0, 4);
@@ -696,6 +680,21 @@ function buildDefaultAvatarDataUrl(seed, displayName) {
     </svg>
   `.trim();
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+function normalizeHttpPhotoUrl(photoUrl) {
+    const value = String(photoUrl || "").trim();
+    if (!value)
+        return null;
+    try {
+        const url = new URL(value);
+        if (url.protocol === "http:" || url.protocol === "https:") {
+            return value;
+        }
+    }
+    catch {
+        /* ignore invalid URLs */
+    }
+    return null;
 }
 async function generateUniqueReferralCode(seed) {
     for (let i = 0; i < 12; i++) {
@@ -1407,7 +1406,9 @@ function clampQuizResponseMs(raw) {
     return Math.max(0, Math.min(QUIZ_RESPONSE_MS_CAP, Math.floor(ms)));
 }
 /** Ponto só se um acerta e o outro erra. Ambos certos ou ambos errados → empate (sem desempate por tempo). */
-function resolveQuizRoundWinner(hostCorrect, guestCorrect, _hostResponseMs, _guestResponseMs) {
+function resolveQuizRoundWinner(hostCorrect, guestCorrect, hostResponseMs, guestResponseMs) {
+    void hostResponseMs;
+    void guestResponseMs;
     if (hostCorrect && !guestCorrect)
         return "host";
     if (!hostCorrect && guestCorrect)
@@ -1520,7 +1521,6 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
     const guestUid = String(r.guestUid);
     const hostScore = Number(r.quizHostScore ?? 0);
     const guestScore = Number(r.quizGuestScore ?? 0);
-    const target = readQuizTargetScore(r);
     const questionId = String(r.quizQuestionId ?? "");
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
     const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
@@ -2679,13 +2679,14 @@ exports.updateUserAvatar = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
     const userData = userSnap.data();
     const nome = String(userData.nome || request.auth?.token.name || "Jogador").trim() || "Jogador";
     const username = String(userData.username || uid).trim() || uid;
-    const photoURL = rawPhotoUrl || buildDefaultAvatarDataUrl(username, nome);
+    const authPhotoURL = normalizeHttpPhotoUrl(rawPhotoUrl);
+    const photoURL = authPhotoURL || buildDefaultAvatarDataUrl(username, nome);
     await Promise.all([
         userRef.set({
             foto: photoURL,
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         }, { merge: true }),
-        admin.auth().updateUser(uid, { photoURL }),
+        admin.auth().updateUser(uid, { photoURL: authPhotoURL }),
         syncUserPresentation(uid, nome, photoURL),
     ]);
     return { ok: true, photoURL };
@@ -5242,7 +5243,7 @@ async function closeReferralRankingJob(period) {
     await batch.commit();
 }
 /** Backstop server-side: resolve salas PvP expiradas para impedir travas e loops infinitos. */
-exports.reapExpiredPvpRooms = (0, scheduler_1.onSchedule)({ schedule: "* * * * *", timeZone: "America/Sao_Paulo" }, async () => {
+exports.reapExpiredPvpRooms = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" }, async () => {
     const snap = await db
         .collection(COL.gameRooms)
         .where("actionDeadlineAt", "<=", firestore_2.Timestamp.now())
@@ -5258,7 +5259,7 @@ exports.reapExpiredPvpRooms = (0, scheduler_1.onSchedule)({ schedule: "* * * * *
     }
 });
 /** Duas janelas seguidas sem nenhum pick dos dois → anula partida e libera slots (sem pontos). */
-exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ schedule: "* * * * *", timeZone: "America/Sao_Paulo" }, async () => {
+exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" }, async () => {
     const snap = await db
         .collection(COL.gameRooms)
         .where("pptAwaitingBothPicks", "==", true)
@@ -5313,13 +5314,13 @@ exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ schedule: "* *
         }
     }
 });
-exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * *", timeZone: "America/Sao_Paulo" }, async () => {
+exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * *" }, async () => {
     await closeRankingJob("diario");
 });
-exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * 0", timeZone: "America/Sao_Paulo" }, async () => {
+exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * 0" }, async () => {
     await closeRankingJob("semanal");
 });
-exports.closeMonthlyRanking = (0, scheduler_1.onSchedule)({ schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" }, async () => {
+exports.closeMonthlyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" }, async () => {
     await closeRankingJob("mensal");
 });
 exports.adminCloseRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -5333,13 +5334,13 @@ exports.adminCloseRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
     await closeRankingJob(period);
     return { ok: true };
 });
-exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * *", timeZone: "America/Sao_Paulo" }, async () => {
+exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * *" }, async () => {
     await closeReferralRankingJob("daily");
 });
-exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ schedule: "59 23 * * 0", timeZone: "America/Sao_Paulo" }, async () => {
+exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * 0" }, async () => {
     await closeReferralRankingJob("weekly");
 });
-exports.closeReferralMonthlyRanking = (0, scheduler_1.onSchedule)({ schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" }, async () => {
+exports.closeReferralMonthlyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" }, async () => {
     await closeReferralRankingJob("monthly");
 });
 exports.adminCloseReferralRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {

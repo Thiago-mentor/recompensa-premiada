@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useGameMatchFlow } from "../../hooks/useGameMatchFlow";
@@ -12,12 +12,13 @@ import { cooldownRemainingMs } from "@/lib/games/gameEconomy";
 export function BauGameScreen() {
   const { profile } = useAuth();
   const sessionStart = useRef<string>(new Date().toISOString());
+  const [renderedAt] = useState(() => Date.now());
   const { busy, modal, closeModal, submitMatch, toast, dismissToast } = useGameMatchFlow();
 
   const cooldownMs = useMemo(() => {
     const gc = profile?.gameCooldownUntil as Record<string, unknown> | undefined;
-    return cooldownRemainingMs("bau", gc, Date.now());
-  }, [profile?.gameCooldownUntil]);
+    return cooldownRemainingMs("bau", gc, renderedAt);
+  }, [profile?.gameCooldownUntil, renderedAt]);
 
   async function openChest() {
     const r = await submitMatch({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
@@ -258,7 +258,7 @@ export default function AdminIndicacoesPage() {
     blocked: 0,
   });
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     const db = getFirebaseFirestore();
     const [cfgSnap, campaignSnap, referralSnap, total, pending, valid, rewarded, blocked] = await Promise.all([
       getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system")),
@@ -316,11 +316,11 @@ export default function AdminIndicacoesPage() {
       rewarded: rewarded.data().count,
       blocked: blocked.data().count,
     });
-  }
+  }, [statusFilter]);
 
   useEffect(() => {
     loadAll().catch(() => undefined);
-  }, [statusFilter]);
+  }, [loadAll]);
 
   const activeCampaign = useMemo(
     () => campaigns.find((campaign) => campaign.id === config.activeCampaignId) ?? null,

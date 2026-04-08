@@ -1181,13 +1181,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     const gh = normalizePptHand(room.pptLastGuestHand);
     if (!hh || !gh) return "";
     return `${room.pptHostScore ?? 0}|${room.pptGuestScore ?? 0}|${o}|${hh}|${gh}`;
-  }, [
-    room?.pptHostScore,
-    room?.pptGuestScore,
-    room?.pptLastRoundOutcome,
-    room?.pptLastHostHand,
-    room?.pptLastGuestHand,
-  ]);
+  }, [room]);
 
   useEffect(() => {
     if (room === undefined || room === null || !uid) return;

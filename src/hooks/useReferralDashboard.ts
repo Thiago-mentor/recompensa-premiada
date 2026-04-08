@@ -50,11 +50,7 @@ export function useReferralDashboard(period: ReferralRankingPeriod) {
   }, []);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setInvitedRows([]);
-      setMyReferral(null);
-      return;
-    }
+    if (!user?.uid) return;
     const unsubInvited = subscribeInvitedReferrals(user.uid, setInvitedRows);
     const unsubMine = subscribeReferralAsInvited(user.uid, setMyReferral);
     return () => {
@@ -81,10 +77,7 @@ export function useReferralDashboard(period: ReferralRankingPeriod) {
   }, [period]);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setMyRanking(null);
-      return;
-    }
+    if (!user?.uid) return;
     let cancelled = false;
     (async () => {
       try {
@@ -104,9 +97,9 @@ export function useReferralDashboard(period: ReferralRankingPeriod) {
   return {
     config,
     campaign,
-    invitedRows,
-    myReferral,
+    invitedRows: user?.uid ? invitedRows : [],
+    myReferral: user?.uid ? myReferral : null,
     ranking,
-    myRanking,
+    myRanking: user?.uid ? myRanking : null,
   };
 }

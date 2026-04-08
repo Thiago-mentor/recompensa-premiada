@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
-import { isFirebaseConfigured } from "@/lib/firebase/config";
 import { useAuth } from "@/hooks/useAuth";
 import { ROUTES } from "@/lib/constants/routes";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
@@ -85,6 +85,33 @@ function downloadBlob(filename: string, content: string, mime: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function fetchRewardClaimsDashboardData(): Promise<{
+  rows: RewardClaim[];
+  cashPointsPerReal: number;
+  nomeByUid: Record<string, string>;
+}> {
+  const db = getFirebaseFirestore();
+  const [snap, rate] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.rewardClaims), orderBy("criadoEm", "desc"))),
+    fetchCashPointsPerReal().catch(() => 100),
+  ]);
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim);
+  const uids = [...new Set(rows.map((r) => r.userId))];
+  const pairs = await Promise.all(
+    uids.map(async (uid) => {
+      const dref = await getDoc(doc(db, COLLECTIONS.users, uid));
+      const nome = dref.exists() ? String(dref.data()?.nome ?? "").trim() : "";
+      return [uid, nome || "—"] as const;
+    }),
+  );
+
+  return {
+    rows,
+    cashPointsPerReal: rate,
+    nomeByUid: Object.fromEntries(pairs),
+  };
 }
 
 function claimCreatedMs(r: RewardClaim): number | null {
@@ -200,30 +227,36 @@ export default function AdminRecompensasPage() {
   const [nomeByUid, setNomeByUid] = useState<Record<string, string>>({});
   const [cashPointsPerReal, setCashPointsPerReal] = useState(100);
 
-  async function refresh() {
-    const db = getFirebaseFirestore();
-    const [snap, rate] = await Promise.all([
-      getDocs(query(collection(db, COLLECTIONS.rewardClaims), orderBy("criadoEm", "desc"))),
-      fetchCashPointsPerReal().catch(() => 100),
-    ]);
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim);
-    setRows(list);
-    setCashPointsPerReal(rate);
+  const applyRefreshData = useCallback(
+    (data: Awaited<ReturnType<typeof fetchRewardClaimsDashboardData>>) => {
+      setRows(data.rows);
+      setCashPointsPerReal(data.cashPointsPerReal);
+      setNomeByUid(data.nomeByUid);
+    },
+    [],
+  );
 
-    const uids = [...new Set(list.map((r) => r.userId))];
-    const pairs = await Promise.all(
-      uids.map(async (uid) => {
-        const dref = await getDoc(doc(db, COLLECTIONS.users, uid));
-        const nome = dref.exists() ? String(dref.data()?.nome ?? "").trim() : "";
-        return [uid, nome || "—"] as const;
-      }),
-    );
-    setNomeByUid(Object.fromEntries(pairs));
-  }
+  const refresh = useCallback(async () => {
+    applyRefreshData(await fetchRewardClaimsDashboardData());
+  }, [applyRefreshData]);
 
   useEffect(() => {
-    refresh().catch(() => setRows([]));
-  }, []);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await fetchRewardClaimsDashboardData();
+        if (!cancelled) applyRefreshData(data);
+      } catch {
+        if (cancelled) return;
+        setRows([]);
+        setNomeByUid({});
+        setCashPointsPerReal(100);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyRefreshData]);
 
   const filtrados = useMemo(() => {
     let list = filtro === "todos" ? [...rows] : rows.filter((r) => r.status === filtro);

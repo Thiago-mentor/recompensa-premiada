@@ -64,10 +64,7 @@ export default function RecompensasPage() {
   }, []);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setMeusPedidos([]);
-      return;
-    }
+    if (!user?.uid) return;
     const db = getFirebaseFirestore();
     const q = query(
       collection(db, COLLECTIONS.rewardClaims),
@@ -85,17 +82,21 @@ export default function RecompensasPage() {
     return () => unsub();
   }, [user?.uid]);
 
+  const pedidosVisiveis = useMemo(
+    () => (user?.uid ? meusPedidos : []),
+    [user?.uid, meusPedidos],
+  );
   const balance = profile?.rewardBalance ?? 0;
   const rate = cashPointsPerReal ?? 100;
 
   const pendentesCount = useMemo(
-    () => meusPedidos.filter((p) => p.status === "pendente" || p.status === "aprovado").length,
-    [meusPedidos],
+    () => pedidosVisiveis.filter((p) => p.status === "pendente" || p.status === "aprovado").length,
+    [pedidosVisiveis],
   );
 
   const retidoPendente = useMemo(
-    () => meusPedidos.filter((p) => p.status === "pendente").reduce((s, p) => s + p.valor, 0),
-    [meusPedidos],
+    () => pedidosVisiveis.filter((p) => p.status === "pendente").reduce((s, p) => s + p.valor, 0),
+    [pedidosVisiveis],
   );
 
   const valorNum = useMemo(() => {
@@ -261,7 +262,7 @@ export default function RecompensasPage() {
           </form>
         </div>
       ) : (
-        <PedidosSaquePanel pedidos={meusPedidos} cashPointsPerReal={rate} />
+        <PedidosSaquePanel pedidos={pedidosVisiveis} cashPointsPerReal={rate} />
       )}
     </div>
   );

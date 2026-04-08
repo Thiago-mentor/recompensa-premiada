@@ -17,6 +17,7 @@ export default function PerfilPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   async function sair() {
@@ -27,12 +28,15 @@ export default function PerfilPage() {
   async function onSelectAvatar(file: File | null) {
     if (!file) return;
     setAvatarBusy(true);
+    setAvatarPreviewUrl(null);
     setMsg(null);
     try {
-      await uploadUserAvatar(file);
+      const photoURL = await uploadUserAvatar(file);
+      setAvatarPreviewUrl(photoURL);
       await refreshProfile();
       setMsg("Foto atualizada com sucesso.");
     } catch (error) {
+      setAvatarPreviewUrl(null);
       setMsg(formatFirebaseError(error));
     } finally {
       setAvatarBusy(false);
@@ -42,12 +46,15 @@ export default function PerfilPage() {
 
   async function onResetAvatar() {
     setAvatarBusy(true);
+    setAvatarPreviewUrl(null);
     setMsg(null);
     try {
-      await resetUserAvatar();
+      const photoURL = await resetUserAvatar();
+      setAvatarPreviewUrl(photoURL);
       await refreshProfile();
       setMsg("Avatar voltou para o padrão.");
     } catch (error) {
+      setAvatarPreviewUrl(null);
       setMsg(formatFirebaseError(error));
     } finally {
       setAvatarBusy(false);
@@ -62,12 +69,13 @@ export default function PerfilPage() {
             aria-label={profile?.nome || user?.displayName || "Perfil"}
             className="h-24 w-24 shrink-0 rounded-[28px] border border-white/10 bg-cover bg-center shadow-[0_0_35px_-18px_rgba(34,211,238,0.45)]"
             style={{
-              backgroundImage: `url(${resolveAvatarUrl({
-                photoUrl: profile?.foto ?? user?.photoURL,
+              backgroundImage: `url("${resolveAvatarUrl({
+                photoUrl:
+                  (avatarBusy ? avatarPreviewUrl : null) ?? profile?.foto ?? user?.photoURL,
                 name: profile?.nome ?? user?.displayName,
                 username: profile?.username,
                 uid: profile?.uid ?? user?.uid,
-              })})`,
+              })}")`,
             }}
           />
           <div className="min-w-0 flex-1">

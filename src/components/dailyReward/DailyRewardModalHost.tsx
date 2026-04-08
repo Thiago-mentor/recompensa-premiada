@@ -19,7 +19,7 @@ import { DailyRewardModal, type DailyRewardSlot } from "./DailyRewardModal";
 const HIDE_KEY_PREFIX = "rp_daily_modal_hide_";
 
 export function DailyRewardModalHost() {
-  const { profile, profileLoading, refreshProfile } = useAuth();
+  const { user, profile, loading, profileLoading, refreshProfile } = useAuth();
   const [economy, setEconomy] = useState<EconomyStreakSlice>(
     () => DEFAULT_ECONOMY_STREAK_SLICE,
   );
@@ -77,11 +77,14 @@ export function DailyRewardModalHost() {
 
   const modalOpen = useMemo(() => {
     if (hiddenByUserToday) return false;
+    if (loading) return false;
+    if (!user) return false;
+    if (!profile) return false;
     if (profileLoading) return false;
     if (profile?.banido) return false;
     if (ui.kind !== "can_claim") return false;
     return slots.length > 0;
-  }, [hiddenByUserToday, profileLoading, profile?.banido, ui, slots]);
+  }, [hiddenByUserToday, loading, user, profile, profileLoading, ui, slots]);
 
   const hideForToday = useCallback(() => {
     setClaimError(null);

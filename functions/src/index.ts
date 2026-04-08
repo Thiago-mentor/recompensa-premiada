@@ -143,6 +143,11 @@ const DEFAULT_CALLABLE_OPTS = {
   enforceAppCheck: APP_CHECK_ENFORCED,
 } as const;
 
+const DEFAULT_SCHEDULE_OPTS = {
+  region: MULTIPLAYER_FUNCTIONS_REGION,
+  timeZone: "America/Sao_Paulo",
+} as const;
+
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
 const PPT_DUEL_CHARGES_PER_AD = 3;
@@ -479,14 +484,6 @@ function rankingKeyForPeriod(period: RankingPeriodMode, when = new Date()): stri
   }
 }
 
-function rankingScoreFieldForPeriod(period: RankingPeriodMode): "scoreRankingDiario" | "scoreRankingSemanal" | "scoreRankingMensal" {
-  return period === "diario"
-    ? "scoreRankingDiario"
-    : period === "semanal"
-      ? "scoreRankingSemanal"
-      : "scoreRankingMensal";
-}
-
 function rankingReferenceDateForClose(period: RankingPeriodMode, when = new Date()): Date {
   if (period === "mensal") return new Date(when.getTime() - 60_000);
   return new Date(when.getTime() - 1_000);
@@ -635,10 +632,6 @@ function hasRankingPrizeRewards(rewards: RankingPrizeRewards): boolean {
   return rewards.coins + rewards.gems + rewards.rewardBalance > 0;
 }
 
-function emptyRankingPeriodPrizeConfig(): Record<RankingPeriodMode, RankingPrizeTierResolved[]> {
-  return { diario: [], semanal: [], mensal: [] };
-}
-
 const DEFAULT_GLOBAL_RANKING_PRIZES = {
   diario: [
     { posicaoMax: 1, rewards: { coins: 500, gems: 25, rewardBalance: 0 } },
@@ -737,14 +730,6 @@ function rankingPrizeTierForPosition(
   return tiers.find((tier) => position <= tier.posicaoMax) ?? null;
 }
 
-function formatRankingRewardSummary(rewards: RankingPrizeRewards): string {
-  const parts: string[] = [];
-  if (rewards.coins > 0) parts.push(`${rewards.coins} PR`);
-  if (rewards.gems > 0) parts.push(`${rewards.gems} TICKET`);
-  if (rewards.rewardBalance > 0) parts.push(`${rewards.rewardBalance} CASH`);
-  return parts.length > 0 ? parts.join(" · ") : "sem prêmio";
-}
-
 function buildReferralCodeSeed(name: string | null | undefined, username: string | null | undefined): string {
   const raw = `${username || ""}${name || ""}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
   const compact = raw.slice(0, 4);
@@ -797,6 +782,20 @@ function buildDefaultAvatarDataUrl(seed: string, displayName?: string | null): s
     </svg>
   `.trim();
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function normalizeHttpPhotoUrl(photoUrl: string | null | undefined): string | null {
+  const value = String(photoUrl || "").trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return value;
+    }
+  } catch {
+    /* ignore invalid URLs */
+  }
+  return null;
 }
 
 async function generateUniqueReferralCode(seed: string): Promise<string> {
@@ -1740,9 +1739,11 @@ function clampQuizResponseMs(raw: unknown): number {
 function resolveQuizRoundWinner(
   hostCorrect: boolean,
   guestCorrect: boolean,
-  _hostResponseMs: number,
-  _guestResponseMs: number,
+  hostResponseMs: number,
+  guestResponseMs: number,
 ): "host" | "guest" | "draw" {
+  void hostResponseMs;
+  void guestResponseMs;
   if (hostCorrect && !guestCorrect) return "host";
   if (!hostCorrect && guestCorrect) return "guest";
   return "draw";
@@ -1891,7 +1892,6 @@ async function applyQuizMatchCompletionInTransaction(
   const guestUid = String(r.guestUid);
   const hostScore = Number(r.quizHostScore ?? 0);
   const guestScore = Number(r.quizGuestScore ?? 0);
-  const target = readQuizTargetScore(r);
   const questionId = String(r.quizQuestionId ?? "");
 
   const hostRes: "vitoria" | "derrota" = matchWinner === "host" ? "vitoria" : "derrota";
@@ -3279,7 +3279,8 @@ export const updateUserAvatar = onCall(DEFAULT_CALLABLE_OPTS, async (request) =>
   const userData = userSnap.data() as Record<string, unknown>;
   const nome = String(userData.nome || request.auth?.token.name || "Jogador").trim() || "Jogador";
   const username = String(userData.username || uid).trim() || uid;
-  const photoURL = rawPhotoUrl || buildDefaultAvatarDataUrl(username, nome);
+  const authPhotoURL = normalizeHttpPhotoUrl(rawPhotoUrl);
+  const photoURL = authPhotoURL || buildDefaultAvatarDataUrl(username, nome);
 
   await Promise.all([
     userRef.set(
@@ -3289,7 +3290,7 @@ export const updateUserAvatar = onCall(DEFAULT_CALLABLE_OPTS, async (request) =>
       },
       { merge: true },
     ),
-    admin.auth().updateUser(uid, { photoURL }),
+    admin.auth().updateUser(uid, { photoURL: authPhotoURL }),
     syncUserPresentation(uid, nome, photoURL),
   ]);
 
@@ -6321,7 +6322,7 @@ async function closeReferralRankingJob(period: Exclude<ReferralRankingPeriod, "a
 
 /** Backstop server-side: resolve salas PvP expiradas para impedir travas e loops infinitos. */
 export const reapExpiredPvpRooms = onSchedule(
-  { schedule: "* * * * *", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" },
   async () => {
     const snap = await db
       .collection(COL.gameRooms)
@@ -6341,7 +6342,7 @@ export const reapExpiredPvpRooms = onSchedule(
 
 /** Duas janelas seguidas sem nenhum pick dos dois → anula partida e libera slots (sem pontos). */
 export const reapPptBothInactiveRounds = onSchedule(
-  { schedule: "* * * * *", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" },
   async () => {
     const snap = await db
       .collection(COL.gameRooms)
@@ -6392,21 +6393,21 @@ export const reapPptBothInactiveRounds = onSchedule(
 );
 
 export const closeDailyRanking = onSchedule(
-  { schedule: "59 23 * * *", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * *" },
   async () => {
     await closeRankingJob("diario");
   },
 );
 
 export const closeWeeklyRanking = onSchedule(
-  { schedule: "59 23 * * 0", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * 0" },
   async () => {
     await closeRankingJob("semanal");
   },
 );
 
 export const closeMonthlyRanking = onSchedule(
-  { schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" },
   async () => {
     await closeRankingJob("mensal");
   },
@@ -6425,21 +6426,21 @@ export const adminCloseRanking = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
 });
 
 export const closeReferralDailyRanking = onSchedule(
-  { schedule: "59 23 * * *", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * *" },
   async () => {
     await closeReferralRankingJob("daily");
   },
 );
 
 export const closeReferralWeeklyRanking = onSchedule(
-  { schedule: "59 23 * * 0", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * 0" },
   async () => {
     await closeReferralRankingJob("weekly");
   },
 );
 
 export const closeReferralMonthlyRanking = onSchedule(
-  { schedule: "0 0 1 * *", timeZone: "America/Sao_Paulo" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" },
   async () => {
     await closeReferralRankingJob("monthly");
   },

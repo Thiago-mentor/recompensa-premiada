@@ -25,12 +25,19 @@ export function MatchHistoryList({ className }: { className?: string }) {
   const [rows, setRows] = useState<MatchRecord[]>([]);
 
   useEffect(() => {
-    if (!user) {
-      setRows([]);
-      return;
-    }
-    fetchUserMatchHistory(user.uid, 15).then(setRows).catch(() => setRows([]));
-  }, [user]);
+    if (!user?.uid) return;
+    let cancelled = false;
+    void fetchUserMatchHistory(user.uid, 15)
+      .then((items) => {
+        if (!cancelled) setRows(items);
+      })
+      .catch(() => {
+        if (!cancelled) setRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   if (!user) return null;
 

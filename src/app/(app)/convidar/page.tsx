@@ -25,7 +25,6 @@ import type {
 } from "@/types/referral";
 import {
   CheckCircle2,
-  Circle,
   Copy,
   Gamepad2,
   Gift,
@@ -585,6 +584,8 @@ export default function ConvidarPage() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-col items-center text-center">
+                    {/* Avatares podem vir de data URL ou URL dinâmica do Firebase Storage. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={resolveAvatarUrl({
                         photoUrl: entry.photoURL,

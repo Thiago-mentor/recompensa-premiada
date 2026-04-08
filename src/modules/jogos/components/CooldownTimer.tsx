@@ -14,18 +14,19 @@ export function CooldownTimer({
   label?: string;
 }) {
   const [ms, setMs] = useState(remainingMs);
+  const isRunning = ms > 0;
 
   useEffect(() => {
     setMs(remainingMs);
   }, [remainingMs]);
 
   useEffect(() => {
-    if (ms <= 0) return;
+    if (!isRunning) return;
     const t = setInterval(() => {
       setMs((x) => Math.max(0, x - 1000));
     }, 1000);
     return () => clearInterval(t);
-  }, [ms > 0]);
+  }, [isRunning]);
 
   if (ms <= 0) return null;
 
