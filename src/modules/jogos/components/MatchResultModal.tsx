@@ -15,6 +15,7 @@ export function MatchResultModal({
   title,
   subtitle,
   rewardCoins,
+  boostCoins,
   rankingPoints,
   grantedChest,
   error,
@@ -25,6 +26,7 @@ export function MatchResultModal({
   title: string;
   subtitle?: string;
   rewardCoins?: number;
+  boostCoins?: number;
   rankingPoints?: number;
   grantedChest?: GrantedChestSummary | null;
   error?: string | null;
@@ -83,6 +85,11 @@ export function MatchResultModal({
                 <div className="text-lg font-semibold text-amber-200">
                   +{rewardCoins ?? 0}
                 </div>
+                {boostCoins != null && boostCoins > 0 ? (
+                  <p className="mt-1 text-[11px] font-semibold text-amber-100/85">
+                    boost +{boostCoins} PR
+                  </p>
+                ) : null}
               </div>
               <div className="rounded-xl bg-black/20 px-3 py-2 text-white/80">
                 Ranking

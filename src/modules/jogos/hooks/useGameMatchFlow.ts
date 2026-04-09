@@ -17,6 +17,7 @@ type ModalState =
       title: string;
       subtitle?: string;
       rewardCoins: number;
+      boostCoins: number;
       rankingPoints: number;
       grantedChest: GrantedChestSummary | null;
       error: string | null;
@@ -43,12 +44,19 @@ export function useGameMatchFlow() {
           title: uiTitle,
           subtitle: uiSubtitle,
           rewardCoins: r.rewardCoins ?? 0,
+          boostCoins: r.boostCoins ?? 0,
           rankingPoints: r.rankingPoints ?? 0,
           grantedChest: r.grantedChest ?? null,
           error: null,
         });
         if ((r.rewardCoins ?? 0) > 0) {
-          setToast({ message: `+${r.rewardCoins} PR creditados` });
+          const boost = r.boostCoins ?? 0;
+          setToast({
+            message:
+              boost > 0
+                ? `+${r.rewardCoins} PR creditados (boost +${boost} PR)`
+                : `+${r.rewardCoins} PR creditados`,
+          });
         }
       } else {
         setModal({
@@ -57,6 +65,7 @@ export function useGameMatchFlow() {
           title: "Não registrado",
           subtitle: undefined,
           rewardCoins: 0,
+          boostCoins: 0,
           rankingPoints: 0,
           grantedChest: null,
           error: r.error ?? "Erro desconhecido",

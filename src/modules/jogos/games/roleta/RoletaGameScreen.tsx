@@ -70,6 +70,7 @@ export function RoletaGameScreen() {
         title={modal.open ? modal.title : ""}
         subtitle={modal.open ? modal.subtitle : undefined}
         rewardCoins={modal.open ? modal.rewardCoins : 0}
+        boostCoins={modal.open ? modal.boostCoins : 0}
         rankingPoints={modal.open ? modal.rankingPoints : 0}
         grantedChest={modal.open ? modal.grantedChest : null}
         error={modal.open ? modal.error : null}
