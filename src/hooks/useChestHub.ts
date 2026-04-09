@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import {
   claimChestRewardCallable,
+  fetchUserChestItemsCallable,
   startChestUnlockCallable,
   subscribeUserChestItems,
 } from "@/services/chests/chestService";
 import { runChestSpeedupRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
 import type { ClaimChestRewardResult, StartChestUnlockResult } from "@/services/chests/chestService";
 import type { ResolvedChestItem } from "@/utils/chest";
+import type { UserChestItem } from "@/types/chest";
 import {
   buildChestSummary,
   CHEST_RARITY_LABEL,
@@ -22,29 +24,76 @@ type BusyAction = "start" | "speed" | "claim";
 
 export function useChestHub() {
   const { user, refreshProfile } = useAuth();
+  const currentUid = user?.uid ?? null;
   const [itemsState, setItemsState] = useState<{
     uid: string | null;
     items: ResolvedChestItem[];
   }>({ uid: null, items: [] });
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busyState, setBusyState] = useState<{ chestId: string; action: BusyAction } | null>(null);
-  const [feedback, setFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: "info" | "success" | "error"; text: string } | null>(
+    null,
+  );
+
+  const applyItems = useCallback((uid: string, next: UserChestItem[]) => {
+    const built = buildChestSummary(next, Date.now());
+    setItemsState({ uid, items: built.items });
+  }, []);
+
+  const refreshItemsFromServer = useCallback(
+    async (
+      options:
+        | {
+            infoText?: string | null;
+            silent?: boolean;
+          }
+        | undefined = undefined,
+    ) => {
+      if (!currentUid) return { ok: false as const, error: "Faça login novamente." };
+      const result = await fetchUserChestItemsCallable();
+      if (!result.ok) {
+        if (!options?.silent) {
+          setFeedback({ tone: "error", text: result.error });
+        }
+        setItemsState({ uid: currentUid, items: [] });
+        return result;
+      }
+      applyItems(currentUid, result.items);
+      if (!options?.silent && options?.infoText) {
+        setFeedback({ tone: "info", text: options.infoText });
+      }
+      return result;
+    },
+    [applyItems, currentUid],
+  );
 
   const effectiveItems = useMemo(
-    () => (itemsState.uid === user?.uid ? itemsState.items : []),
-    [itemsState.items, itemsState.uid, user?.uid],
+    () => (itemsState.uid === currentUid ? itemsState.items : []),
+    [itemsState.items, itemsState.uid, currentUid],
   );
-  const effectiveLoading = !!user?.uid && itemsState.uid !== user.uid;
+  const effectiveLoading = !!currentUid && itemsState.uid !== currentUid;
 
   useEffect(() => {
-    if (!user?.uid) return;
-    const currentUid = user.uid;
-    const unsub = subscribeUserChestItems(currentUid, (next) => {
-      const built = buildChestSummary(next, Date.now());
-      setItemsState({ uid: currentUid, items: built.items });
-    });
-    return () => unsub();
-  }, [user?.uid]);
+    if (!currentUid) return;
+    let active = true;
+    const unsub = subscribeUserChestItems(
+      currentUid,
+      (next) => {
+        if (!active) return;
+        applyItems(currentUid, next);
+      },
+      async () => {
+        if (!active) return;
+        await refreshItemsFromServer({
+          infoText: "Tempo real indisponível no momento. Exibindo um snapshot seguro do servidor.",
+        });
+      },
+    );
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [applyItems, refreshItemsFromServer, currentUid]);
 
   useEffect(() => {
     const hasUnlocking = effectiveItems.some((item) => item.resolvedStatus === "unlocking");
@@ -75,26 +124,28 @@ export function useChestHub() {
     setFeedback(null);
     const result = await startChestUnlockCallable(chestId);
     if (result.ok) {
+      void refreshItemsFromServer({ silent: true });
       setFeedback({ tone: "success", text: "Baú começou a abrir." });
     } else {
       setFeedback({ tone: "error", text: result.error });
     }
     setBusyState(null);
     return result;
-  }, []);
+  }, [refreshItemsFromServer]);
 
   const speedUpChest = useCallback(async (chestId: string) => {
     setBusyState({ chestId, action: "speed" });
     setFeedback(null);
     const result = await runChestSpeedupRewardedAdFlow(chestId);
     if (result.ok) {
+      void refreshItemsFromServer({ silent: true });
       setFeedback({ tone: "success", text: result.message });
     } else {
       setFeedback({ tone: "error", text: result.message });
     }
     setBusyState(null);
     return result;
-  }, []);
+  }, [refreshItemsFromServer]);
 
   const claimChest = useCallback(
     async (chestId: string): Promise<ClaimChestRewardResult> => {
@@ -102,6 +153,7 @@ export function useChestHub() {
       setFeedback(null);
       const result = await claimChestRewardCallable(chestId);
       if (result.ok) {
+        await refreshItemsFromServer({ silent: true });
         const rewardLine = formatChestRewardSummary(result.rewards);
         const promotedLine = result.promotedChestId
           ? "O próximo baú já subiu da fila para um slot."
@@ -119,7 +171,7 @@ export function useChestHub() {
       setBusyState(null);
       return result;
     },
-    [refreshProfile],
+    [refreshItemsFromServer, refreshProfile],
   );
 
   return {

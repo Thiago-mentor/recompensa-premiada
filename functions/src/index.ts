@@ -1223,6 +1223,27 @@ function grantedChestSummary(item: ChestDocState): GrantedChestResult {
   };
 }
 
+function chestItemWire(item: ChestDocState) {
+  return {
+    id: item.id,
+    userId: item.userId,
+    rarity: item.rarity,
+    source: item.source,
+    status: item.status,
+    slotIndex: item.slotIndex,
+    queuePosition: item.queuePosition,
+    unlockDurationSec: item.unlockDurationSec,
+    rewardsSnapshot: item.rewardsSnapshot,
+    adsUsed: item.adsUsed,
+    sourceRefId: item.sourceRefId,
+    grantedAtMs: item.grantedAtMs,
+    unlockStartedAtMs: item.unlockStartedAtMs,
+    readyAtMs: item.readyAtMs,
+    nextAdAvailableAtMs: item.nextAdAvailableAtMs,
+    updatedAtMs: millisFromFirestoreTime(item.raw.updatedAt) || item.grantedAtMs,
+  };
+}
+
 async function grantChestIfEligible(input: {
   uid: string;
   source: ChestSource;
@@ -4855,6 +4876,38 @@ export const claimMissionReward = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     sourceRefId: chestSourceRefId,
   });
   return { ok: true, grantedChest };
+});
+
+export const getUserChestItems = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+  const itemsCol = db.collection(`${COL.userChests}/${uid}/items`);
+  const config = await getChestSystemConfig();
+  const itemsSnap = await itemsCol.get();
+  const nowMs = Date.now();
+  const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
+  const normalizedItems = config.enabled
+    ? normalizeChestSlotsAndQueue(rawItems, config, nowMs)
+    : rawItems;
+  const normalizedById = new Map(normalizedItems.map((item) => [item.id, item]));
+
+  const batch = db.batch();
+  let hasWrites = false;
+  for (const docSnap of itemsSnap.docs) {
+    const before = rawItems.find((item) => item.id === docSnap.id);
+    const after = normalizedById.get(docSnap.id);
+    if (before && after && chestStateChanged(before, after)) {
+      batch.update(docSnap.ref, chestItemPatch(after));
+      hasWrites = true;
+    }
+  }
+  if (hasWrites) {
+    await batch.commit();
+  }
+
+  return {
+    items: normalizedItems.map((item) => chestItemWire(item)),
+  };
 });
 
 export const startChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {

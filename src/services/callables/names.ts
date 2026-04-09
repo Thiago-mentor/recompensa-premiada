@@ -1,6 +1,7 @@
 /** Nomes das HTTPS Callable Functions (devem coincidir com `functions/src`) */
 export const CALLABLES = {
   processDailyLogin: "processDailyLogin",
+  getUserChestItems: "getUserChestItems",
   startChestUnlock: "startChestUnlock",
   speedUpChestUnlock: "speedUpChestUnlock",
   claimChestReward: "claimChestReward",

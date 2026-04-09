@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
+exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -961,6 +961,26 @@ function grantedChestSummary(item) {
         slotIndex: item.slotIndex,
         queuePosition: item.queuePosition,
         source: item.source,
+    };
+}
+function chestItemWire(item) {
+    return {
+        id: item.id,
+        userId: item.userId,
+        rarity: item.rarity,
+        source: item.source,
+        status: item.status,
+        slotIndex: item.slotIndex,
+        queuePosition: item.queuePosition,
+        unlockDurationSec: item.unlockDurationSec,
+        rewardsSnapshot: item.rewardsSnapshot,
+        adsUsed: item.adsUsed,
+        sourceRefId: item.sourceRefId,
+        grantedAtMs: item.grantedAtMs,
+        unlockStartedAtMs: item.unlockStartedAtMs,
+        readyAtMs: item.readyAtMs,
+        nextAdAvailableAtMs: item.nextAdAvailableAtMs,
+        updatedAtMs: millisFromFirestoreTime(item.raw.updatedAt) || item.grantedAtMs,
     };
 }
 async function grantChestIfEligible(input) {
@@ -3859,6 +3879,35 @@ exports.claimMissionReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
         sourceRefId: chestSourceRefId,
     });
     return { ok: true, grantedChest };
+});
+exports.getUserChestItems = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const itemsCol = db.collection(`${COL.userChests}/${uid}/items`);
+    const config = await getChestSystemConfig();
+    const itemsSnap = await itemsCol.get();
+    const nowMs = Date.now();
+    const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
+    const normalizedItems = config.enabled
+        ? normalizeChestSlotsAndQueue(rawItems, config, nowMs)
+        : rawItems;
+    const normalizedById = new Map(normalizedItems.map((item) => [item.id, item]));
+    const batch = db.batch();
+    let hasWrites = false;
+    for (const docSnap of itemsSnap.docs) {
+        const before = rawItems.find((item) => item.id === docSnap.id);
+        const after = normalizedById.get(docSnap.id);
+        if (before && after && chestStateChanged(before, after)) {
+            batch.update(docSnap.ref, chestItemPatch(after));
+            hasWrites = true;
+        }
+    }
+    if (hasWrites) {
+        await batch.commit();
+    }
+    return {
+        items: normalizedItems.map((item) => chestItemWire(item)),
+    };
 });
 exports.startChestUnlock = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;

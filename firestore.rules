@@ -126,12 +126,13 @@ service cloud.firestore {
     }
 
     match /user_chests/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if false;
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if false;
 
       match /items/{chestId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow write: if false;
+        allow get, list: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if false;
       }
     }
 
