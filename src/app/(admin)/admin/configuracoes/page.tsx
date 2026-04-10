@@ -8,6 +8,11 @@ import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { ChestSystemConfigPanel } from "@/components/admin/ChestSystemConfigPanel";
 import type { StreakRewardTier, SystemEconomyConfig } from "@/types/systemConfig";
+import {
+  DEFAULT_STREAK_DISPLAY_DAYS,
+  MAX_STREAK_DISPLAY_DAYS,
+  normalizeStreakDisplayDays,
+} from "@/services/economy/economyStreakConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
 import { clampPvpChoiceSeconds, parsePvpChoiceSeconds } from "@/lib/games/pvpTiming";
 import { callFunction } from "@/services/callables/client";
@@ -31,6 +36,7 @@ export default function AdminConfigPage() {
   const [refIndicador, setRefIndicador] = useState("100");
   const [refConvidado, setRefConvidado] = useState("50");
   const [chestCooldown, setChestCooldown] = useState("3600");
+  const [boostEnabled, setBoostEnabled] = useState(false);
   const [boostPercent, setBoostPercent] = useState("25");
   const [fragmentsPerBoostCraft, setFragmentsPerBoostCraft] = useState("10");
   const [boostMinutesPerCraft, setBoostMinutesPerCraft] = useState("15");
@@ -51,6 +57,9 @@ export default function AdminConfigPage() {
   const [grantMsg, setGrantMsg] = useState<string | null>(null);
   const [grantLoading, setGrantLoading] = useState(false);
   const [streakRows, setStreakRows] = useState<StreakRewardTier[]>([]);
+  const [streakDisplayDays, setStreakDisplayDays] = useState(
+    String(DEFAULT_STREAK_DISPLAY_DAYS),
+  );
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,6 +77,7 @@ export default function AdminConfigPage() {
         if (typeof d.referralBonusIndicador === "number") setRefIndicador(String(d.referralBonusIndicador));
         if (typeof d.referralBonusConvidado === "number") setRefConvidado(String(d.referralBonusConvidado));
         if (typeof d.chestCooldownSegundos === "number") setChestCooldown(String(d.chestCooldownSegundos));
+        if (typeof d.boostEnabled === "boolean") setBoostEnabled(d.boostEnabled);
         if (typeof d.boostRewardPercent === "number") setBoostPercent(String(d.boostRewardPercent));
         if (typeof d.fragmentsPerBoostCraft === "number") {
           setFragmentsPerBoostCraft(String(d.fragmentsPerBoostCraft));
@@ -92,6 +102,7 @@ export default function AdminConfigPage() {
         if (typeof d.cashPointsPerReal === "number" && d.cashPointsPerReal >= 1) {
           setCashPointsPerReal(String(Math.floor(d.cashPointsPerReal)));
         }
+        setStreakDisplayDays(String(normalizeStreakDisplayDays(d.streakDisplayDays)));
         setStreakRows(normalizeStreakTable(d.streakTable));
       } catch {
         /* ignore */
@@ -117,6 +128,7 @@ export default function AdminConfigPage() {
           referralBonusIndicador: Number(refIndicador),
           referralBonusConvidado: Number(refConvidado),
           chestCooldownSegundos: Number(chestCooldown),
+          boostEnabled,
           boostRewardPercent: Math.max(0, Math.floor(Number(boostPercent)) || 0),
           fragmentsPerBoostCraft: Math.max(1, Math.floor(Number(fragmentsPerBoostCraft)) || 10),
           boostMinutesPerCraft: Math.max(1, Math.floor(Number(boostMinutesPerCraft)) || 15),
@@ -134,6 +146,7 @@ export default function AdminConfigPage() {
           conversionCoinsPerGemBuy: Math.max(1, Math.floor(Number(convBuy)) || 500),
           conversionCoinsPerGemSell: Math.max(0, Math.floor(Number(convSell)) || 0),
           cashPointsPerReal: Math.max(1, Math.floor(Number(cashPointsPerReal)) || 100),
+          streakDisplayDays: normalizeStreakDisplayDays(streakDisplayDays),
           streakTable: streakRows
             .map((r) => ({
               dia: Math.max(1, Math.floor(Number(r.dia)) || 1),
@@ -234,6 +247,11 @@ export default function AdminConfigPage() {
               (ex.: no 7º dia seguido aplica a linha &quot;7&quot;). Nos outros dias vale o campo{" "}
               <strong>Bônus login diário</strong> (só PR).
             </p>
+            <p className="mt-2 max-w-2xl text-xs text-slate-500">
+              O modal de entrada pode mostrar entre <strong>1</strong> e{" "}
+              <strong>{MAX_STREAK_DISPLAY_DAYS}</strong> dias. Em contagens maiores, o layout entra em
+              modo compacto automaticamente.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -260,6 +278,13 @@ export default function AdminConfigPage() {
               Preencher 1 / 7 / 30
             </Button>
           </div>
+        </div>
+        <div className="max-w-xs">
+          <Field
+            label={`Dias visíveis no modal de entrada (1-${MAX_STREAK_DISPLAY_DAYS})`}
+            value={streakDisplayDays}
+            onChange={setStreakDisplayDays}
+          />
         </div>
         {streakRows.length === 0 ? (
           <p className="text-sm text-slate-500">Nenhum marco — só o bônus fixo de login diário.</p>
@@ -328,29 +353,54 @@ export default function AdminConfigPage() {
       </section>
 
       <section className="space-y-3 rounded-xl border border-fuchsia-400/20 bg-fuchsia-950/15 p-4">
-        <h2 className="text-lg font-semibold text-white">Boost e fragmentos</h2>
-        <p className="text-xs text-slate-400">
-          Define o custo para transformar fragmentos em boost armazenado e o ganho extra de PR
-          enquanto o boost estiver ativo.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Boost extra de PR (%)" value={boostPercent} onChange={setBoostPercent} />
-          <Field
-            label="Fragmentos por craft"
-            value={fragmentsPerBoostCraft}
-            onChange={setFragmentsPerBoostCraft}
-          />
-          <Field
-            label="Minutos por craft"
-            value={boostMinutesPerCraft}
-            onChange={setBoostMinutesPerCraft}
-          />
-          <Field
-            label="Minutos ativados por uso"
-            value={boostActivationMinutes}
-            onChange={setBoostActivationMinutes}
-          />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Boost, multiplicador e loja</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              {boostEnabled
+                ? "O sistema está ligado. Aqui você define o custo do craft, a ativação e o ganho extra de PR."
+                : "O sistema está desligado. Home, loja e multiplicador de PR ficam ocultos até essa chave ser ativada novamente."}
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-fuchsia-500"
+              checked={boostEnabled}
+              onChange={(e) => setBoostEnabled(e.target.checked)}
+            />
+            {boostEnabled ? "Sistema ligado" : "Sistema desligado"}
+          </label>
         </div>
+        {boostEnabled ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="Boost extra de PR (%)"
+              value={boostPercent}
+              onChange={setBoostPercent}
+            />
+            <Field
+              label="Fragmentos por craft"
+              value={fragmentsPerBoostCraft}
+              onChange={setFragmentsPerBoostCraft}
+            />
+            <Field
+              label="Minutos por craft"
+              value={boostMinutesPerCraft}
+              onChange={setBoostMinutesPerCraft}
+            />
+            <Field
+              label="Minutos ativados por uso"
+              value={boostActivationMinutes}
+              onChange={setBoostActivationMinutes}
+            />
+          </div>
+        ) : (
+          <AlertBanner tone="info">
+            Os detalhes técnicos de boost ficaram ocultos por enquanto. A configuração continua
+            salva para reativação futura.
+          </AlertBanner>
+        )}
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
@@ -486,7 +536,7 @@ export default function AdminConfigPage() {
         </div>
       </section>
 
-      <ChestSystemConfigPanel />
+      <ChestSystemConfigPanel boostSystemEnabled={boostEnabled} />
 
       <div className="flex justify-end">
         <Button onClick={save}>Salvar economia</Button>
@@ -499,17 +549,20 @@ function Field({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div>
       <label className="text-xs text-slate-400">{label}</label>
       <input
-        className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white"
+        className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
     </div>

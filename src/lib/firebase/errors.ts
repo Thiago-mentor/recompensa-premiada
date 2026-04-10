@@ -1,6 +1,89 @@
 import { FirebaseError } from "firebase/app";
 import { firebaseEmulatorHost, firebaseEmulatorPorts, useFirebaseEmulators } from "./config";
 
+const FUNCTION_MESSAGE_MAP: Record<string, string> = {
+  "Perfil inexistente.": "Seu perfil ainda não foi carregado. Entre novamente e tente de novo.",
+  "Perfil ausente.": "Seu perfil ainda não foi carregado. Tente novamente em instantes.",
+  "Participante inválido.": "A partida perdeu a sincronização. Volte para a fila e tente novamente.",
+  "Conta suspensa.": "Sua conta está suspensa no momento.",
+  "Código de convite inválido.": "Esse código de convite não é válido.",
+  "Você não pode usar o próprio código.": "Você não pode usar o seu próprio código de convite.",
+  "Informe um código de convite para continuar.": "Informe um código de convite para concluir o cadastro.",
+  "Limite diário de anúncios atingido.": "Você atingiu o limite diário de anúncios.",
+  "Muitas partidas em sequência. Aguarde um minuto.": "Você jogou muitas partidas em sequência. Aguarde um minuto.",
+  "Missão inexistente.": "Essa missão não foi encontrada.",
+  "Missão não concluída.": "Essa missão ainda não foi concluída.",
+  "Sistema de baús desativado.": "O sistema de baús está desativado no momento.",
+  "Baú não encontrado.": "Esse baú não foi encontrado. Atualize a tela e tente de novo.",
+  "Este baú ainda está na fila de espera.": "Esse baú ainda está na fila de espera.",
+  "Já existe um baú em abertura.": "Já existe um baú em abertura.",
+  "Este baú não está em abertura.": "Esse baú não está em abertura no momento.",
+  "Este baú já atingiu o limite de anúncios.": "Esse baú já atingiu o limite de anúncios.",
+  "Limite diário de aceleração de baús atingido.": "Você atingiu o limite diário de aceleração de baús.",
+  "O sistema de boost está desativado no momento.": "Esse recurso está desativado no momento.",
+  "Você não tem boost armazenado para ativar.": "Você não tem boost armazenado para ativar.",
+  "Saldo insuficiente.": "Você não tem saldo suficiente.",
+  "PR insuficientes.": "Você não tem PR suficientes.",
+  "Saldo de TICKET insuficiente.": "Você não tem TICKET suficiente.",
+  "Taxa de conversão inválida.": "A conversão está indisponível no momento.",
+  "Indicação não encontrada.": "Essa indicação não foi encontrada.",
+  "Indicação sem convidado vinculado.": "Essa indicação está sem convidado vinculado.",
+  "Dados da indicação inválidos.": "Essa indicação está com dados inválidos.",
+  "Usuários da indicação não encontrados.": "Não foi possível localizar os usuários dessa indicação.",
+  "Jogo não suporta fila automática.": "Esse jogo não está disponível na fila automática.",
+  "Jogo inválido.": "Modo de jogo inválido.",
+  "Sala inexistente.": "Essa sala não existe mais.",
+  "Esta sala não é PPT.": "Essa sala não pertence ao modo Pedra, Papel e Tesoura.",
+  "Esta sala não é Quiz.": "Essa sala não pertence ao modo Quiz.",
+  "Esta sala não é Reaction Tap.": "Essa sala não pertence ao modo Reaction Tap.",
+  "Você não está nesta sala.": "Você não faz parte dessa sala.",
+  "Partida já finalizada.": "Essa partida já foi encerrada.",
+  "Tempo da rodada esgotado.": "O tempo da rodada acabou.",
+  "Tempo da pergunta esgotado.": "O tempo da pergunta acabou.",
+  "Questão da sala inválida.": "A pergunta desta sala ficou inconsistente. Tente novamente.",
+  "Você já respondeu esta questão.": "Você já respondeu esta questão.",
+  "Aguardando sinal da rodada.": "Aguarde o sinal da rodada para jogar.",
+  "Você já reagiu nesta partida.": "Você já reagiu nesta partida.",
+  "W.O. disponível só em salas PvP.": "Essa ação só está disponível em salas PvP.",
+  "Você já foi pareado. Abra a sala ou aguarde o fim da partida.":
+    "Você já foi pareado. Abra a sala ou aguarde o fim da partida.",
+  "roomId obrigatório.": "A sala perdeu a referência. Volte e tente novamente.",
+  "roomId ou jogada inválidos.": "Não foi possível enviar sua jogada. Atualize a sala e tente de novo.",
+  "roomId ou resposta inválidos.": "Não foi possível enviar sua resposta. Atualize a sala e tente de novo.",
+  "Token de conclusão do anúncio é obrigatório.": "Não foi possível validar o anúncio.",
+  "Token de anúncio inválido.": "Não foi possível validar o anúncio.",
+  "sessionId obrigatório.": "A sessão do anúncio é inválida. Tente novamente.",
+  "Sessão de anúncio não encontrada.": "A sessão do anúncio expirou ou não foi encontrada.",
+  "Sessão não pertence ao usuário atual.": "Essa sessão de anúncio não pertence à sua conta.",
+};
+
+function normalizeFunctionMessage(message: string): string {
+  const normalized = message.trim();
+  if (!normalized) return normalized;
+  if (FUNCTION_MESSAGE_MAP[normalized]) return FUNCTION_MESSAGE_MAP[normalized];
+  if (normalized.startsWith("Este baú ainda não está pronto.")) return normalized;
+  if (
+    normalized.startsWith("Você precisa de ") ||
+    normalized.startsWith("Quantidade inválida.") ||
+    normalized.startsWith("Dados inválidos.") ||
+    normalized.startsWith("Pedido inexistente.") ||
+    normalized.startsWith("Já analisado.") ||
+    normalized.startsWith("Só é possível confirmar PIX")
+  ) {
+    return normalized;
+  }
+  if (normalized.includes("conversionCoinsPerGemSell")) {
+    return "A troca de TICKET para PR está desativada no momento.";
+  }
+  if (normalized.includes("kind inválido")) {
+    return "Moeda inválida para esta operação.";
+  }
+  if (normalized.includes("lookup deve ser username ou uid")) {
+    return "Escolha um tipo de busca válido.";
+  }
+  return normalized;
+}
+
 /**
  * Mensagens legíveis para erros do cliente Firebase (Auth, Functions, etc.).
  */
@@ -39,7 +122,7 @@ export function formatFirebaseError(e: unknown): string {
       if (code === "functions/deadline-exceeded") {
         return "Tempo esgotado ao chamar o servidor. Verifique sua conexão.";
       }
-      return message ? `${message} (${code})` : code;
+      return message ? normalizeFunctionMessage(message) : code;
     }
 
     if (code === "auth/invalid-credential" || code === "auth/wrong-password") {

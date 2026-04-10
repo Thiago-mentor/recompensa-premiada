@@ -101,18 +101,54 @@
       ]
     },
     {
-      "collectionGroup": "waiting",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "joinedAt", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "game_rooms",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "pptAwaitingBothPicks", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "raffle_purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "raffle_purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "raffleId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "raffle_purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "raffleId", "order": "ASCENDING" },
+        { "fieldPath": "rangeStart", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "raffle_purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "raffleId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "raffle_purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "raffleId", "order": "ASCENDING" },
+        { "fieldPath": "numbers", "arrayConfig": "CONTAINS" }
       ]
     }
   ],

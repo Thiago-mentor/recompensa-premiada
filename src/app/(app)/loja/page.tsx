@@ -2,13 +2,16 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { doc, getDoc } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
+import { ROUTES } from "@/lib/constants/routes";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { PrizeCard } from "@/components/cards/PrizeCard";
 import { craftBoostFromFragmentsCallable, activateStoredBoostCallable } from "@/services/boost/boostService";
+import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { Clock3, Flame, Sparkles } from "lucide-react";
 
@@ -49,8 +52,11 @@ function formatDurationMs(ms: number): string {
 }
 
 export default function LojaPage() {
+  const router = useRouter();
   const { user, profile, refreshProfile } = useAuth();
   const [config, setConfig] = useState(DEFAULT_STORE_CONFIG);
+  const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
+  const [boostSystemResolved, setBoostSystemResolved] = useState(false);
   const [msg, setMsg] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [craftLoading, setCraftLoading] = useState(false);
   const [activateLoading, setActivateLoading] = useState(false);
@@ -61,8 +67,15 @@ export default function LojaPage() {
     void (async () => {
       try {
         const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
-        if (!snap.exists() || cancelled) return;
+        if (cancelled) return;
+        if (!snap.exists()) {
+          setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
+          setConfig(DEFAULT_STORE_CONFIG);
+          setBoostSystemResolved(true);
+          return;
+        }
         const data = snap.data() as Partial<SystemEconomyConfig>;
+        setBoostSystemEnabled(isBoostSystemEnabled(data));
         setConfig({
           boostRewardPercent:
             typeof data.boostRewardPercent === "number"
@@ -81,9 +94,12 @@ export default function LojaPage() {
               ? Math.max(1, Math.floor(data.boostActivationMinutes))
               : DEFAULT_STORE_CONFIG.boostActivationMinutes,
         });
+        setBoostSystemResolved(true);
       } catch {
         if (!cancelled) {
+          setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
           setConfig(DEFAULT_STORE_CONFIG);
+          setBoostSystemResolved(true);
         }
       }
     })();
@@ -91,6 +107,11 @@ export default function LojaPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!boostSystemResolved || boostSystemEnabled) return;
+    router.replace(ROUTES.home);
+  }, [boostSystemEnabled, boostSystemResolved, router]);
 
   const activeBoostUntilMs = timestampToMs(profile?.activeBoostUntil);
   const boostRemainingMs =
@@ -150,6 +171,38 @@ export default function LojaPage() {
       tone: "success",
       text: `Boost ativado por ${result.activatedMinutes} min · ganhos de PR com +${result.boostRewardPercent}%.`,
     });
+  }
+
+  if (!boostSystemResolved) {
+    return (
+      <div className="space-y-5 pb-4">
+        <section className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(244,114,182,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_56px_-24px_rgba(217,70,239,0.25)]">
+          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-fuchsia-200/75">
+            Loja premium
+          </p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Carregando loja</h1>
+          <p className="mt-2 text-sm leading-relaxed text-white/60">
+            Verificando se o sistema de boost e a loja estao disponiveis para sua conta.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  if (!boostSystemEnabled) {
+    return (
+      <div className="space-y-5 pb-4">
+        <section className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(244,114,182,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_56px_-24px_rgba(217,70,239,0.25)]">
+          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-fuchsia-200/75">
+            Loja premium
+          </p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Redirecionando</h1>
+          <p className="mt-2 text-sm leading-relaxed text-white/60">
+            A loja esta desativada no momento, entao voce sera levado de volta para a home.
+          </p>
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -257,7 +310,7 @@ export default function LojaPage() {
 
       <PrizeCard
         title="Skins, jackpots e usos futuros"
-        subtitle="A estrutura agora já sustenta boosts ativos, craft com fragmentos e as futuras campanhas de super prêmio."
+        subtitle="A estrutura agora já sustenta boosts ativos, craft com fragmentos e futuras campanhas especiais."
       />
 
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/55">

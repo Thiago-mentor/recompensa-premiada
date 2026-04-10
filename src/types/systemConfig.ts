@@ -1,6 +1,7 @@
 import type { Timestamp } from "./firestore";
 import type { GameId } from "./game";
 import type { ChestRarity, ChestSource } from "./chest";
+import type { RafflePrizeCurrency } from "./raffle";
 import type {
   ReferralQualificationRules,
   ReferralRankingPrizeTier,
@@ -106,6 +107,10 @@ export interface SystemEconomyConfig {
   id: "economy";
   rewardAdCoinAmount: number;
   dailyLoginBonus: number;
+  /** Quantos dias o modal diário mostra na janela visual (1-30). */
+  streakDisplayDays?: number;
+  /** Liga a loja de boost e o multiplicador extra de PR no app. */
+  boostEnabled?: boolean;
   /** Percentual extra de PR quando o boost ativo está rodando (ex.: 25 = +25%). */
   boostRewardPercent?: number;
   /** Quantos fragmentos são consumidos para fabricar um pacote de boost. */
@@ -185,5 +190,17 @@ export interface ReferralCampaignSystemConfig {
   };
   activeCampaignId?: string | null;
   campaignText?: string | null;
+  updatedAt?: Timestamp;
+}
+
+export interface RaffleSystemConfig {
+  id: "raffle_system";
+  enabled: boolean;
+  defaultTicketPrice: number;
+  defaultReleasedCount: number;
+  defaultMaxPerPurchase: number;
+  defaultPrizeCurrency: RafflePrizeCurrency;
+  defaultPrizeAmount: number;
+  drawTimeZone: string;
   updatedAt?: Timestamp;
 }

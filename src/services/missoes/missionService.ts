@@ -15,6 +15,7 @@ import { COLLECTIONS, SUBCOLLECTIONS } from "@/lib/constants/collections";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { MissionTemplate, UserMissionProgress } from "@/types/mission";
 import { callFunction } from "@/services/callables/client";
+import { formatFirebaseError } from "@/lib/firebase/errors";
 
 export async function listActiveMissions(): Promise<MissionTemplate[]> {
   const q = query(
@@ -58,6 +59,6 @@ export async function claimMissionRewardCallable(missionId: string): Promise<{
     >("claimMissionReward", { missionId });
     return { ok: true, grantedChest: res.data?.grantedChest ?? null };
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : "Erro ao resgatar" };
+    return { ok: false, error: formatFirebaseError(e) };
   }
 }

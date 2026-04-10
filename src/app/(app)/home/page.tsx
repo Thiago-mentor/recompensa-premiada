@@ -6,26 +6,34 @@ import { useAuth } from "@/hooks/useAuth";
 import { useExperienceCatalogBuckets } from "@/hooks/useExperienceCatalogBuckets";
 import { useHomeDashboard } from "@/hooks/useHomeDashboard";
 import { StatCard } from "@/components/cards/StatCard";
-import { MissionCard } from "@/components/cards/MissionCard";
 import { RewardButton } from "@/components/reward/RewardButton";
 import { RankingCard } from "@/components/ranking/RankingCard";
 import { GameCard } from "@/components/cards/GameCard";
-import { DailyStreakCard } from "@/components/cards/DailyStreakCard";
 import { HomeChestSummaryCard } from "@/components/chests/HomeChestSummaryCard";
 import { ChestGrantNotice } from "@/components/chests/ChestGrantNotice";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { runRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
-import { processDailyLogin } from "@/services/streak/dailyLoginService";
-import { claimMissionRewardCallable } from "@/services/missoes/missionService";
 import { ROUTES } from "@/lib/constants/routes";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
-import { ArrowRight, Banknote, CirclePlay, Clock3, Coins, Flame, Gift, Sparkles, Ticket, TrendingUp, Wallet } from "lucide-react";
+import {
+  ArrowRight,
+  Banknote,
+  CirclePlay,
+  Clock3,
+  Coins,
+  Flame,
+  Gift,
+  Sparkles,
+  Ticket,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import Link from "next/link";
-import { getDailyRewardUiState } from "@/utils/dailyRewardUiState";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
+import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 
 function timestampToMs(value: unknown): number | null {
   if (!value || typeof value !== "object") return null;
@@ -59,24 +67,18 @@ function formatCountdownMs(ms: number): string {
 export default function HomePage() {
   const { user, profile, profileLoading } = useAuth();
   const { arena: arenaCatalog, utility: utilityCatalog } = useExperienceCatalogBuckets();
-  const { dailyPreview, ranking, loadError, refreshRanking, streakCardPreview } = useHomeDashboard();
+  const { ranking, refreshRanking } = useHomeDashboard();
   const [banner, setBanner] = useState<{
     tone: "success" | "error" | "info";
     text: string;
   } | null>(null);
   const [grantedChestNotice, setGrantedChestNotice] = useState<GrantedChestSummary | null>(null);
   const [adLoading, setAdLoading] = useState(false);
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [homeBoostPercent, setHomeBoostPercent] = useState(25);
+  const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
   const [boostNowMs, setBoostNowMs] = useState(() => Date.now());
 
   const nome = profile?.nome || user?.displayName || "Jogador";
-
-  const claimedToday = useMemo(
-    () => getDailyRewardUiState(profile).kind === "claimed_today",
-    [profile],
-  );
   const currentRankingScore = profile?.scoreRankingDiario ?? 0;
   const highlightedRankingEntry = useMemo(
     () => ranking.find((entry) => entry.uid === user?.uid) ?? null,
@@ -103,11 +105,15 @@ export default function HomePage() {
         const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
         if (!snap.exists() || cancelled) return;
         const data = snap.data() as Partial<SystemEconomyConfig>;
+        setBoostSystemEnabled(isBoostSystemEnabled(data));
         if (typeof data.boostRewardPercent === "number") {
           setHomeBoostPercent(Math.max(0, Math.floor(data.boostRewardPercent)));
         }
       } catch {
-        if (!cancelled) setHomeBoostPercent(25);
+        if (!cancelled) {
+          setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
+          setHomeBoostPercent(25);
+        }
       }
     })();
     return () => {
@@ -115,17 +121,17 @@ export default function HomePage() {
     };
   }, []);
 
-  const activeBoostUntilMs = timestampToMs(profile?.activeBoostUntil);
+  const activeBoostUntilMs = boostSystemEnabled ? timestampToMs(profile?.activeBoostUntil) : null;
   const boostRemainingMs =
     activeBoostUntilMs != null ? Math.max(0, activeBoostUntilMs - boostNowMs) : 0;
   const boostActive = boostRemainingMs > 0;
-  const storedBoostMinutes = profile?.storedBoostMinutes ?? 0;
+  const storedBoostMinutes = boostSystemEnabled ? profile?.storedBoostMinutes ?? 0 : 0;
 
   useEffect(() => {
-    if (!boostActive) return;
+    if (!boostSystemEnabled || !boostActive) return;
     const id = window.setInterval(() => setBoostNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [boostActive]);
+  }, [boostActive, boostSystemEnabled]);
 
   async function onAd() {
     setBanner(null);
@@ -138,39 +144,6 @@ export default function HomePage() {
       text: res.ok ? res.message : res.message,
     });
     if (res.ok) refreshRanking();
-  }
-
-  async function onDaily() {
-    setBanner(null);
-    setGrantedChestNotice(null);
-    setLoginLoading(true);
-    const res = await processDailyLogin();
-    setLoginLoading(false);
-    if (!res.ok) {
-      setBanner({ tone: "error", text: res.error || "Erro" });
-      return;
-    }
-    if (res.alreadyCheckedIn) {
-      setGrantedChestNotice(null);
-      return;
-    }
-    setGrantedChestNotice(res.grantedChest ?? null);
-    setBanner({
-      tone: "success",
-      text: `${res.message ?? "Ok."} · Sequência: ${res.streak ?? "-"} dias`,
-    });
-  }
-
-  async function onClaim(missionId: string) {
-    setGrantedChestNotice(null);
-    setClaimingId(missionId);
-    const r = await claimMissionRewardCallable(missionId);
-    setClaimingId(null);
-    setGrantedChestNotice(r.ok ? r.grantedChest ?? null : null);
-    setBanner({
-      tone: r.ok ? "success" : "error",
-      text: r.ok ? "Recompensa resgatada!" : r.error || "Erro ao resgatar",
-    });
   }
 
   return (
@@ -248,50 +221,46 @@ export default function HomePage() {
         />
       ) : null}
 
-      <section className="overflow-hidden rounded-[1.6rem] border border-amber-400/20 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(217,70,239,0.16),transparent_32%),linear-gradient(135deg,rgba(51,65,85,0.98),rgba(15,23,42,0.98))] p-4 shadow-[0_0_42px_-18px_rgba(251,191,36,0.2)]">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-200/70">
-              Boost premium
-            </p>
-            <h2 className="mt-1 text-lg font-black tracking-tight text-white">
-              {boostActive
-                ? `Boost ativo · +${homeBoostPercent}% PR`
-                : storedBoostMinutes > 0
-                  ? "Boost pronto para ativação"
-                  : "Ative multiplicadores de PR"}
-            </h2>
-            <p className="mt-1 text-sm text-white/60">
-              {boostActive
-                ? `Faltam ${formatCountdownMs(boostRemainingMs)} para o bônus acabar.`
-                : storedBoostMinutes > 0
-                  ? `Você tem ${storedBoostMinutes} min guardados para ligar na loja.`
-                  : "Transforme fragmentos em minutos de boost e acelere anúncios, missões, streak e partidas."}
-            </p>
+      {boostSystemEnabled ? (
+        <section className="overflow-hidden rounded-[1.6rem] border border-amber-400/20 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(217,70,239,0.16),transparent_32%),linear-gradient(135deg,rgba(51,65,85,0.98),rgba(15,23,42,0.98))] p-4 shadow-[0_0_42px_-18px_rgba(251,191,36,0.2)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-200/70">
+                Boost premium
+              </p>
+              <h2 className="mt-1 text-lg font-black tracking-tight text-white">
+                {boostActive
+                  ? `Boost ativo · +${homeBoostPercent}% PR`
+                  : storedBoostMinutes > 0
+                    ? "Boost pronto para ativação"
+                    : "Ative multiplicadores de PR"}
+              </h2>
+              <p className="mt-1 text-sm text-white/60">
+                {boostActive
+                  ? `Faltam ${formatCountdownMs(boostRemainingMs)} para o bônus acabar.`
+                  : storedBoostMinutes > 0
+                    ? `Você tem ${storedBoostMinutes} min guardados para ligar na loja.`
+                    : "Transforme fragmentos em minutos de boost e acelere anúncios, streak e partidas."}
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100/85">
+              {boostActive ? <Flame className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
+              {boostActive ? "online" : storedBoostMinutes > 0 ? "pronto" : "offline"}
+            </span>
           </div>
-          <span className="inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100/85">
-            {boostActive ? <Flame className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
-            {boostActive ? "online" : storedBoostMinutes > 0 ? "pronto" : "offline"}
-          </span>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href={ROUTES.loja}
-            className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-400/10 px-4 py-2.5 text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
-          >
-            {boostActive ? "Gerenciar boost" : "Abrir loja de boost"}
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-          <span className="inline-flex min-h-[44px] items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/65">
-            Estoque atual: {storedBoostMinutes} min
-          </span>
-        </div>
-      </section>
-
-      {loadError ? (
-        <AlertBanner tone="error" className="text-xs">
-          {loadError}
-        </AlertBanner>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={ROUTES.loja}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-400/10 px-4 py-2.5 text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
+            >
+              {boostActive ? "Gerenciar boost" : "Abrir loja de boost"}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+            <span className="inline-flex min-h-[44px] items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/65">
+              Estoque atual: {storedBoostMinutes} min
+            </span>
+          </div>
+        </section>
       ) : null}
 
       <section className="space-y-4">
@@ -301,7 +270,7 @@ export default function HomePage() {
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200/65">Saldo e progresso</p>
               <h2 className="mt-1 text-xl font-black tracking-tight text-white">Ganhe PR mais rápido hoje</h2>
               <p className="mt-1 text-sm text-white/55">
-                Assista anúncios, complete missões e jogue partidas para subir no ranking do dia.
+                Assista anúncios, faça check-in e jogue partidas para subir no ranking do dia.
               </p>
             </div>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-white/60">
@@ -324,14 +293,10 @@ export default function HomePage() {
             />
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/10 px-3 py-3">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/75">Anúncios</p>
               <p className="mt-1 text-sm font-semibold text-white">Mais PR com menos esforço</p>
-            </div>
-            <div className="rounded-2xl border border-fuchsia-400/15 bg-fuchsia-500/10 px-3 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-fuchsia-100/75">Missões</p>
-              <p className="mt-1 text-sm font-semibold text-white">PR, ticket e XP no mesmo fluxo</p>
             </div>
             <div className="rounded-2xl border border-amber-400/15 bg-amber-500/10 px-3 py-3">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/75">Confrontos</p>
@@ -355,44 +320,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <DailyStreakCard
-        streak={profile?.streakAtual ?? 0}
-        onCheckIn={onDaily}
-        loading={loginLoading}
-        preview={streakCardPreview}
-        claimedToday={claimedToday}
-      />
-
       <HomeChestSummaryCard />
-
-      <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Missões</p>
-            <h2 className="text-lg font-semibold text-white">Missões do dia</h2>
-            <p className="text-xs text-white/45">Missões rápidas para manter seu progresso ativo</p>
-          </div>
-          <Link href={ROUTES.missoes} className="text-sm text-violet-300 hover:underline">
-            Ver todas
-          </Link>
-        </div>
-        <div className="space-y-3">
-          {dailyPreview.length === 0 ? (
-            <p className="text-sm text-white/50">
-              Nenhuma missão ativa no Firestore. Faça deploy das funções e seed de missões.
-            </p>
-          ) : (
-            dailyPreview.map((m) => (
-              <MissionCard
-                key={m.id}
-                mission={m}
-                onClaim={() => onClaim(m.id)}
-                claiming={claimingId === m.id}
-              />
-            ))
-          )}
-        </div>
-      </section>
 
       <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex items-center justify-between">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import type {
   ReferralCampaign,
@@ -14,12 +14,14 @@ import {
   fetchMyReferralRankingEntry,
   fetchReferralRankingTop,
   fetchReferralSystemConfig,
+  processReferralRewardCallable,
   subscribeInvitedReferrals,
   subscribeReferralAsInvited,
 } from "@/services/referral/referralService";
 
 export function useReferralDashboard(period: ReferralRankingPeriod) {
   const { user } = useAuth();
+  const referralRecheckAttemptedForUidRef = useRef<string | null>(null);
   const [config, setConfig] = useState<ReferralSystemConfig | null>(null);
   const [campaign, setCampaign] = useState<ReferralCampaign | null>(null);
   const [invitedRows, setInvitedRows] = useState<ReferralRecord[]>([]);
@@ -58,6 +60,20 @@ export function useReferralDashboard(period: ReferralRankingPeriod) {
       unsubMine();
     };
   }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      referralRecheckAttemptedForUidRef.current = null;
+      return;
+    }
+    if (!myReferral || myReferral.status !== "pending") {
+      referralRecheckAttemptedForUidRef.current = null;
+      return;
+    }
+    if (referralRecheckAttemptedForUidRef.current === user.uid) return;
+    referralRecheckAttemptedForUidRef.current = user.uid;
+    void processReferralRewardCallable();
+  }, [myReferral, user?.uid]);
 
   useEffect(() => {
     let cancelled = false;

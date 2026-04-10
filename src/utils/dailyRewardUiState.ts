@@ -54,7 +54,14 @@ export function getDailyRewardUiState(
 /** Janela de N dias da sequência com o “dia atual” visível (ex.: 7 slots). */
 export function buildStreakDayWindow(centerDay: number, width = 7): number[] {
   const c = Math.max(1, Math.floor(centerDay));
-  let start = Math.max(1, c - 3);
-  if (start + width - 1 < c) start = Math.max(1, c - (width - 1));
-  return Array.from({ length: width }, (_, i) => start + i);
+  const w = Math.max(1, Math.floor(width));
+  const half = Math.floor((w - 1) / 2);
+  let start = Math.max(1, c - half);
+  let end = start + w - 1;
+  if (c > end) {
+    start = Math.max(1, c - w + 1);
+    end = start + w - 1;
+  }
+  if (start === 1) end = w;
+  return Array.from({ length: Math.max(1, end - start + 1) }, (_, i) => start + i);
 }

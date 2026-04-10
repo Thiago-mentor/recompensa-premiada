@@ -1,6 +1,7 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
+import { formatFirebaseError } from "@/lib/firebase/errors";
 import { callFunction } from "@/services/callables/client";
 
 export async function requestRewardClaim(input: {
@@ -15,6 +16,6 @@ export async function requestRewardClaim(input: {
     await callFunction("requestRewardClaim", input);
     return { ok: true };
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : "Falha ao solicitar" };
+    return { ok: false, error: formatFirebaseError(e) };
   }
 }

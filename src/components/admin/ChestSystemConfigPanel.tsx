@@ -53,7 +53,7 @@ const BONUS_LABEL: Record<ChestBonusRewardKind, string> = {
   bonusCoins: "PR bônus",
   fragments: "Fragmentos",
   boostMinutes: "Boost (min)",
-  superPrizeEntries: "Super prêmio",
+  superPrizeEntries: "Entradas especiais",
 };
 
 const DEFAULT_CHEST_SYSTEM_CONFIG: Omit<ChestSystemConfig, "id" | "updatedAt"> = {
@@ -433,10 +433,21 @@ function readRewardRange(form: RewardRangeForm, fallback: { min: number; max: nu
   return { min, max };
 }
 
-export function ChestSystemConfigPanel() {
+export function ChestSystemConfigPanel({
+  boostSystemEnabled = true,
+}: {
+  boostSystemEnabled?: boolean;
+}) {
   const [form, setForm] = useState<ChestSystemForm>(() => defaultForm());
   const [msg, setMsg] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const visibleBonusRewardKinds = useMemo(
+    () =>
+      boostSystemEnabled
+        ? CHEST_BONUS_REWARD_KINDS
+        : CHEST_BONUS_REWARD_KINDS.filter((kind) => kind !== "boostMinutes"),
+    [boostSystemEnabled],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -478,14 +489,14 @@ export function ChestSystemConfigPanel() {
       Object.fromEntries(
         CHEST_RARITIES.map((rarity) => [
           rarity,
-          CHEST_BONUS_REWARD_KINDS.reduce(
+          visibleBonusRewardKinds.reduce(
             (acc, kind) =>
               acc + Math.max(0, Math.floor(Number(form.bonusWeightsByRarity[rarity][kind]) || 0)),
             0,
           ),
         ]),
       ) as Record<ChestRarity, number>,
-    [form.bonusWeightsByRarity],
+    [form.bonusWeightsByRarity, visibleBonusRewardKinds],
   );
 
   async function saveChestSystem() {
@@ -769,6 +780,13 @@ export function ChestSystemConfigPanel() {
 
       {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
+      {!boostSystemEnabled ? (
+        <AlertBanner tone="info">
+          O boost está desligado na economia. As opções de boost dos baús foram ocultadas, mas os
+          valores atuais continuam preservados para uso futuro.
+        </AlertBanner>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4">
           <h3 className="text-base font-semibold text-white">Capacidade e anúncios</h3>
@@ -991,8 +1009,9 @@ export function ChestSystemConfigPanel() {
         <div>
           <h3 className="text-base font-semibold text-white">Pesos do loot bônus por raridade</h3>
           <p className="mt-1 text-xs text-slate-400">
-            Cada baú mantém a recompensa base e ainda sorteia um extra ponderado entre PR bônus,
-            fragmentos, boost em minutos ou crédito de super prêmio.
+            {boostSystemEnabled
+              ? "Cada baú mantém a recompensa base e ainda sorteia um extra ponderado entre PR bônus, fragmentos, boost em minutos ou entradas especiais."
+              : "Cada baú mantém a recompensa base e ainda sorteia um extra ponderado entre PR bônus, fragmentos ou entradas especiais."}
           </p>
         </div>
         <div className="space-y-3">
@@ -1012,7 +1031,7 @@ export function ChestSystemConfigPanel() {
                 </span>
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {CHEST_BONUS_REWARD_KINDS.map((kind) => (
+                {visibleBonusRewardKinds.map((kind) => (
                   <ConfigField
                     key={`${rarity}-${kind}`}
                     label={BONUS_LABEL[kind]}
@@ -1049,7 +1068,7 @@ export function ChestSystemConfigPanel() {
             <div key={`bonus-ranges-${rarity}`} className="rounded-xl border border-white/10 bg-black/20 p-4">
               <p className="font-medium text-white">{RARITY_LABEL[rarity]}</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {CHEST_BONUS_REWARD_KINDS.map((kind) => (
+                {visibleBonusRewardKinds.map((kind) => (
                   <RangeField
                     key={`${rarity}-range-${kind}`}
                     label={BONUS_LABEL[kind]}

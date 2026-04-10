@@ -35,7 +35,7 @@ export function DailyRewardModalHost() {
         const e = await fetchEconomyStreakSlice();
         if (!c) setEconomy(e);
       } catch {
-        if (!c) setEconomy({ dailyLoginBonus: 50, streakTable: [] });
+        if (!c) setEconomy(DEFAULT_ECONOMY_STREAK_SLICE);
       }
     })();
     return () => {
@@ -48,7 +48,7 @@ export function DailyRewardModalHost() {
   const slots: DailyRewardSlot[] = useMemo(() => {
     if (ui.kind !== "can_claim") return [];
     const center = ui.streakAfterClaim;
-    const days = buildStreakDayWindow(center, 7);
+    const days = buildStreakDayWindow(center, economy.streakDisplayDays);
     return days.map((dayNum) => {
       const r = resolveStreakRewardForDay(dayNum, economy.streakTable, economy.dailyLoginBonus);
       let status: DailyRewardSlot["status"];
@@ -63,7 +63,7 @@ export function DailyRewardModalHost() {
         tipoBonus: r.tipoBonus,
       };
     });
-  }, [economy.streakTable, economy.dailyLoginBonus, ui]);
+  }, [economy.dailyLoginBonus, economy.streakDisplayDays, economy.streakTable, ui]);
 
   const hiddenByUserToday = useMemo(() => {
     if (typeof window === "undefined") return false;

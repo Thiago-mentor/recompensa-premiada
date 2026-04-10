@@ -14,6 +14,9 @@ import {
 } from "firebase/firestore";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
+import { callFunction } from "@/services/callables/client";
+import { formatFirebaseError } from "@/lib/firebase/errors";
+import { getDailyPeriodKey, getMonthlyPeriodKey, getWeeklyPeriodKey } from "@/utils/date";
 import type {
   ReferralCampaign,
   ReferralRankingEntry,
@@ -21,6 +24,41 @@ import type {
   ReferralRecord,
   ReferralSystemConfig,
 } from "@/types/referral";
+
+function referralTimestampToMillis(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  if ("toMillis" in value && typeof (value as { toMillis?: () => number }).toMillis === "function") {
+    try {
+      return (value as { toMillis: () => number }).toMillis();
+    } catch {
+      return 0;
+    }
+  }
+  if ("toDate" in value && typeof (value as { toDate?: () => Date }).toDate === "function") {
+    try {
+      return (value as { toDate: () => Date }).toDate().getTime();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function sortReferralRows(rows: ReferralRecord[]): ReferralRecord[] {
+  return [...rows].sort((a, b) => {
+    const bMs = Math.max(
+      referralTimestampToMillis(b.createdAt),
+      referralTimestampToMillis(b.invitedAt),
+      referralTimestampToMillis(b.updatedAt),
+    );
+    const aMs = Math.max(
+      referralTimestampToMillis(a.createdAt),
+      referralTimestampToMillis(a.invitedAt),
+      referralTimestampToMillis(a.updatedAt),
+    );
+    return bMs - aMs;
+  });
+}
 
 function referralRankingCollection(period: ReferralRankingPeriod): string {
   switch (period) {
@@ -38,18 +76,9 @@ function referralRankingCollection(period: ReferralRankingPeriod): string {
 
 function referralRankingPeriodKey(period: ReferralRankingPeriod): string {
   if (period === "all") return "global";
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(now.getUTCDate()).padStart(2, "0");
-  if (period === "daily") return `${yyyy}-${mm}-${dd}`;
-  if (period === "monthly") return `${yyyy}-${mm}`;
-  const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const day = t.getUTCDay() || 7;
-  t.setUTCDate(t.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((+t - +yearStart) / 86400000 + 1) / 7);
-  return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  if (period === "daily") return getDailyPeriodKey();
+  if (period === "monthly") return getMonthlyPeriodKey();
+  return getWeeklyPeriodKey();
 }
 
 export async function fetchReferralSystemConfig(): Promise<ReferralSystemConfig | null> {
@@ -93,18 +122,42 @@ export function subscribeInvitedReferrals(
   onNext: (rows: ReferralRecord[]) => void,
 ): Unsubscribe {
   const db = getFirebaseFirestore();
-  return onSnapshot(
-    query(
-      collection(db, COLLECTIONS.referrals),
-      where("inviterUserId", "==", inviterUserId),
-      orderBy("createdAt", "desc"),
-      limit(50),
-    ),
-    (snap) => {
-      onNext(snap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralRecord));
-    },
-    () => onNext([]),
-  );
+  let unsubscribe: Unsubscribe | null = null;
+
+  function subscribe(withOrderBy: boolean): Unsubscribe {
+    return onSnapshot(
+      withOrderBy
+        ? query(
+            collection(db, COLLECTIONS.referrals),
+            where("inviterUserId", "==", inviterUserId),
+            orderBy("createdAt", "desc"),
+            limit(50),
+          )
+        : query(
+            collection(db, COLLECTIONS.referrals),
+            where("inviterUserId", "==", inviterUserId),
+            limit(200),
+          ),
+      (snap) => {
+        const rows = snap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralRecord);
+        onNext(withOrderBy ? rows : sortReferralRows(rows).slice(0, 50));
+      },
+      (error) => {
+        if (withOrderBy) {
+          console.warn("[Referral] Falha na query ordenada de convidados; usando fallback sem índice.", error);
+          unsubscribe = subscribe(false);
+          return;
+        }
+        console.error("[Referral] Falha ao carregar convidados.", error);
+        onNext([]);
+      },
+    );
+  }
+
+  unsubscribe = subscribe(true);
+  return () => {
+    unsubscribe?.();
+  };
 }
 
 export function subscribeReferralAsInvited(
@@ -152,4 +205,42 @@ export async function fetchAdminReferralRows(status?: string): Promise<ReferralR
     : query(ref, orderBy("createdAt", "desc"), limit(100));
   const snap = await getDocs(q);
   return snap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralRecord);
+}
+
+export async function processReferralRewardCallable(): Promise<
+  | {
+      ok: true;
+      status: string;
+      qualified: boolean;
+      rewarded: boolean;
+    }
+  | {
+      ok: false;
+      reason?: string;
+      error?: string;
+    }
+> {
+  try {
+    const res = await callFunction<
+      Record<string, never>,
+      {
+        ok: boolean;
+        reason?: string;
+        status?: string;
+        qualified?: boolean;
+        rewarded?: boolean;
+      }
+    >("processReferralReward", {});
+    if (!res.data.ok) {
+      return { ok: false, reason: res.data.reason };
+    }
+    return {
+      ok: true,
+      status: res.data.status ?? "pending",
+      qualified: res.data.qualified === true,
+      rewarded: res.data.rewarded === true,
+    };
+  } catch (error) {
+    return { ok: false, error: formatFirebaseError(error) };
+  }
 }

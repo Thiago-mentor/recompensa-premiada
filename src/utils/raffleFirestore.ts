@@ -1,0 +1,78 @@
+import type { DocumentSnapshot } from "firebase/firestore";
+import type { RaffleAllocationMode, RaffleView } from "@/types/raffle";
+import { clampRaffleMaxPerPurchase, clampRaffleReleasedCount, clampRaffleTicketPrice } from "@/utils/raffle";
+
+const RAFFLE_STATUSES: RaffleView["status"][] = [
+  "draft",
+  "active",
+  "closed",
+  "drawn",
+  "paid",
+  "no_winner",
+];
+
+function parseStatus(raw: unknown): RaffleView["status"] {
+  const s = String(raw || "draft");
+  return RAFFLE_STATUSES.includes(s as RaffleView["status"]) ? (s as RaffleView["status"]) : "draft";
+}
+
+function tsToMs(v: unknown): number | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as { toMillis?: () => number };
+  if (typeof o.toMillis === "function") {
+    try {
+      return o.toMillis();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function parseAllocationMode(raw: unknown): RaffleAllocationMode {
+  return raw === "random" ? "random" : "sequential";
+}
+
+/** Converte snapshot Firestore do sorteio para o mesmo formato retornado pelas callables. */
+export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | null {
+  if (!snap.exists()) return null;
+  const d = snap.data() as Record<string, unknown>;
+  const id = snap.id;
+  const prizeCurrencyRaw = d.prizeCurrency;
+  const prizeCurrency =
+    prizeCurrencyRaw === "gems" || prizeCurrencyRaw === "rewardBalance" || prizeCurrencyRaw === "coins"
+      ? prizeCurrencyRaw
+      : "coins";
+
+  return {
+    id,
+    title: String(d.title || "").trim() || "Sorteio",
+    description: typeof d.description === "string" ? d.description : null,
+    status: parseStatus(d.status),
+    releasedCount: clampRaffleReleasedCount(d.releasedCount),
+    nextSequentialNumber: Math.max(0, Math.floor(Number(d.nextSequentialNumber) || 0)),
+    soldCount: Math.max(0, Math.floor(Number(d.soldCount) || 0)),
+    soldTicketsRevenue: Math.max(0, Math.floor(Number(d.soldTicketsRevenue) || 0)),
+    ticketPrice: clampRaffleTicketPrice(d.ticketPrice),
+    maxPerPurchase: clampRaffleMaxPerPurchase(d.maxPerPurchase),
+    prizeCurrency,
+    prizeAmount: Math.max(0, Math.floor(Number(d.prizeAmount) || 0)),
+    prizeImageUrl:
+      typeof d.prizeImageUrl === "string" && d.prizeImageUrl.trim()
+        ? d.prizeImageUrl.trim().slice(0, 2048)
+        : null,
+    startsAtMs: tsToMs(d.startsAt),
+    endsAtMs: tsToMs(d.endsAt),
+    closedAtMs: tsToMs(d.closedAt),
+    drawnAtMs: tsToMs(d.drawnAt),
+    paidAtMs: tsToMs(d.paidAt),
+    winningNumber: d.winningNumber == null ? null : Math.max(0, Math.floor(Number(d.winningNumber) || 0)),
+    winnerUserId: typeof d.winnerUserId === "string" ? d.winnerUserId : null,
+    winnerPurchaseId: typeof d.winnerPurchaseId === "string" ? d.winnerPurchaseId : null,
+    noWinnerPolicy: "no_payout_close",
+    allocationMode: parseAllocationMode(d.allocationMode),
+    drawTimeZone: typeof d.drawTimeZone === "string" ? d.drawTimeZone : null,
+    createdAtMs: tsToMs(d.createdAt),
+    updatedAtMs: tsToMs(d.updatedAt),
+  };
+}

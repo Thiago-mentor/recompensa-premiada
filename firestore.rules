@@ -50,6 +50,16 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /raffles/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+    }
+
+    match /raffle_purchases/{id} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
     match /matches/{id} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create, update, delete: if false;
@@ -81,13 +91,13 @@ service cloud.firestore {
     }
 
     match /referrals/{id} {
+      allow get, list: if isAdmin();
       allow get: if isSignedIn()
         && (request.auth.uid == id
-          || isAdmin()
           || (resource != null && resource.data.inviterUserId == request.auth.uid));
       allow list: if isSignedIn()
-        && (isAdmin() || resource.data.inviterUserId == request.auth.uid);
-      allow write: if false;
+        && resource.data.inviterUserId == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     match /referral_campaigns/{id} {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
@@ -96,6 +96,19 @@ function getProgressSummaryBadge(
 
 function rewardCurrencyLabel(currency: ReferralRewardCurrency | null | undefined): string {
   return currency === "gems" ? "TICKET" : currency === "rewardBalance" ? "CASH" : "PR";
+}
+
+function formatRewardLabel(
+  amount: number | null | undefined,
+  currency: ReferralRewardCurrency | null | undefined,
+): string {
+  return `${Math.max(0, Math.floor(Number(amount) || 0))} ${rewardCurrencyLabel(currency)}`;
+}
+
+function copiedFeedbackLabel(kind: string | null): string {
+  if (kind === "code" || kind === "link" || kind === "message") return "Texto copiado";
+  if (kind === "share") return "Convite preparado para compartilhar.";
+  return "Texto copiado";
 }
 
 function getRankingCurrencySummary(
@@ -208,13 +221,32 @@ export default function ConvidarPage() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const inviteCode = profile?.codigoConvite ?? "—";
   const inviteLink = profile ? `${origin}/cadastro?convite=${profile.codigoConvite}` : "";
-  const invitedCount = profile?.referralInvitedCount ?? invitedRows.length;
-  const validCount = profile?.referralQualifiedCount ?? 0;
+  const invitedCount = Math.max(
+    invitedRows.length,
+    (profile?.referralPendingCount ?? 0) +
+      (profile?.referralQualifiedCount ?? 0) +
+      (profile?.referralBlockedCount ?? 0),
+  );
+  const validCount =
+    profile?.referralQualifiedCount ??
+    invitedRows.filter((row) => row.status === "valid" || row.status === "rewarded").length;
   const pendingCount = profile?.referralPendingCount ?? invitedRows.filter((row) => row.status === "pending").length;
   const activeRules = resolveReferralQualificationRules(config, campaign);
   const challengeItems = buildReferralQualificationStatus(activeRules);
   const myReferralRules = myReferral?.qualificationSnapshot ?? activeRules;
+  const campaignTitle = campaign?.name ?? "Campanha padrão de indicação";
+  const campaignDescription =
+    campaign?.description ??
+    config?.campaignText ??
+    "Ganhe recompensas quando seus convidados cumprirem as regras da campanha ativa.";
+  const inviterRewardAmount =
+    campaign?.config.inviterRewardAmount ?? config?.defaultInviterRewardAmount ?? 0;
   const inviterRewardCurrency = campaign?.config.inviterRewardCurrency ?? config?.defaultInviterRewardCurrency ?? "coins";
+  const invitedRewardEnabled =
+    campaign?.config.invitedRewardEnabled ?? config?.invitedRewardEnabled ?? false;
+  const invitedRewardAmount = invitedRewardEnabled
+    ? campaign?.config.invitedRewardAmount ?? config?.defaultInvitedRewardAmount ?? 0
+    : 0;
   const invitedRewardCurrency = campaign?.config.invitedRewardCurrency ?? config?.defaultInvitedRewardCurrency ?? "coins";
   const rankingCurrencySummary = getRankingCurrencySummary(campaign?.config.rankingPrizes, period);
   const rankingPrizeTiers = getRankingPrizeTiers(config, campaign, period);
@@ -231,6 +263,15 @@ export default function ConvidarPage() {
     () => findPrizeTierForPosition(rankingPrizeTiers, rankingPosition),
     [rankingPosition, rankingPrizeTiers],
   );
+  const promoMessage = profile
+    ? [
+        `Entre no Recompensa Premiada com meu código ${inviteCode}.`,
+        invitedRewardEnabled
+          ? `Você pode ganhar ${formatRewardLabel(invitedRewardAmount, invitedRewardCurrency)} e eu recebo ${formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)} quando o convite for validado.`
+          : `Quando o convite for validado, eu recebo ${formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)}.`,
+        `Cadastre-se aqui: ${inviteLink}`,
+      ].join(" ")
+    : "";
 
   async function copyValue(value: string, kind: string) {
     if (!value) return;
@@ -258,34 +299,157 @@ export default function ConvidarPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Convide e Ganhe</h1>
-        <p className="mt-1 text-sm text-white/55">
-          Compartilhe seu código, acompanhe convidados e suba no ranking de indicações.
-        </p>
-      </div>
+      <section className="overflow-hidden rounded-[1.85rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_60px_-24px_rgba(34,211,238,0.25)]">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:justify-between">
+          <div className="max-w-2xl flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-200/75">
+              Motor de crescimento
+            </p>
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-white">
+              Convide, compartilhe e transforme isso em marketing
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-white/60">
+              {campaignDescription}
+            </p>
 
-      {copied ? <AlertBanner tone="success">Copiado com sucesso.</AlertBanner> : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-white/75">
+                {campaignTitle}
+              </span>
+              <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-bold text-cyan-200">
+                Você recebe {formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)}
+              </span>
+              {invitedRewardEnabled ? (
+                <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-200">
+                  Convidado recebe {formatRewardLabel(invitedRewardAmount, invitedRewardCurrency)}
+                </span>
+              ) : (
+                <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-amber-200">
+                  Recompensa liberada apos o desafio
+                </span>
+              )}
+            </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Convidados</p>
-          <p className="mt-1 text-2xl font-black text-white">{invitedCount}</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Button size="lg" onClick={() => void shareInvite()} disabled={!profile}>
+                <Share2 className="h-4 w-4" />
+                Compartilhar agora
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                onClick={() => void copyValue(inviteLink, "link")}
+                disabled={!profile}
+              >
+                <Copy className="h-4 w-4" />
+                Copiar link
+              </Button>
+            </div>
+
+            <Button
+              variant="ghost"
+              className="mt-2 min-h-[44px] w-full border border-white/10 bg-white/5 text-white/85 hover:bg-white/10 sm:w-auto"
+              onClick={() => void copyValue(promoMessage, "message")}
+              disabled={!profile || !promoMessage}
+            >
+              <Copy className="h-4 w-4" />
+              Copiar texto pronto para divulgar
+            </Button>
+          </div>
+
+          <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-black/20 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+            <div className="flex items-center gap-3">
+              <div
+                aria-label={profile?.nome || "Convite"}
+                className="h-12 w-12 shrink-0 rounded-2xl border border-white/10 bg-cover bg-center"
+                style={{
+                  backgroundImage: `url(${resolveAvatarUrl({
+                    photoUrl: profile?.foto,
+                    name: profile?.nome,
+                    username: profile?.username,
+                    uid: profile?.uid,
+                  })})`,
+                }}
+              />
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
+                  Seu convite ao vivo
+                </p>
+                <p className="truncate text-sm font-semibold text-white">
+                  {profile?.nome || profile?.username || "Sua campanha"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[1.35rem] border border-violet-400/20 bg-violet-500/10 px-4 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-100/70">
+                Código principal
+              </p>
+              <p className="mt-2 text-3xl font-black tracking-[0.18em] text-white">
+                {inviteCode}
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-white/55">
+                Use esse código em bio, story, grupo, anúncio ou mensagem direta para acelerar a
+                conversão.
+              </p>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <HeroInviteMiniStat
+                label="Válidas"
+                value={String(validCount)}
+                tone="emerald"
+              />
+              <HeroInviteMiniStat
+                label="Ganhos"
+                value={`${totalEarned} ${rewardCurrencyLabel(inviterRewardCurrency)}`}
+                tone="cyan"
+              />
+            </div>
+
+            <Button
+              variant="secondary"
+              className="mt-3 w-full border-white/10"
+              onClick={() => void copyValue(inviteCode, "code")}
+              disabled={!profile}
+            >
+              <Copy className="h-4 w-4" />
+              Copiar código
+            </Button>
+          </div>
         </div>
-        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-100/70">Válidas</p>
-          <p className="mt-1 text-2xl font-black text-white">{validCount}</p>
-        </div>
-        <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/70">Pendentes</p>
-          <p className="mt-1 text-2xl font-black text-white">{pendingCount}</p>
-        </div>
-        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/70">Ganhos</p>
-          <p className="mt-1 text-2xl font-black text-white">
-            {totalEarned} {rewardCurrencyLabel(inviterRewardCurrency)}
-          </p>
-        </div>
+      </section>
+
+      {copied ? <AlertBanner tone="success">{copiedFeedbackLabel(copied)}</AlertBanner> : null}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InviteOverviewCard
+          label="Convidados"
+          value={String(invitedCount)}
+          hint="Base total de convites"
+          icon={<Users className="h-4 w-4 text-white/80" />}
+        />
+        <InviteOverviewCard
+          label="Válidas"
+          value={String(validCount)}
+          hint="Já converteram"
+          icon={<CheckCircle2 className="h-4 w-4 text-emerald-200" />}
+          tone="success"
+        />
+        <InviteOverviewCard
+          label="Pendentes"
+          value={String(pendingCount)}
+          hint="Ainda em qualificação"
+          icon={<UserPlus2 className="h-4 w-4 text-amber-200" />}
+          tone="warning"
+        />
+        <InviteOverviewCard
+          label="Ganhos"
+          value={`${totalEarned} ${rewardCurrencyLabel(inviterRewardCurrency)}`}
+          hint="Retorno acumulado"
+          icon={<Gift className="h-4 w-4 text-cyan-200" />}
+          tone="info"
+        />
       </div>
 
       <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5">
@@ -314,48 +478,98 @@ export default function ConvidarPage() {
       {tab === "convite" ? (
         <section className="space-y-4">
           <div className="rounded-[1.7rem] border border-violet-400/20 bg-gradient-to-br from-violet-950/30 via-slate-950/95 to-slate-950 p-5 shadow-[0_0_40px_-16px_rgba(139,92,246,0.35)]">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-200/70">Seu código</p>
-            <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-2xl font-black tracking-[0.12em] text-white">{inviteCode}</p>
-                <p className="mt-1 text-xs text-white/45">Compartilhe este código ou o link abaixo.</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-200/70">
+                  Kit de divulgação
+                </p>
+                <h2 className="mt-1 text-xl font-black tracking-tight text-white">
+                  Tudo pronto para publicar
+                </h2>
+                <p className="mt-2 text-sm text-white/60">
+                  Código, link e texto promocional em um só lugar para WhatsApp, grupos, bio,
+                  anúncio ou story.
+                </p>
               </div>
-              <Button variant="secondary" onClick={() => void copyValue(inviteCode, "code")} disabled={!profile}>
-                <Copy className="h-4 w-4" />
-                Copiar
-              </Button>
+              <Share2 className="mt-1 h-5 w-5 text-violet-200/75" />
             </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Button onClick={() => void copyValue(inviteLink, "link")} disabled={!profile}>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
+                Texto promocional
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-white/80">
+                {promoMessage || "Faça login para gerar seu material promocional automaticamente."}
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <Button
+                variant="secondary"
+                onClick={() => void copyValue(inviteCode, "code")}
+                disabled={!profile}
+              >
+                <Copy className="h-4 w-4" />
+                Copiar código
+              </Button>
+              <Button
+                onClick={() => void copyValue(inviteLink, "link")}
+                disabled={!profile}
+              >
                 <Copy className="h-4 w-4" />
                 Copiar link
               </Button>
-              <Button variant="secondary" onClick={() => void shareInvite()} disabled={!profile}>
+              <Button
+                variant="secondary"
+                onClick={() => void copyValue(promoMessage, "message")}
+                disabled={!profile || !promoMessage}
+              >
                 <Share2 className="h-4 w-4" />
-                Compartilhar convite
+                Copiar texto
               </Button>
             </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <InviteStepCard
+              step="1"
+              title="Divulgue"
+              text="Compartilhe seu código, link ou texto pronto nos canais onde você já tem alcance."
+              icon={Share2}
+            />
+            <InviteStepCard
+              step="2"
+              title="Converta"
+              text="Quem entra pelo seu convite cria conta e começa a cumprir a campanha ativa."
+              icon={UserPlus2}
+            />
+            <InviteStepCard
+              step="3"
+              title="Monetize"
+              text="Você acompanha o avanço, libera recompensa e ainda pode subir no ranking."
+              icon={Trophy}
+            />
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
             <div className="flex items-start gap-3">
               <Sparkles className="mt-1 h-5 w-5 text-amber-300" />
               <div className="space-y-1">
-                <p className="font-semibold text-white">{campaign?.name ?? "Campanha padrão de indicação"}</p>
+                <p className="font-semibold text-white">{campaignTitle}</p>
                 <p className="text-sm text-white/60">
-                  {campaign?.description ??
-                    config?.campaignText ??
-                    "Ganhe recompensas quando seus convidados cumprirem as regras da campanha ativa."}
+                  {campaignDescription}
                 </p>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-bold text-cyan-200">
-                Indicador recebe {rewardCurrencyLabel(inviterRewardCurrency)}
+                Indicador recebe {formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)}
               </span>
-              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-200">
-                Convidado recebe {rewardCurrencyLabel(invitedRewardCurrency)}
-              </span>
+              {invitedRewardEnabled ? (
+                <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-200">
+                  Convidado recebe {formatRewardLabel(invitedRewardAmount, invitedRewardCurrency)}
+                </span>
+              ) : null}
             </div>
             <p className="mt-3 text-xs text-white/45">
               Se a moeda for alterada no painel admin depois, as próximas premiações passam a seguir a nova configuração
@@ -730,6 +944,89 @@ function ProgressChecklist({
         ))}
       </div>
       <p className="mt-3 text-xs text-white/50">{pendingSummary}</p>
+    </div>
+  );
+}
+
+function InviteOverviewCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: ReactNode;
+  tone?: "default" | "info" | "success" | "warning";
+}) {
+  const toneClassName =
+    tone === "success"
+      ? "border-emerald-400/20 bg-emerald-500/10"
+      : tone === "warning"
+        ? "border-amber-400/20 bg-amber-500/10"
+        : tone === "info"
+          ? "border-cyan-400/20 bg-cyan-500/10"
+          : "border-white/10 bg-white/[0.05]";
+
+  return (
+    <div className={cn("rounded-2xl border p-4", toneClassName)}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">{label}</p>
+        {icon}
+      </div>
+      <p className="mt-2 text-2xl font-black text-white">{value}</p>
+      <p className="mt-1 text-xs text-white/55">{hint}</p>
+    </div>
+  );
+}
+
+function HeroInviteMiniStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "cyan" | "emerald";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-3 py-3",
+        tone === "emerald"
+          ? "border-emerald-400/20 bg-emerald-500/10"
+          : "border-cyan-400/20 bg-cyan-500/10",
+      )}
+    >
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">{label}</p>
+      <p className="mt-1 text-sm font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function InviteStepCard({
+  step,
+  title,
+  text,
+  icon: Icon,
+}: {
+  step: string;
+  title: string;
+  text: string;
+  icon: LucideIcon;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/70">
+          Etapa {step}
+        </span>
+        <Icon className="h-4 w-4 text-cyan-200" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-white">{title}</p>
+      <p className="mt-2 text-sm leading-relaxed text-white/60">{text}</p>
     </div>
   );
 }

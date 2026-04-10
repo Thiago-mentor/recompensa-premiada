@@ -1,6 +1,7 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
+import { formatFirebaseError } from "@/lib/firebase/errors";
 import { callFunction } from "@/services/callables/client";
 import type { GrantedChestSummary } from "@/types/chest";
 
@@ -86,7 +87,7 @@ export async function processDailyLogin(): Promise<{
   } catch (e: unknown) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Não foi possível registrar a entrada.",
+      error: formatFirebaseError(e),
     };
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
@@ -19,16 +19,20 @@ import {
 } from "@/utils/chest";
 import {
   ArrowRight,
+  CheckCircle2,
+  CircleAlert,
   Clock3,
   Coins,
   Flame,
   Gift,
   Hourglass,
   Inbox,
+  Info,
   PackageOpen,
   Sparkles,
   Ticket,
   Trophy,
+  X,
   Zap,
 } from "lucide-react";
 
@@ -51,6 +55,7 @@ export function BauGameScreen() {
     queueItems,
     activeUnlockChest,
     feedback,
+    clearFeedback,
     busyState,
     startUnlock,
     speedUpChest,
@@ -130,12 +135,6 @@ export function BauGameScreen() {
             </div>
           </div>
         </motion.header>
-
-        {feedback ? (
-          <motion.div variants={fadeUpItem}>
-            <AlertBanner tone={feedback.tone}>{feedback.text}</AlertBanner>
-          </motion.div>
-        ) : null}
 
         {summary.backlogFull ? (
           <motion.div variants={fadeUpItem}>
@@ -482,7 +481,72 @@ export function BauGameScreen() {
           />
         </motion.section>
       </motion.div>
+      <ChestFeedbackToast feedback={feedback} onDismiss={clearFeedback} />
     </ArenaShell>
+  );
+}
+
+function ChestFeedbackToast({
+  feedback,
+  onDismiss,
+}: {
+  feedback: { tone: "info" | "success" | "error"; text: string } | null;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    if (!feedback) return;
+    const id = window.setTimeout(onDismiss, feedback.tone === "error" ? 5600 : 4200);
+    return () => window.clearTimeout(id);
+  }, [feedback, onDismiss]);
+
+  useEffect(() => {
+    if (!feedback) return;
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+    if (typeof window !== "undefined" && !window.matchMedia("(pointer: coarse)").matches) return;
+    navigator.vibrate(feedback.tone === "error" ? [80, 70, 80] : [40]);
+  }, [feedback]);
+
+  if (!feedback) return null;
+
+  const Icon =
+    feedback.tone === "success" ? CheckCircle2 : feedback.tone === "error" ? CircleAlert : Info;
+  const glowClass =
+    feedback.tone === "success"
+      ? "shadow-[0_22px_54px_-22px_rgba(16,185,129,0.75)]"
+      : feedback.tone === "error"
+        ? "shadow-[0_22px_54px_-20px_rgba(239,68,68,0.85)]"
+        : "shadow-[0_22px_54px_-22px_rgba(14,165,233,0.75)]";
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70] flex justify-center px-4">
+      <motion.div
+        key={`${feedback.tone}:${feedback.text}`}
+        initial={{ opacity: 0, y: 26, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 320, damping: 24 }}
+        className="pointer-events-auto w-full max-w-md"
+      >
+        <AlertBanner
+          tone={feedback.tone}
+          className={cn(
+            "flex items-start gap-3 rounded-2xl px-4 py-3 backdrop-blur sm:px-4",
+            "ring-1 ring-white/10",
+            glowClass,
+          )}
+        >
+          <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="min-w-0 flex-1 pr-2 leading-relaxed">{feedback.text}</div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-full border border-white/10 p-1 text-white/70 transition hover:bg-white/10 hover:text-white"
+            aria-label="Fechar aviso"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </AlertBanner>
+      </motion.div>
+    </div>
   );
 }
 
@@ -686,7 +750,8 @@ function RewardBadges({
       ) : null}
       {rewards.superPrizeEntries > 0 ? (
         <span className="inline-flex items-center gap-1 rounded-full border border-rose-300/20 bg-rose-500/10 px-2.5 py-1 text-rose-100/90">
-          <Trophy className="h-3 w-3" />+{rewards.superPrizeEntries} super prêmio
+          <Trophy className="h-3 w-3" />+{rewards.superPrizeEntries} entrada
+          {rewards.superPrizeEntries === 1 ? " especial" : "s especiais"}
         </span>
       ) : null}
     </div>

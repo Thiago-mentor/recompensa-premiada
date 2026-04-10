@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeWalletTransactions } from "@/services/carteira/walletService";
@@ -9,8 +10,12 @@ import { StatCard } from "@/components/cards/StatCard";
 import { WalletRow } from "@/components/cards/WalletRow";
 import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
 import { ROUTES } from "@/lib/constants/routes";
+import { COLLECTIONS } from "@/lib/constants/collections";
+import { getFirebaseFirestore } from "@/lib/firebase/client";
+import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
+import type { SystemEconomyConfig } from "@/types/systemConfig";
 import {
   ArrowRight,
   ArrowRightLeft,
@@ -72,12 +77,30 @@ export default function CarteiraPage() {
   const [rows, setRows] = useState<WalletTransaction[]>([]);
   const [filtro, setFiltro] = useState<FiltroExtrato>("todos");
   const [aba, setAba] = useState<CarteiraTab>("resumo");
+  const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
 
   useEffect(() => {
     if (!user) return;
     const tipo: WalletTransactionType | null = filtro === "todos" ? null : filtro;
     return subscribeWalletTransactions(user.uid, { pageSize: 50, tipo }, setRows);
   }, [user, filtro]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
+        if (!snap.exists() || cancelled) return;
+        const data = snap.data() as Partial<SystemEconomyConfig>;
+        setBoostSystemEnabled(isBoostSystemEnabled(data));
+      } catch {
+        if (!cancelled) setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-6 pb-4">
@@ -156,6 +179,27 @@ export default function CarteiraPage() {
             />
           </div>
 
+          <section className="rounded-2xl border border-fuchsia-400/25 bg-gradient-to-br from-fuchsia-950/30 via-slate-950/90 to-slate-950 p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-200/65">Sorteios</p>
+                <h2 className="mt-1 text-lg font-black tracking-tight text-white sm:text-xl">
+                  Use seus TICKET nos números da sorte
+                </h2>
+                <p className="mt-1 text-sm text-white/50">
+                  Compre faixas automáticas (6 dígitos), acompanhe o sorteio ativo e veja suas compras sem travar o app.
+                </p>
+              </div>
+              <Ticket className="h-5 w-5 text-fuchsia-200/75" aria-hidden />
+            </div>
+            <Link
+              href={ROUTES.sorteios}
+              className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl border border-fuchsia-400/35 bg-fuchsia-500/10 px-4 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/15"
+            >
+              Abrir sorteios
+            </Link>
+          </section>
+
           <section className="rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-950/20 via-slate-950/90 to-slate-950 p-4 sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -166,32 +210,41 @@ export default function CarteiraPage() {
                   Inventário premium dos baús
                 </h2>
                 <p className="mt-1 text-sm text-white/50">
-                  Estes ativos não entram no extrato financeiro tradicional. Eles ficam guardados
-                  no perfil para futuras trocas, boosts e campanhas de super prêmio.
+                  {boostSystemEnabled
+                    ? "Estes ativos não entram no extrato financeiro tradicional. Eles ficam guardados no perfil para futuras trocas, boosts e campanhas especiais."
+                    : "Estes ativos não entram no extrato financeiro tradicional. Eles ficam guardados no perfil para campanhas futuras e usos especiais."}
                 </p>
               </div>
               <Sparkles className="h-5 w-5 text-amber-200/75" aria-hidden />
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className={cn("mt-4 grid gap-3", boostSystemEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
               <StatCard
                 label="Fragmentos"
                 value={profile ? String(profile.fragments ?? 0) : "—"}
                 icon={Sparkles}
               />
+              {boostSystemEnabled ? (
+                <StatCard
+                  label="Boost acumulado"
+                  value={profile ? `${profile.storedBoostMinutes ?? 0} min` : "—"}
+                  icon={Flame}
+                />
+              ) : null}
               <StatCard
-                label="Boost acumulado"
-                value={profile ? `${profile.storedBoostMinutes ?? 0} min` : "—"}
-                icon={Flame}
-              />
-              <StatCard
-                label="Super prêmio"
+                label="Entradas especiais"
                 value={profile ? String(profile.superPrizeEntries ?? 0) : "—"}
                 icon={Trophy}
               />
             </div>
             <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60">
-              {boostStatusLabel(profile?.activeBoostUntil)}
+              Entradas especiais sao creditos raros reservados para campanhas ou jackpots especiais
+              quando esse modo estiver ativo.
             </div>
+            {boostSystemEnabled ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60">
+                {boostStatusLabel(profile?.activeBoostUntil)}
+              </div>
+            ) : null}
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">

@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         try {
-          const tr = await u.getIdTokenResult();
+          const tr = await u.getIdTokenResult(true);
           setIsAdmin(tr.claims.admin === true);
         } catch {
           setIsAdmin(false);

@@ -10,6 +10,15 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
+    /** Foto do prêmio do sorteio — leitura pública; escrita só admin. */
+    match /raffles/{raffleId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.admin == true
+        && fileName.matches('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,120}$')
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     /** Comprovante de PIX — só admin envia; o app repassa a URL pública ao usuário via Firestore. */
     match /reward_claim_comprovantes/{claimId}/{fileName} {
       allow read: if request.auth != null && request.auth.token.admin == true;

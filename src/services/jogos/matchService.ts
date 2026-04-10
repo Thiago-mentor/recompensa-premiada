@@ -1,6 +1,7 @@
 "use client";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
+import { formatFirebaseError } from "@/lib/firebase/errors";
 import { callFunction } from "@/services/callables/client";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { GameId } from "@/types/game";
@@ -64,7 +65,7 @@ export async function finalizeMatchOnServer(input: FinalizeMatchInput): Promise<
   } catch (e: unknown) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Partida não registrada",
+      error: formatFirebaseError(e),
     };
   }
 }

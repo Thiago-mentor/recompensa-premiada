@@ -23,6 +23,8 @@ export const COLLECTIONS = {
   announcements: "announcements",
   supportTickets: "support_tickets",
   userChests: "user_chests",
+  raffles: "raffles",
+  rafflePurchases: "raffle_purchases",
   /** Fila automática: `matchmaking_queue/{gameId}/waiting/{uid}` — só Functions */
   matchmakingQueue: "matchmaking_queue",
   /** Sala 1v1 após pareamento */

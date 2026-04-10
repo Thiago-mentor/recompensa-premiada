@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
+exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
+exports.tickRaffles = exports.adminCloseReferralRanking = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -63,8 +64,11 @@ const COL = {
     wallet: "wallet_transactions",
     matches: "matches",
     adEvents: "ad_events",
+    rewardedAdSessions: "rewarded_ad_sessions",
     fraudLogs: "fraud_logs",
     systemConfigs: "system_configs",
+    raffles: "raffles",
+    rafflePurchases: "raffle_purchases",
     rewardClaims: "reward_claims",
     rankingsDaily: "rankings_daily",
     rankingsWeekly: "rankings_weekly",
@@ -85,7 +89,9 @@ const GAME_TITLES = {
 };
 /** PPT em sala: primeiro a chegar nesta pontuação vence a partida (cada rodada sem empate = 1 ponto). */
 const PPT_MATCH_TARGET_POINTS = 5;
+const PPT_ROUND_REVEAL_MS = 3200;
 const QUIZ_MATCH_TARGET_POINTS = 5;
+const QUIZ_ROUND_REVEAL_MS = 1800;
 const REACTION_MATCH_TARGET_POINTS = 5;
 const QUIZ_RESPONSE_MS_CAP = 30000;
 const DEFAULT_PVP_CHOICE_SEC = { ppt: 10, quiz: 10, reaction_tap: 10 };
@@ -146,6 +152,18 @@ const DEFAULT_SCHEDULE_OPTS = {
     region: MULTIPLAYER_FUNCTIONS_REGION,
     timeZone: "America/Sao_Paulo",
 };
+const RAFFLE_SYSTEM_CONFIG_ID = "raffle_system";
+const RAFFLE_MAX_RELEASED_COUNT = 1000000;
+const RAFFLE_DEFAULT_DRAW_TIME_ZONE = DEFAULT_SCHEDULE_OPTS.timeZone;
+const RAFFLE_DEFAULT_SYSTEM_CONFIG = {
+    enabled: true,
+    defaultTicketPrice: 1,
+    defaultReleasedCount: 10000,
+    defaultMaxPerPurchase: 20,
+    defaultPrizeCurrency: "coins",
+    defaultPrizeAmount: 1000,
+    drawTimeZone: RAFFLE_DEFAULT_DRAW_TIME_ZONE,
+};
 /** Duelos PvP PPT antes de precisar de anúncio (só o servidor altera). */
 const PPT_DEFAULT_DUEL_CHARGES = 3;
 const PPT_DUEL_CHARGES_PER_AD = 3;
@@ -173,11 +191,16 @@ const ALLOWED_REWARDED_AD_PLACEMENTS = new Set([
     REACTION_PVP_DUELS_PLACEMENT_ID,
 ]);
 const REWARDED_AD_MOCK_PREFIX = "mock_";
+const REWARDED_AD_NATIVE_ANDROID_PREFIX = "native_android_";
 const REWARDED_AD_TOKEN_MIN_LEN = 16;
 const REWARDED_AD_TOKEN_MAX_LEN = 256;
+const REWARDED_AD_SESSION_TTL_MS = 20 * 60 * 1000;
+const ADMOB_SSV_KEYS_URL = "https://gstatic.com/admob/reward/verifier-keys.json";
+const ADMOB_SSV_KEYS_TTL_MS = 24 * 60 * 60 * 1000;
 const rewardAdMockAllowed = process.env.ALLOW_REWARDED_AD_MOCK === "true" ||
     process.env.FUNCTIONS_EMULATOR === "true" ||
     Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
+let admobSsvKeysCache = null;
 const CHEST_SYSTEM_CONFIG_ID = "chest_system";
 const CHEST_SPEEDUP_PLACEMENT_ID = "chest_speedup";
 const CHEST_RARITIES = ["comum", "raro", "epico", "lendario"];
@@ -537,6 +560,7 @@ async function getEconomy() {
     return {
         rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
         dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
+        boostEnabled: d.boostEnabled === true,
         boostRewardPercent: Number.isFinite(rawBoostPercent) && rawBoostPercent >= 0
             ? Math.min(300, rawBoostPercent)
             : 25,
@@ -565,6 +589,251 @@ async function getEconomy() {
         cashPointsPerReal: Number.isFinite(rawCash) && rawCash >= 1 ? rawCash : 100,
     };
 }
+function normalizeRaffleReleasedCount(raw) {
+    const parsed = Math.floor(Number(raw));
+    if (!Number.isFinite(parsed))
+        return RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultReleasedCount;
+    return Math.min(RAFFLE_MAX_RELEASED_COUNT, Math.max(1, parsed));
+}
+function normalizeRaffleTicketPrice(raw) {
+    const parsed = Math.floor(Number(raw));
+    if (!Number.isFinite(parsed))
+        return RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultTicketPrice;
+    return Math.max(1, parsed);
+}
+function normalizeRaffleMaxPerPurchase(raw) {
+    const parsed = Math.floor(Number(raw));
+    if (!Number.isFinite(parsed))
+        return RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultMaxPerPurchase;
+    return Math.min(500, Math.max(1, parsed));
+}
+function normalizeRafflePrizeAmount(raw) {
+    const parsed = Math.floor(Number(raw));
+    if (!Number.isFinite(parsed))
+        return RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultPrizeAmount;
+    return Math.max(0, parsed);
+}
+const RAFFLE_PRIZE_IMAGE_URL_MAX = 2048;
+function parsePrizeImageUrlFromDoc(raw) {
+    if (typeof raw !== "string")
+        return null;
+    const t = raw.trim();
+    if (!t || t.length > RAFFLE_PRIZE_IMAGE_URL_MAX)
+        return null;
+    return t;
+}
+/** `undefined` = não alterar o campo; `null` = remover; string = gravar URL. */
+function normalizeOptionalPrizeImageUrlFromRequest(raw) {
+    if (raw === undefined)
+        return undefined;
+    if (raw === null)
+        return null;
+    if (typeof raw !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "prizeImageUrl inválido.");
+    }
+    const t = raw.trim();
+    if (!t)
+        return null;
+    if (t.length > RAFFLE_PRIZE_IMAGE_URL_MAX) {
+        throw new https_1.HttpsError("invalid-argument", "prizeImageUrl muito longo.");
+    }
+    try {
+        const u = new URL(t);
+        const h = u.hostname.toLowerCase();
+        const ok = u.protocol === "https:" ||
+            (u.protocol === "http:" && (h === "localhost" || h === "127.0.0.1"));
+        if (!ok)
+            throw new Error("bad");
+    }
+    catch {
+        throw new https_1.HttpsError("invalid-argument", "prizeImageUrl deve ser uma URL https (ou http em localhost /127.0.0.1 para emulador).");
+    }
+    return t;
+}
+async function getRaffleSystemConfig() {
+    const snap = await db.doc(`${COL.systemConfigs}/${RAFFLE_SYSTEM_CONFIG_ID}`).get();
+    const d = (snap.data() || {});
+    const rawCurrency = d.defaultPrizeCurrency;
+    const defaultPrizeCurrency = isRewardCurrency(rawCurrency)
+        ? rawCurrency
+        : RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultPrizeCurrency;
+    return {
+        enabled: d.enabled !== false,
+        defaultTicketPrice: normalizeRaffleTicketPrice(d.defaultTicketPrice),
+        defaultReleasedCount: normalizeRaffleReleasedCount(d.defaultReleasedCount),
+        defaultMaxPerPurchase: normalizeRaffleMaxPerPurchase(d.defaultMaxPerPurchase),
+        defaultPrizeCurrency,
+        defaultPrizeAmount: normalizeRafflePrizeAmount(d.defaultPrizeAmount),
+        drawTimeZone: typeof d.drawTimeZone === "string" && d.drawTimeZone.trim()
+            ? d.drawTimeZone.trim()
+            : RAFFLE_DEFAULT_DRAW_TIME_ZONE,
+    };
+}
+function coerceTimestampOrNull(value) {
+    if (!value)
+        return null;
+    if (value instanceof firestore_2.Timestamp)
+        return value;
+    if (typeof value === "object") {
+        const maybe = value;
+        if (typeof maybe.toMillis === "function") {
+            try {
+                return firestore_2.Timestamp.fromMillis(maybe.toMillis());
+            }
+            catch {
+                return null;
+            }
+        }
+    }
+    return null;
+}
+function raffleDocFromFirestore(id, data) {
+    const status = String(data.status || "draft");
+    const prizeCurrencyRaw = data.prizeCurrency;
+    const prizeCurrency = isRewardCurrency(prizeCurrencyRaw) ? prizeCurrencyRaw : "coins";
+    return {
+        id,
+        title: String(data.title || "").trim() || "Sorteio",
+        description: typeof data.description === "string" ? data.description : null,
+        status: ["draft", "active", "closed", "drawn", "paid", "no_winner"].includes(status)
+            ? status
+            : "draft",
+        releasedCount: normalizeRaffleReleasedCount(data.releasedCount),
+        nextSequentialNumber: Math.max(0, Math.min(RAFFLE_MAX_RELEASED_COUNT, Math.floor(Number(data.nextSequentialNumber) || 0))),
+        soldCount: Math.max(0, Math.floor(Number(data.soldCount) || 0)),
+        soldTicketsRevenue: Math.max(0, Math.floor(Number(data.soldTicketsRevenue) || 0)),
+        ticketPrice: normalizeRaffleTicketPrice(data.ticketPrice),
+        maxPerPurchase: normalizeRaffleMaxPerPurchase(data.maxPerPurchase),
+        prizeCurrency,
+        prizeAmount: normalizeRafflePrizeAmount(data.prizeAmount),
+        prizeImageUrl: parsePrizeImageUrlFromDoc(data.prizeImageUrl),
+        allocationMode: data.allocationMode === "random"
+            ? "random"
+            : data.allocationMode === "sequential"
+                ? "sequential"
+                : "sequential",
+        startsAt: coerceTimestampOrNull(data.startsAt),
+        endsAt: coerceTimestampOrNull(data.endsAt),
+        closedAt: coerceTimestampOrNull(data.closedAt),
+        drawnAt: coerceTimestampOrNull(data.drawnAt),
+        paidAt: coerceTimestampOrNull(data.paidAt),
+        winningNumber: data.winningNumber == null ? null : Math.max(0, Math.floor(Number(data.winningNumber) || 0)),
+        winnerUserId: typeof data.winnerUserId === "string" ? data.winnerUserId : null,
+        winnerPurchaseId: typeof data.winnerPurchaseId === "string" ? data.winnerPurchaseId : null,
+        noWinnerPolicy: data.noWinnerPolicy === "no_payout_close" ? "no_payout_close" : "no_payout_close",
+        drawTimeZone: typeof data.drawTimeZone === "string" && data.drawTimeZone.trim()
+            ? data.drawTimeZone.trim()
+            : RAFFLE_DEFAULT_DRAW_TIME_ZONE,
+        createdAt: coerceTimestampOrNull(data.createdAt),
+        updatedAt: coerceTimestampOrNull(data.updatedAt),
+    };
+}
+function raffleViewFromDoc(docSnap) {
+    const d = raffleDocFromFirestore(docSnap.id, (docSnap.data() || {}));
+    return {
+        id: d.id,
+        title: d.title,
+        description: d.description,
+        status: d.status,
+        releasedCount: d.releasedCount,
+        nextSequentialNumber: d.nextSequentialNumber,
+        soldCount: d.soldCount,
+        soldTicketsRevenue: d.soldTicketsRevenue,
+        ticketPrice: d.ticketPrice,
+        maxPerPurchase: d.maxPerPurchase,
+        prizeCurrency: d.prizeCurrency,
+        prizeAmount: d.prizeAmount,
+        prizeImageUrl: d.prizeImageUrl,
+        startsAtMs: d.startsAt ? d.startsAt.toMillis() : null,
+        endsAtMs: d.endsAt ? d.endsAt.toMillis() : null,
+        closedAtMs: d.closedAt ? d.closedAt.toMillis() : null,
+        drawnAtMs: d.drawnAt ? d.drawnAt.toMillis() : null,
+        paidAtMs: d.paidAt ? d.paidAt.toMillis() : null,
+        winningNumber: d.winningNumber,
+        winnerUserId: d.winnerUserId,
+        winnerPurchaseId: d.winnerPurchaseId,
+        noWinnerPolicy: d.noWinnerPolicy,
+        allocationMode: d.allocationMode,
+        drawTimeZone: d.drawTimeZone,
+        createdAtMs: d.createdAt ? d.createdAt.toMillis() : null,
+        updatedAtMs: d.updatedAt ? d.updatedAt.toMillis() : null,
+    };
+}
+function rafflePurchaseViewFromDoc(docSnap) {
+    const d = (docSnap.data() || {});
+    const createdAt = coerceTimestampOrNull(d.createdAt) ?? firestore_2.Timestamp.fromMillis(0);
+    const rawNums = d.numbers;
+    const numbers = Array.isArray(rawNums) && rawNums.length > 0
+        ? rawNums.map((n) => Math.max(0, Math.floor(Number(n) || 0)))
+        : null;
+    return {
+        id: docSnap.id,
+        raffleId: String(d.raffleId || ""),
+        raffleTitle: typeof d.raffleTitle === "string" ? d.raffleTitle : null,
+        userId: String(d.userId || ""),
+        quantity: Math.max(0, Math.floor(Number(d.quantity) || 0)),
+        ticketCost: Math.max(0, Math.floor(Number(d.ticketCost) || 0)),
+        rangeStart: Math.max(0, Math.floor(Number(d.rangeStart) || 0)),
+        rangeEnd: Math.max(0, Math.floor(Number(d.rangeEnd) || 0)),
+        numbers,
+        clientRequestId: String(d.clientRequestId || ""),
+        createdAtMs: createdAt.toMillis(),
+    };
+}
+function raffleSoldBitsByteLength(releasedCount) {
+    const n = Math.max(1, Math.min(RAFFLE_MAX_RELEASED_COUNT, Math.floor(releasedCount)));
+    return Math.ceil(n / 8);
+}
+function readSoldBitsBuffer(raw, releasedCount) {
+    const len = raffleSoldBitsByteLength(releasedCount);
+    const buf = Buffer.alloc(len, 0);
+    if (raw == null)
+        return buf;
+    let incoming = null;
+    if (Buffer.isBuffer(raw))
+        incoming = raw;
+    else if (raw instanceof Uint8Array)
+        incoming = Buffer.from(raw);
+    if (!incoming || incoming.length === 0)
+        return buf;
+    const copyLen = Math.min(len, incoming.length);
+    incoming.copy(buf, 0, 0, copyLen);
+    return buf;
+}
+function raffleBitIsSet(buf, index) {
+    if (index < 0 || index >= RAFFLE_MAX_RELEASED_COUNT)
+        return true;
+    const byte = index >> 3;
+    if (byte >= buf.length)
+        return false;
+    const bit = index & 7;
+    return (buf[byte] & (1 << bit)) !== 0;
+}
+function raffleBitSet(buf, index) {
+    const byte = index >> 3;
+    const bit = index & 7;
+    if (byte < buf.length)
+        buf[byte] |= 1 << bit;
+}
+function shuffleNumberArrayInPlace(nums) {
+    for (let i = nums.length - 1; i > 0; i--) {
+        const j = (0, node_crypto_1.randomInt)(0, i);
+        const tmp = nums[i];
+        nums[i] = nums[j];
+        nums[j] = tmp;
+    }
+}
+function isRafflePurchaseWindowOpen(raffle, nowMs) {
+    if (raffle.startsAt && raffle.startsAt.toMillis() > nowMs)
+        return false;
+    if (raffle.endsAt && raffle.endsAt.toMillis() <= nowMs)
+        return false;
+    return true;
+}
+function pickWinningNumber(releasedCount) {
+    const max = Math.max(1, Math.min(RAFFLE_MAX_RELEASED_COUNT, Math.floor(releasedCount)));
+    return (0, node_crypto_1.randomInt)(0, max - 1);
+}
 function readStoredBoostMinutes(data) {
     if (!data)
         return 0;
@@ -580,10 +849,16 @@ function readActiveBoostUntilMs(data) {
         return 0;
     return millisFromFirestoreTime(data.activeBoostUntil);
 }
+function isBoostSystemEnabled(economy) {
+    return economy?.boostEnabled === true;
+}
 function resolveBoostedCoins(baseCoins, userData, economy, nowMs = Date.now()) {
     const normalizedBase = Math.max(0, Math.floor(Number(baseCoins) || 0));
     if (normalizedBase <= 0) {
         return { totalCoins: 0, boostCoins: 0, boostActive: false };
+    }
+    if (!isBoostSystemEnabled(economy)) {
+        return { totalCoins: normalizedBase, boostCoins: 0, boostActive: false };
     }
     const activeUntilMs = readActiveBoostUntilMs(userData);
     const boostPercent = Math.max(0, Math.floor(Number(economy.boostRewardPercent) || 0));
@@ -903,7 +1178,7 @@ function pickWeightedChestBonusRewardKind(weights) {
     }
     return weights[weights.length - 1]?.kind ?? null;
 }
-function rollChestRewards(rarity, config) {
+function rollChestRewards(rarity, config, boostEnabled = true) {
     const table = config.rewardTablesByRarity[rarity];
     const rewards = {
         coins: rollRewardAmount(table.coins),
@@ -917,7 +1192,8 @@ function rollChestRewards(rarity, config) {
     const bonusKind = pickWeightedChestBonusRewardKind(config.bonusWeightsByRarity[rarity]);
     if (!bonusKind)
         return rewards;
-    rewards[bonusKind] = rollRewardAmount(config.bonusRewardTablesByRarity[rarity][bonusKind]);
+    const resolvedBonusKind = !boostEnabled && bonusKind === "boostMinutes" ? "bonusCoins" : bonusKind;
+    rewards[resolvedBonusKind] = rollRewardAmount(config.bonusRewardTablesByRarity[rarity][resolvedBonusKind]);
     return rewards;
 }
 function pickWeightedChestRarity(weights) {
@@ -984,7 +1260,7 @@ function chestItemWire(item) {
     };
 }
 async function grantChestIfEligible(input) {
-    const config = await getChestSystemConfig();
+    const [config, economy] = await Promise.all([getChestSystemConfig(), getEconomy()]);
     if (!config.enabled)
         return null;
     const metaRef = db.doc(`${COL.userChests}/${input.uid}`);
@@ -1020,7 +1296,7 @@ async function grantChestIfEligible(input) {
         const slotIndex = occupiedSlots < config.slotCount ? occupiedSlots : null;
         const queuePosition = slotIndex == null ? queuedCount : null;
         const status = slotIndex == null ? "queued" : "locked";
-        const rewardsSnapshot = rollChestRewards(rarity, config);
+        const rewardsSnapshot = rollChestRewards(rarity, config, isBoostSystemEnabled(economy));
         tx.set(newItemRef, {
             id: newItemRef.id,
             userId: input.uid,
@@ -1158,19 +1434,65 @@ function normalizeMatchRewardOverrides(raw) {
         reaction_tap: normalizeRewardOverride(raw.reaction_tap),
     };
 }
+function pad2(value) {
+    return String(value).padStart(2, "0");
+}
+function appDateTimeParts(d = new Date(), timeZone = DEFAULT_SCHEDULE_OPTS.timeZone) {
+    const values = {};
+    const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+        hourCycle: "h23",
+    });
+    for (const part of formatter.formatToParts(d)) {
+        if (part.type !== "literal")
+            values[part.type] = part.value;
+    }
+    return {
+        year: Number(values.year),
+        month: Number(values.month),
+        day: Number(values.day),
+        hour: Number(values.hour),
+        minute: Number(values.minute),
+        second: Number(values.second),
+    };
+}
+function appDateToUtcMs(parts) {
+    const approxUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
+    const offsetParts = appDateTimeParts(new Date(approxUtc));
+    const offsetUtc = Date.UTC(offsetParts.year, offsetParts.month - 1, offsetParts.day, offsetParts.hour, offsetParts.minute, offsetParts.second);
+    return approxUtc - (offsetUtc - approxUtc);
+}
+function startOfAppDay(d = new Date()) {
+    const parts = appDateTimeParts(d);
+    return new Date(appDateToUtcMs({
+        year: parts.year,
+        month: parts.month,
+        day: parts.day,
+    }));
+}
 function dailyKey(d = new Date()) {
-    return d.toISOString().slice(0, 10);
+    const parts = appDateTimeParts(d);
+    return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
 }
 function weeklyKey(d = new Date()) {
-    const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const parts = appDateTimeParts(d);
+    const t = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
     const day = t.getUTCDay() || 7;
     t.setUTCDate(t.getUTCDate() + 4 - day);
     const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
     const week = Math.ceil(((+t - +yearStart) / 86400000 + 1) / 7);
-    return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+    return `${t.getUTCFullYear()}-W${pad2(week)}`;
 }
 function monthlyKey(d = new Date()) {
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const parts = appDateTimeParts(d);
+    return `${parts.year}-${pad2(parts.month)}`;
 }
 function rankingCollectionForPeriod(period) {
     switch (period) {
@@ -1716,19 +2038,21 @@ async function evaluateReferralForUser(uid) {
         const authUser = await admin.auth().getUser(invitedUid);
         const rules = campaign?.config.qualificationRules ?? config.qualificationRules;
         const progressSnapshot = buildReferralProgressSnapshot(invitedData, authUser.emailVerified === true);
-        tx.update(referralRef, {
+        const referralProgressPatch = {
             qualificationSnapshot: rules,
             progressSnapshot,
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
-        });
+        };
         const isQualified = referralMeetsQualification(rules, invitedData, authUser.emailVerified === true);
-        if (!isQualified)
+        if (!isQualified) {
+            tx.update(referralRef, referralProgressPatch);
             return;
+        }
         const todayReferralsSnap = await tx.get(db
             .collection(COL.referrals)
             .where("inviterUserId", "==", inviterUid)
             .where("status", "in", ["valid", "rewarded"])
-            .where("qualifiedAt", ">=", firestore_2.Timestamp.fromDate(new Date(new Date().setUTCHours(0, 0, 0, 0))))
+            .where("qualifiedAt", ">=", firestore_2.Timestamp.fromDate(startOfAppDay()))
             .limit(config.limitValidPerDay + 1));
         const inviterQualifiedToday = todayReferralsSnap.size;
         const totalRewarded = Number(inviterData.referralRewardedCount || 0);
@@ -1736,9 +2060,9 @@ async function evaluateReferralForUser(uid) {
             Number(inviterData.referralPendingCount || 0) >= config.antiFraudRules.burstSignupThreshold;
         if (config.limitValidPerDay > 0 && inviterQualifiedToday >= config.limitValidPerDay) {
             tx.update(referralRef, {
+                ...referralProgressPatch,
                 status: "blocked",
                 referralStatus: "blocked",
-                updatedAt: firestore_2.FieldValue.serverTimestamp(),
                 "fraudFlags.suspectedFraud": true,
                 "fraudFlags.manualReviewRequired": true,
                 notes: "Bloqueado por limite diário de indicações válidas.",
@@ -1747,9 +2071,9 @@ async function evaluateReferralForUser(uid) {
         }
         if (config.limitRewardedPerUser > 0 && totalRewarded >= config.limitRewardedPerUser) {
             tx.update(referralRef, {
+                ...referralProgressPatch,
                 status: "blocked",
                 referralStatus: "blocked",
-                updatedAt: firestore_2.FieldValue.serverTimestamp(),
                 "fraudFlags.duplicateRewardBlocked": true,
                 notes: "Bloqueado por limite total de recompensas do indicador.",
             });
@@ -1757,11 +2081,11 @@ async function evaluateReferralForUser(uid) {
         }
         if (config.antiFraudRules.requireManualReviewForSuspected && suspicious) {
             tx.update(referralRef, {
+                ...referralProgressPatch,
                 status: "valid",
                 referralStatus: "valid",
                 referralQualified: true,
                 qualifiedAt: firestore_2.FieldValue.serverTimestamp(),
-                updatedAt: firestore_2.FieldValue.serverTimestamp(),
                 "fraudFlags.suspectedFraud": true,
                 "fraudFlags.manualReviewRequired": true,
             });
@@ -1791,6 +2115,7 @@ async function evaluateReferralForUser(uid) {
         const inviterRewardPatch = applyRewardPatch(inviterData, inviterReward);
         const invitedRewardPatch = applyRewardPatch(invitedData, invitedReward);
         tx.update(referralRef, {
+            ...referralProgressPatch,
             status: "rewarded",
             referralStatus: "rewarded",
             referralQualified: true,
@@ -1807,8 +2132,6 @@ async function evaluateReferralForUser(uid) {
             invitedRewardGrantedAt: invitedReward.amount > 0 ? firestore_2.FieldValue.serverTimestamp() : null,
             campaignId: campaign?.id ?? null,
             campaignName: campaign?.name ?? null,
-            qualificationSnapshot: rules,
-            updatedAt: firestore_2.FieldValue.serverTimestamp(),
         });
         tx.update(db.doc(`${COL.users}/${inviterUid}`), {
             ...inviterRewardPatch.patch,
@@ -1868,13 +2191,175 @@ function parseRewardedAdCompletionToken(raw) {
         throw new https_1.HttpsError("invalid-argument", "Token de anúncio inválido.");
     }
     const isMock = token.startsWith(REWARDED_AD_MOCK_PREFIX);
+    const isNativeAndroid = token.startsWith(REWARDED_AD_NATIVE_ANDROID_PREFIX);
     if (isMock && !rewardAdMockAllowed) {
         throw new https_1.HttpsError("failed-precondition", "Mock de anúncio desabilitado neste ambiente.");
     }
-    if (!isMock) {
+    if (!isMock && !isNativeAndroid) {
         throw new https_1.HttpsError("failed-precondition", "Provedor real de anúncio ainda não configurado no servidor. Use mock apenas em ambiente controlado.");
     }
     return { token, isMock };
+}
+async function fetchAdMobSsvKeys() {
+    if (admobSsvKeysCache && admobSsvKeysCache.expiresAtMs > Date.now()) {
+        return admobSsvKeysCache.keysById;
+    }
+    const response = await fetch(ADMOB_SSV_KEYS_URL);
+    if (!response.ok) {
+        throw new Error(`Falha ao baixar chaves de verificação do AdMob (${response.status}).`);
+    }
+    const json = (await response.json());
+    const keysById = new Map();
+    for (const key of json.keys ?? []) {
+        const keyId = String(key.keyId ?? "").trim();
+        const pem = String(key.pem ?? "").trim();
+        if (keyId && pem) {
+            keysById.set(keyId, pem);
+        }
+    }
+    if (keysById.size === 0) {
+        throw new Error("Nenhuma chave pública do AdMob foi retornada.");
+    }
+    admobSsvKeysCache = {
+        expiresAtMs: Date.now() + ADMOB_SSV_KEYS_TTL_MS,
+        keysById,
+    };
+    return keysById;
+}
+async function verifyAdMobSsvSignature(input) {
+    const signatureParamIndex = input.rawQuery.indexOf("&signature=");
+    if (signatureParamIndex === -1) {
+        throw new Error("Query SSV sem assinatura.");
+    }
+    const dataToVerify = input.rawQuery.slice(0, signatureParamIndex);
+    const keysById = await fetchAdMobSsvKeys();
+    const publicKeyPem = keysById.get(input.keyId);
+    if (!publicKeyPem) {
+        throw new Error(`Não foi encontrada chave pública do AdMob para key_id=${input.keyId}.`);
+    }
+    const verifier = (0, node_crypto_1.createVerify)("SHA256");
+    verifier.update(dataToVerify, "utf8");
+    verifier.end();
+    const signatureBuffer = Buffer.from(input.signature, "base64url");
+    const verified = verifier.verify(publicKeyPem, signatureBuffer);
+    if (!verified) {
+        throw new Error("Assinatura SSV do AdMob inválida.");
+    }
+}
+async function grantRewardedAdPlacement(input) {
+    const economy = await getEconomy();
+    const userRef = db.doc(`${COL.users}/${input.uid}`);
+    const adRef = db.doc(`${COL.adEvents}/${input.adEventId}`);
+    const today = dailyKey();
+    const isPptDuels = input.placementId === PPT_PVP_DUELS_PLACEMENT_ID;
+    const isQuizDuels = input.placementId === QUIZ_PVP_DUELS_PLACEMENT_ID;
+    const isReactionDuels = input.placementId === REACTION_PVP_DUELS_PLACEMENT_ID;
+    const result = await db.runTransaction(async (tx) => {
+        const [uSnap, existingAdSnap] = await Promise.all([tx.get(userRef), tx.get(adRef)]);
+        if (!uSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        if (existingAdSnap.exists) {
+            throw new https_1.HttpsError("already-exists", "Este anúncio já foi processado.");
+        }
+        const u = uSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const currentDayKey = String(u.rewardedAdsDayKey || "");
+        const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
+        if (currentCount >= economy.limiteDiarioAds) {
+            throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
+        }
+        const userPatch = {
+            rewardedAdsDayKey: today,
+            rewardedAdsCount: currentCount + 1,
+            totalAdsAssistidos: firestore_2.FieldValue.increment(1),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        };
+        tx.set(adRef, {
+            id: adRef.id,
+            userId: input.uid,
+            status: "recompensado",
+            placementId: input.placementId,
+            rewardKind: isPptDuels
+                ? "ppt_pvp_duels"
+                : isQuizDuels
+                    ? "quiz_pvp_duels"
+                    : isReactionDuels
+                        ? "reaction_pvp_duels"
+                        : "coins",
+            mock: input.mock,
+            tokenHash: input.tokenHash ?? null,
+            source: input.origin,
+            sessionId: input.sessionId ?? null,
+            providerTransactionId: input.providerTransactionId ?? null,
+            metadata: input.rewardMetadata ?? null,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        if (isPptDuels) {
+            const cur = readPptDuelCharges(u);
+            const cappedNext = Math.min(PPT_DUEL_CHARGES_MAX_STACK, cur + PPT_DUEL_CHARGES_PER_AD);
+            const addedDuels = cappedNext - cur;
+            userPatch.pptPvPDuelsRemaining = cappedNext;
+            userPatch.pptPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
+            tx.update(userRef, userPatch);
+            return {
+                coins: 0,
+                boostCoins: 0,
+                pptPvPDuelsAdded: addedDuels,
+                pptPvPDuelsRemaining: cappedNext,
+            };
+        }
+        if (isQuizDuels) {
+            const cur = readQuizDuelCharges(u);
+            const cappedNext = Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, cur + QUIZ_DUEL_CHARGES_PER_AD);
+            const addedDuels = cappedNext - cur;
+            userPatch.quizPvPDuelsRemaining = cappedNext;
+            userPatch.quizPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
+            tx.update(userRef, userPatch);
+            return {
+                coins: 0,
+                boostCoins: 0,
+                quizPvPDuelsAdded: addedDuels,
+                quizPvPDuelsRemaining: cappedNext,
+            };
+        }
+        if (isReactionDuels) {
+            const cur = readReactionDuelCharges(u);
+            const cappedNext = Math.min(REACTION_DUEL_CHARGES_MAX_STACK, cur + REACTION_DUEL_CHARGES_PER_AD);
+            const addedDuels = cappedNext - cur;
+            userPatch.reactionPvPDuelsRemaining = cappedNext;
+            userPatch.reactionPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
+            tx.update(userRef, userPatch);
+            return {
+                coins: 0,
+                boostCoins: 0,
+                reactionPvPDuelsAdded: addedDuels,
+                reactionPvPDuelsRemaining: cappedNext,
+            };
+        }
+        const boostedCoins = resolveBoostedCoins(economy.rewardAdCoinAmount, u, economy);
+        const newCoins = Number(u.coins ?? 0) + boostedCoins.totalCoins;
+        userPatch.coins = firestore_2.FieldValue.increment(boostedCoins.totalCoins);
+        tx.update(userRef, userPatch);
+        addWalletTxInTx(tx, {
+            id: `ad_${input.adEventId}_coins`,
+            userId: input.uid,
+            tipo: "anuncio",
+            moeda: "coins",
+            valor: boostedCoins.totalCoins,
+            saldoApos: newCoins,
+            descricao: withBoostDescription("Anúncio recompensado", boostedCoins.boostCoins),
+            referenciaId: adRef.id,
+        });
+        return {
+            coins: boostedCoins.totalCoins,
+            boostCoins: boostedCoins.boostCoins,
+        };
+    });
+    await bumpWatchAdMissions(input.uid);
+    await evaluateReferralForUser(input.uid);
+    return result;
 }
 function millisFromCooldownField(v) {
     if (v == null)
@@ -2123,6 +2608,7 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
 }
 function clampQuizResponseMs(raw) {
@@ -2179,6 +2665,7 @@ async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWi
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
 }
 function clampReactionResponseMs(raw) {
@@ -2242,6 +2729,7 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     const matchWinner = hostRes === "vitoria" ? "host" : guestRes === "vitoria" ? "guest" : null;
     if (matchWinner) {
         await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
@@ -3065,7 +3553,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
             pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
             pptConsecutiveEmptyRounds: 0,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptWindowMs),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now() + PPT_ROUND_REVEAL_MS, pptWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return "round";
@@ -3090,7 +3578,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
             pptRoundStartedAt: firestore_2.FieldValue.serverTimestamp(),
             pptConsecutiveEmptyRounds: 0,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: pvpActionDeadlineTs(Date.now(), pptWindowMs),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now() + PPT_ROUND_REVEAL_MS, pptWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return "round";
@@ -3574,102 +4062,245 @@ exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         throw new https_1.HttpsError("invalid-argument", "placementId inválido.");
     }
     const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken);
-    const economy = await getEconomy();
-    const userRef = db.doc(`${COL.users}/${uid}`);
     const tokenHash = hashId(uid, placementId, completionToken);
-    const adRef = db.doc(`${COL.adEvents}/${tokenHash}`);
-    const today = dailyKey();
-    const isPptDuels = placementId === PPT_PVP_DUELS_PLACEMENT_ID;
-    const isQuizDuels = placementId === QUIZ_PVP_DUELS_PLACEMENT_ID;
-    const isReactionDuels = placementId === REACTION_PVP_DUELS_PLACEMENT_ID;
-    const result = await db.runTransaction(async (tx) => {
-        const [uSnap, existingAdSnap] = await Promise.all([tx.get(userRef), tx.get(adRef)]);
-        if (!uSnap.exists)
-            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-        if (existingAdSnap.exists) {
-            throw new https_1.HttpsError("already-exists", "Este anúncio já foi processado.");
-        }
-        const u = uSnap.data();
-        if (u.banido)
-            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
-        const currentDayKey = String(u.rewardedAdsDayKey || "");
-        const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
-        if (currentCount >= economy.limiteDiarioAds) {
-            throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
-        }
-        const userPatch = {
-            rewardedAdsDayKey: today,
-            rewardedAdsCount: currentCount + 1,
-            totalAdsAssistidos: firestore_2.FieldValue.increment(1),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        };
-        tx.set(adRef, {
-            id: adRef.id,
-            userId: uid,
-            status: "recompensado",
-            placementId,
-            rewardKind: isPptDuels
-                ? "ppt_pvp_duels"
-                : isQuizDuels
-                    ? "quiz_pvp_duels"
-                    : isReactionDuels
-                        ? "reaction_pvp_duels"
-                        : "coins",
-            mock: isMock,
-            tokenHash,
-            criadoEm: firestore_2.FieldValue.serverTimestamp(),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
-        if (isPptDuels) {
-            const cur = readPptDuelCharges(u);
-            const cappedNext = Math.min(PPT_DUEL_CHARGES_MAX_STACK, cur + PPT_DUEL_CHARGES_PER_AD);
-            const addedDuels = cappedNext - cur;
-            userPatch.pptPvPDuelsRemaining = cappedNext;
-            userPatch.pptPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
-            tx.update(userRef, userPatch);
-            return { coins: 0, pptPvPDuelsAdded: addedDuels, pptPvPDuelsRemaining: cappedNext };
-        }
-        if (isQuizDuels) {
-            const cur = readQuizDuelCharges(u);
-            const cappedNext = Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, cur + QUIZ_DUEL_CHARGES_PER_AD);
-            const addedDuels = cappedNext - cur;
-            userPatch.quizPvPDuelsRemaining = cappedNext;
-            userPatch.quizPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
-            tx.update(userRef, userPatch);
-            return { coins: 0, quizPvPDuelsAdded: addedDuels, quizPvPDuelsRemaining: cappedNext };
-        }
-        if (isReactionDuels) {
-            const cur = readReactionDuelCharges(u);
-            const cappedNext = Math.min(REACTION_DUEL_CHARGES_MAX_STACK, cur + REACTION_DUEL_CHARGES_PER_AD);
-            const addedDuels = cappedNext - cur;
-            userPatch.reactionPvPDuelsRemaining = cappedNext;
-            userPatch.reactionPvpDuelsRefillAvailableAt = firestore_2.FieldValue.delete();
-            tx.update(userRef, userPatch);
-            return {
-                coins: 0,
-                reactionPvPDuelsAdded: addedDuels,
-                reactionPvPDuelsRemaining: cappedNext,
-            };
-        }
-        const boostedCoins = resolveBoostedCoins(economy.rewardAdCoinAmount, u, economy);
-        const newCoins = Number(u.coins ?? 0) + boostedCoins.totalCoins;
-        userPatch.coins = firestore_2.FieldValue.increment(boostedCoins.totalCoins);
-        tx.update(userRef, userPatch);
-        addWalletTxInTx(tx, {
-            id: `ad_${tokenHash}_coins`,
-            userId: uid,
-            tipo: "anuncio",
-            moeda: "coins",
-            valor: boostedCoins.totalCoins,
-            saldoApos: newCoins,
-            descricao: withBoostDescription("Anúncio recompensado", boostedCoins.boostCoins),
-            referenciaId: adRef.id,
-        });
-        return { coins: boostedCoins.totalCoins, boostCoins: boostedCoins.boostCoins };
+    return grantRewardedAdPlacement({
+        uid,
+        placementId,
+        adEventId: tokenHash,
+        mock: isMock,
+        origin: "callable",
+        tokenHash,
     });
-    await bumpWatchAdMissions(uid);
-    await evaluateReferralForUser(uid);
-    return result;
+});
+exports.prepareRewardedAdSession = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const placementId = String(request.data?.placementId || "").trim();
+    if (!ALLOWED_REWARDED_AD_PLACEMENTS.has(placementId)) {
+        throw new https_1.HttpsError("invalid-argument", "placementId inválido para SSV.");
+    }
+    const [economy, userSnap] = await Promise.all([getEconomy(), db.doc(`${COL.users}/${uid}`).get()]);
+    if (!userSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+    }
+    const userData = userSnap.data();
+    if (userData.banido) {
+        throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+    }
+    const today = dailyKey();
+    const currentDayKey = String(userData.rewardedAdsDayKey || "");
+    const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(userData.rewardedAdsCount || 0))) : 0;
+    if (currentCount >= economy.limiteDiarioAds) {
+        throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
+    }
+    const sessionRef = db.collection(COL.rewardedAdSessions).doc();
+    const expiresAtMs = Date.now() + REWARDED_AD_SESSION_TTL_MS;
+    await sessionRef.set({
+        id: sessionRef.id,
+        userId: uid,
+        placementId,
+        status: "solicitado",
+        provider: "admob_ssv",
+        mock: false,
+        createdAt: firestore_2.FieldValue.serverTimestamp(),
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        expiresAt: firestore_2.Timestamp.fromMillis(expiresAtMs),
+    });
+    return {
+        sessionId: sessionRef.id,
+        userId: uid,
+        customData: sessionRef.id,
+        expiresAtMs,
+    };
+});
+exports.getRewardedAdSessionStatus = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const sessionId = String(request.data?.sessionId || "").trim();
+    if (!sessionId) {
+        throw new https_1.HttpsError("invalid-argument", "sessionId obrigatório.");
+    }
+    const sessionRef = db.doc(`${COL.rewardedAdSessions}/${sessionId}`);
+    const sessionSnap = await sessionRef.get();
+    if (!sessionSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Sessão de anúncio não encontrada.");
+    }
+    const session = (sessionSnap.data() || {});
+    if (String(session.userId || "") !== uid) {
+        throw new https_1.HttpsError("permission-denied", "Sessão não pertence ao usuário atual.");
+    }
+    const expiresAtMs = millisFromFirestoreTime(session.expiresAt);
+    const nowMs = Date.now();
+    let rawStatus = String(session.status || "solicitado");
+    if (rawStatus === "solicitado" && expiresAtMs > 0 && expiresAtMs < nowMs) {
+        rawStatus = "invalido";
+        await sessionRef.set({
+            status: "invalido",
+            errorReason: "Sessão expirada antes da confirmação do AdMob.",
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+    const result = session.result && typeof session.result === "object"
+        ? session.result
+        : {};
+    return {
+        status: rawStatus === "recompensado"
+            ? "rewarded"
+            : rawStatus === "solicitado"
+                ? "pending"
+                : rawStatus === "invalido"
+                    ? "invalid"
+                    : rawStatus,
+        placementId: String(session.placementId || ""),
+        expiresAtMs: expiresAtMs || null,
+        errorReason: typeof session.errorReason === "string" ? session.errorReason : null,
+        coins: Math.max(0, Math.floor(Number(result.coins) || 0)),
+        boostCoins: Math.max(0, Math.floor(Number(result.boostCoins) || 0)),
+        pptPvPDuelsAdded: Math.max(0, Math.floor(Number(result.pptPvPDuelsAdded) || 0)),
+        pptPvPDuelsRemaining: Math.max(0, Math.floor(Number(result.pptPvPDuelsRemaining) || 0)),
+        quizPvPDuelsAdded: Math.max(0, Math.floor(Number(result.quizPvPDuelsAdded) || 0)),
+        quizPvPDuelsRemaining: Math.max(0, Math.floor(Number(result.quizPvPDuelsRemaining) || 0)),
+        reactionPvPDuelsAdded: Math.max(0, Math.floor(Number(result.reactionPvPDuelsAdded) || 0)),
+        reactionPvPDuelsRemaining: Math.max(0, Math.floor(Number(result.reactionPvPDuelsRemaining) || 0)),
+    };
+});
+exports.adMobRewardedSsv = (0, https_1.onRequest)({
+    region: MULTIPLAYER_FUNCTIONS_REGION,
+}, async (request, response) => {
+    if (request.method !== "GET") {
+        response.status(405).send("Method Not Allowed");
+        return;
+    }
+    const originalUrl = request.originalUrl || request.url || "";
+    const queryStart = originalUrl.indexOf("?");
+    const rawQuery = queryStart >= 0 ? originalUrl.slice(queryStart + 1) : "";
+    const signature = String(Array.isArray(request.query.signature) ? request.query.signature[0] : request.query.signature || "").trim();
+    const keyId = String(Array.isArray(request.query.key_id) ? request.query.key_id[0] : request.query.key_id || "").trim();
+    if (!rawQuery || !signature || !keyId) {
+        response.status(200).send("AdMob SSV endpoint ready");
+        return;
+    }
+    try {
+        await verifyAdMobSsvSignature({ rawQuery, signature, keyId });
+    }
+    catch (error) {
+        response
+            .status(400)
+            .send(error instanceof Error ? error.message : "SSV signature verification failed");
+        return;
+    }
+    const sessionId = String(Array.isArray(request.query.custom_data)
+        ? request.query.custom_data[0]
+        : request.query.custom_data || "").trim();
+    const uid = String(Array.isArray(request.query.user_id) ? request.query.user_id[0] : request.query.user_id || "").trim();
+    const transactionId = String(Array.isArray(request.query.transaction_id)
+        ? request.query.transaction_id[0]
+        : request.query.transaction_id || "").trim();
+    if (!sessionId || !uid || !transactionId) {
+        response.status(200).send("AdMob SSV verification ok");
+        return;
+    }
+    const sessionRef = db.doc(`${COL.rewardedAdSessions}/${sessionId}`);
+    const sessionSnap = await sessionRef.get();
+    if (!sessionSnap.exists) {
+        response.status(200).send("Ignored");
+        return;
+    }
+    const session = (sessionSnap.data() || {});
+    if (String(session.userId || "") !== uid) {
+        await sessionRef.set({
+            status: "invalido",
+            errorReason: "SSV recebido com user_id divergente da sessão.",
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        response.status(200).send("Ignored");
+        return;
+    }
+    if (String(session.status || "") === "recompensado") {
+        response.status(200).send("OK");
+        return;
+    }
+    const expiresAtMs = millisFromFirestoreTime(session.expiresAt);
+    if (expiresAtMs > 0 && expiresAtMs < Date.now()) {
+        await sessionRef.set({
+            status: "invalido",
+            errorReason: "SSV chegou após a expiração da sessão.",
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        response.status(200).send("Expired");
+        return;
+    }
+    const placementId = String(session.placementId || "").trim();
+    if (!ALLOWED_REWARDED_AD_PLACEMENTS.has(placementId)) {
+        await sessionRef.set({
+            status: "invalido",
+            errorReason: "placementId da sessão é inválido para SSV.",
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        response.status(200).send("Ignored");
+        return;
+    }
+    try {
+        const result = await grantRewardedAdPlacement({
+            uid,
+            placementId,
+            adEventId: `ssv_${transactionId}`,
+            mock: false,
+            origin: "admob_ssv",
+            sessionId,
+            providerTransactionId: transactionId,
+            rewardMetadata: {
+                adNetwork: String(Array.isArray(request.query.ad_network)
+                    ? request.query.ad_network[0]
+                    : request.query.ad_network || ""),
+                adUnit: String(Array.isArray(request.query.ad_unit) ? request.query.ad_unit[0] : request.query.ad_unit || ""),
+                rewardAmount: String(Array.isArray(request.query.reward_amount)
+                    ? request.query.reward_amount[0]
+                    : request.query.reward_amount || ""),
+                rewardItem: String(Array.isArray(request.query.reward_item)
+                    ? request.query.reward_item[0]
+                    : request.query.reward_item || ""),
+                timestamp: String(Array.isArray(request.query.timestamp) ? request.query.timestamp[0] : request.query.timestamp || ""),
+                keyId,
+            },
+        });
+        await sessionRef.set({
+            status: "recompensado",
+            providerTransactionId: transactionId,
+            rewardedAt: firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            result,
+        }, { merge: true });
+        response.status(200).send("OK");
+    }
+    catch (error) {
+        if (error instanceof https_1.HttpsError) {
+            if (error.code === "already-exists") {
+                await sessionRef.set({
+                    status: "recompensado",
+                    providerTransactionId: transactionId,
+                    updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                response.status(200).send("OK");
+                return;
+            }
+            if (error.code === "resource-exhausted" ||
+                error.code === "failed-precondition" ||
+                error.code === "permission-denied" ||
+                error.code === "invalid-argument") {
+                await sessionRef.set({
+                    status: "invalido",
+                    errorReason: error.message,
+                    providerTransactionId: transactionId,
+                    updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                response.status(200).send("Ignored");
+                return;
+            }
+        }
+        console.error("[AdMob SSV] erro inesperado", error);
+        response.status(500).send("Internal error");
+    }
 });
 exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -4167,6 +4798,9 @@ exports.craftBoostFromFragments = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asy
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const economy = await getEconomy();
+    if (!isBoostSystemEnabled(economy)) {
+        throw new https_1.HttpsError("failed-precondition", "O sistema de boost está desativado no momento.");
+    }
     const userRef = db.doc(`${COL.users}/${uid}`);
     return db.runTransaction(async (tx) => {
         const userSnap = await tx.get(userRef);
@@ -4204,6 +4838,9 @@ exports.activateStoredBoost = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
     const uid = request.auth?.uid;
     assertAuthed(uid);
     const economy = await getEconomy();
+    if (!isBoostSystemEnabled(economy)) {
+        throw new https_1.HttpsError("failed-precondition", "O sistema de boost está desativado no momento.");
+    }
     const userRef = db.doc(`${COL.users}/${uid}`);
     return db.runTransaction(async (tx) => {
         const userSnap = await tx.get(userRef);
@@ -4613,6 +5250,666 @@ exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
         });
     }
     return { ok: true, ...out };
+});
+async function assertNoOtherActiveRaffle(exceptId) {
+    const q = await db.collection(COL.raffles).where("status", "==", "active").limit(5).get();
+    const conflicts = q.docs.filter((d) => (exceptId ? d.id !== exceptId : true));
+    if (conflicts.length > 0) {
+        throw new https_1.HttpsError("failed-precondition", "Já existe um sorteio ativo. Encerre-o antes de abrir outro.");
+    }
+}
+async function closeRaffleIfDue(raffleId, nowMs) {
+    const ref = db.doc(`${COL.raffles}/${raffleId}`);
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists)
+            return false;
+        const raw = (snap.data() || {});
+        const raffle = raffleDocFromFirestore(snap.id, raw);
+        if (raffle.status !== "active")
+            return false;
+        if (!raffle.endsAt || raffle.endsAt.toMillis() > nowMs)
+            return false;
+        tx.set(ref, {
+            status: "closed",
+            closedAt: firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return true;
+    });
+}
+async function drawClosedRaffle(raffleId) {
+    const raffleRef = db.doc(`${COL.raffles}/${raffleId}`);
+    const purchaseColl = db.collection(COL.rafflePurchases);
+    const headerSnap = await raffleRef.get();
+    if (!headerSnap.exists)
+        return "skipped";
+    const header = raffleDocFromFirestore(headerSnap.id, (headerSnap.data() || {}));
+    if (header.status !== "closed")
+        return "skipped";
+    if (header.drawnAt)
+        return "skipped";
+    const winningNumber = pickWinningNumber(header.releasedCount);
+    const arrQ = await purchaseColl
+        .where("raffleId", "==", raffleId)
+        .where("numbers", "array-contains", winningNumber)
+        .limit(1)
+        .get();
+    let winnerUserId = null;
+    let winnerPurchaseId = null;
+    let outcome = "no_winner";
+    if (!arrQ.empty) {
+        const purchaseDoc = arrQ.docs[0];
+        const purchase = purchaseDoc.data();
+        const candidateUid = String(purchase.userId || "");
+        const nums = Array.isArray(purchase.numbers) ? purchase.numbers : [];
+        if (candidateUid && nums.includes(winningNumber)) {
+            outcome = "winner";
+            winnerUserId = candidateUid;
+            winnerPurchaseId = purchaseDoc.id;
+        }
+    }
+    else {
+        const coverQ = await purchaseColl
+            .where("raffleId", "==", raffleId)
+            .where("rangeStart", "<=", winningNumber)
+            .orderBy("rangeStart", "desc")
+            .limit(1)
+            .get();
+        if (!coverQ.empty) {
+            const purchaseDoc = coverQ.docs[0];
+            const purchase = purchaseDoc.data();
+            const rangeEnd = Math.max(0, Math.floor(Number(purchase.rangeEnd) || 0));
+            const candidateUid = String(purchase.userId || "");
+            if (rangeEnd >= winningNumber && candidateUid) {
+                outcome = "winner";
+                winnerUserId = candidateUid;
+                winnerPurchaseId = purchaseDoc.id;
+            }
+        }
+    }
+    const drawResult = await db.runTransaction(async (tx) => {
+        const raffleSnap = await tx.get(raffleRef);
+        if (!raffleSnap.exists)
+            return { kind: "skip" };
+        const raffle = raffleDocFromFirestore(raffleSnap.id, (raffleSnap.data() || {}));
+        if (raffle.status !== "closed")
+            return { kind: "skip" };
+        if (raffle.drawnAt)
+            return { kind: "skip" };
+        if (outcome === "no_winner") {
+            tx.set(raffleRef, {
+                status: "no_winner",
+                winningNumber,
+                winnerUserId: null,
+                winnerPurchaseId: null,
+                drawnAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return { kind: "no_winner" };
+        }
+        if (!winnerUserId || !winnerPurchaseId) {
+            tx.set(raffleRef, {
+                status: "no_winner",
+                winningNumber,
+                winnerUserId: null,
+                winnerPurchaseId: null,
+                drawnAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return { kind: "no_winner" };
+        }
+        const purchaseRef = db.doc(`${COL.rafflePurchases}/${winnerPurchaseId}`);
+        const purchaseSnap = await tx.get(purchaseRef);
+        if (!purchaseSnap.exists) {
+            tx.set(raffleRef, {
+                status: "no_winner",
+                winningNumber,
+                winnerUserId: null,
+                winnerPurchaseId: null,
+                drawnAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return { kind: "no_winner" };
+        }
+        const purchase = purchaseSnap.data();
+        const purchaseUserId = String(purchase.userId || "");
+        const nums = Array.isArray(purchase.numbers) ? purchase.numbers : [];
+        let covers = purchase.raffleId === raffleId &&
+            purchaseUserId === winnerUserId &&
+            nums.length > 0 &&
+            nums.includes(winningNumber);
+        if (!covers) {
+            const rangeStart = Math.max(0, Math.floor(Number(purchase.rangeStart) || 0));
+            const rangeEnd = Math.max(0, Math.floor(Number(purchase.rangeEnd) || 0));
+            covers =
+                purchase.raffleId === raffleId &&
+                    purchaseUserId === winnerUserId &&
+                    nums.length === 0 &&
+                    rangeStart <= winningNumber &&
+                    rangeEnd >= winningNumber;
+        }
+        if (!covers) {
+            tx.set(raffleRef, {
+                status: "no_winner",
+                winningNumber,
+                winnerUserId: null,
+                winnerPurchaseId: null,
+                drawnAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return { kind: "no_winner" };
+        }
+        tx.set(raffleRef, {
+            status: "drawn",
+            winningNumber,
+            winnerUserId,
+            winnerPurchaseId,
+            drawnAt: firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return {
+            kind: "winner",
+            prizeCurrency: raffle.prizeCurrency,
+            prizeAmount: raffle.prizeAmount,
+            winnerUserId,
+        };
+    });
+    if (drawResult.kind === "skip")
+        return "skipped";
+    if (drawResult.kind === "no_winner")
+        return "no_winner";
+    const prizeAmount = Math.max(0, Math.floor(Number(drawResult.prizeAmount) || 0));
+    if (prizeAmount <= 0) {
+        await raffleRef.set({
+            status: "paid",
+            paidAt: firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return "paid";
+    }
+    const userRef = db.doc(`${COL.users}/${drawResult.winnerUserId}`);
+    const payout = await db.runTransaction(async (tx) => {
+        const raffleSnap = await tx.get(raffleRef);
+        if (!raffleSnap.exists)
+            throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
+        const raffle = raffleDocFromFirestore(raffleSnap.id, (raffleSnap.data() || {}));
+        if (raffle.status !== "drawn") {
+            return { kind: "skip" };
+        }
+        if (raffle.paidAt) {
+            return { kind: "skip" };
+        }
+        const uSnap = await tx.get(userRef);
+        if (!uSnap.exists) {
+            tx.set(raffleRef, {
+                status: "no_winner",
+                winnerUserId: null,
+                winnerPurchaseId: null,
+                paidAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return { kind: "no_user" };
+        }
+        const u = uSnap.data();
+        if (u.banido) {
+            tx.set(raffleRef, {
+                status: "no_winner",
+                winnerUserId: null,
+                winnerPurchaseId: null,
+                paidAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return { kind: "banned" };
+        }
+        const reward = { amount: prizeAmount, currency: drawResult.prizeCurrency };
+        const applied = applyRewardPatch(u, reward);
+        tx.set(userRef, {
+            ...applied.patch,
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        addWalletTxInTx(tx, {
+            id: hashId("raffle_prize", raffleRef.id, drawResult.winnerUserId),
+            userId: drawResult.winnerUserId,
+            tipo: "sorteio_premio",
+            moeda: rewardFieldName(reward.currency),
+            valor: reward.amount,
+            saldoApos: applied.balanceAfter,
+            descricao: `Prêmio do sorteio · ${raffle.title}`,
+            referenciaId: raffleRef.id,
+        });
+        tx.set(raffleRef, {
+            status: "paid",
+            paidAt: firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return { kind: "ok" };
+    });
+    if (payout.kind === "skip")
+        return "paid";
+    return "paid";
+}
+async function runRaffleLifecycleTick(nowMs = Date.now()) {
+    const activeSnap = await db.collection(COL.raffles).where("status", "==", "active").limit(10).get();
+    for (const docSnap of activeSnap.docs) {
+        await closeRaffleIfDue(docSnap.id, nowMs);
+    }
+    const closedSnap = await db.collection(COL.raffles).where("status", "==", "closed").limit(10).get();
+    for (const docSnap of closedSnap.docs) {
+        await drawClosedRaffle(docSnap.id);
+    }
+}
+exports.getActiveRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const system = await getRaffleSystemConfig();
+    if (!system.enabled) {
+        return { ok: true, enabled: false, raffle: null };
+    }
+    const q = await db.collection(COL.raffles).where("status", "==", "active").limit(1).get();
+    if (q.empty) {
+        return { ok: true, enabled: true, raffle: null };
+    }
+    return { ok: true, enabled: true, raffle: raffleViewFromDoc(q.docs[0]) };
+});
+exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const raffleId = String(request.data?.raffleId || "").trim();
+    const quantity = Math.floor(Number(request.data?.quantity));
+    const clientRequestId = String(request.data?.clientRequestId || "").trim();
+    if (!raffleId || !clientRequestId) {
+        throw new https_1.HttpsError("invalid-argument", "raffleId e clientRequestId são obrigatórios.");
+    }
+    if (!Number.isFinite(quantity) || quantity < 1) {
+        throw new https_1.HttpsError("invalid-argument", "Quantidade inválida.");
+    }
+    const system = await getRaffleSystemConfig();
+    if (!system.enabled) {
+        throw new https_1.HttpsError("failed-precondition", "Sorteios desativados no momento.");
+    }
+    const raffleRef = db.doc(`${COL.raffles}/${raffleId}`);
+    const purchaseId = hashId("raffle_buy", uid, raffleId, clientRequestId);
+    const purchaseRef = db.doc(`${COL.rafflePurchases}/${purchaseId}`);
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const existingPurchase = await purchaseRef.get();
+    if (existingPurchase.exists) {
+        const raffleSnap = await raffleRef.get();
+        const raffle = raffleSnap.exists ? raffleViewFromDoc(raffleSnap) : null;
+        return {
+            ok: true,
+            idempotent: true,
+            raffle,
+            purchase: rafflePurchaseViewFromDoc(existingPurchase),
+        };
+    }
+    const result = await db.runTransaction(async (tx) => {
+        const [purchaseSnap, raffleSnap, userSnap] = await Promise.all([
+            tx.get(purchaseRef),
+            tx.get(raffleRef),
+            tx.get(userRef),
+        ]);
+        if (purchaseSnap.exists) {
+            return { kind: "idempotent" };
+        }
+        if (!raffleSnap.exists)
+            throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
+        if (!userSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const u = userSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const raffle = raffleDocFromFirestore(raffleSnap.id, (raffleSnap.data() || {}));
+        if (raffle.status !== "active") {
+            throw new https_1.HttpsError("failed-precondition", "Este sorteio não está ativo para compras.");
+        }
+        const nowMs = Date.now();
+        if (!isRafflePurchaseWindowOpen(raffle, nowMs)) {
+            throw new https_1.HttpsError("failed-precondition", "Fora da janela de compras deste sorteio.");
+        }
+        if (quantity > raffle.maxPerPurchase) {
+            throw new https_1.HttpsError("invalid-argument", `Quantidade acima do limite por compra (${raffle.maxPerPurchase}).`);
+        }
+        const remainingPool = raffle.allocationMode === "random"
+            ? raffle.releasedCount - raffle.soldCount
+            : raffle.releasedCount - raffle.nextSequentialNumber;
+        if (remainingPool < quantity) {
+            throw new https_1.HttpsError("failed-precondition", "Números esgotados para este sorteio.");
+        }
+        const ticketCost = quantity * raffle.ticketPrice;
+        if (!Number.isSafeInteger(ticketCost) || ticketCost < 1) {
+            throw new https_1.HttpsError("failed-precondition", "Custo inválido.");
+        }
+        const gems = Number(u.gems ?? 0);
+        if (gems < ticketCost) {
+            throw new https_1.HttpsError("failed-precondition", "Saldo de TICKET insuficiente.");
+        }
+        const newGems = gems - ticketCost;
+        tx.set(userRef, {
+            gems: firestore_2.FieldValue.increment(-ticketCost),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        addWalletTxInTx(tx, {
+            id: hashId("raffle_buy", purchaseId),
+            userId: uid,
+            tipo: "sorteio_compra",
+            moeda: "gems",
+            valor: -ticketCost,
+            saldoApos: newGems,
+            descricao: `Sorteio: compra de ${quantity} número(s) · ${raffle.title}`,
+            referenciaId: purchaseId,
+        });
+        let rangeStart = 0;
+        let rangeEnd = 0;
+        let numbers;
+        if (raffle.allocationMode === "random") {
+            const rawRaffle = (raffleSnap.data() || {});
+            const buf = readSoldBitsBuffer(rawRaffle.soldBits, raffle.releasedCount);
+            const picked = [];
+            let attempts = 0;
+            const maxAttempts = Math.max(800, quantity * 250);
+            while (picked.length < quantity && attempts < maxAttempts) {
+                attempts += 1;
+                const cand = (0, node_crypto_1.randomInt)(0, raffle.releasedCount - 1);
+                if (raffleBitIsSet(buf, cand))
+                    continue;
+                raffleBitSet(buf, cand);
+                picked.push(cand);
+            }
+            if (picked.length < quantity) {
+                throw new https_1.HttpsError("failed-precondition", "Não foi possível sortear números disponíveis. Tente uma quantidade menor.");
+            }
+            shuffleNumberArrayInPlace(picked);
+            numbers = picked;
+            rangeStart = Math.min(...picked);
+            rangeEnd = Math.max(...picked);
+            tx.set(raffleRef, {
+                soldBits: buf,
+                soldCount: firestore_2.FieldValue.increment(quantity),
+                soldTicketsRevenue: firestore_2.FieldValue.increment(ticketCost),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            const purchasePayload = {
+                raffleId,
+                raffleTitle: raffle.title,
+                userId: uid,
+                quantity,
+                ticketCost,
+                rangeStart,
+                rangeEnd,
+                numbers,
+                clientRequestId,
+                createdAt: firestore_2.Timestamp.now(),
+            };
+            tx.set(purchaseRef, {
+                ...purchasePayload,
+                createdAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+        else {
+            const rangeStartSeq = raffle.nextSequentialNumber;
+            const rangeEndSeq = rangeStartSeq + quantity - 1;
+            const nextPointer = rangeEndSeq + 1;
+            rangeStart = rangeStartSeq;
+            rangeEnd = rangeEndSeq;
+            tx.set(raffleRef, {
+                nextSequentialNumber: nextPointer,
+                soldCount: firestore_2.FieldValue.increment(quantity),
+                soldTicketsRevenue: firestore_2.FieldValue.increment(ticketCost),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            const purchasePayload = {
+                raffleId,
+                raffleTitle: raffle.title,
+                userId: uid,
+                quantity,
+                ticketCost,
+                rangeStart,
+                rangeEnd,
+                clientRequestId,
+                createdAt: firestore_2.Timestamp.now(),
+            };
+            tx.set(purchaseRef, {
+                ...purchasePayload,
+                createdAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+        return {
+            kind: "created",
+            purchase: {
+                id: purchaseRef.id,
+                raffleId,
+                raffleTitle: raffle.title,
+                userId: uid,
+                quantity,
+                ticketCost,
+                rangeStart,
+                rangeEnd,
+                numbers: numbers ?? null,
+                clientRequestId,
+                createdAtMs: Date.now(),
+            },
+        };
+    });
+    if (result.kind === "idempotent") {
+        const [raffleSnap, purchaseSnap] = await Promise.all([raffleRef.get(), purchaseRef.get()]);
+        return {
+            ok: true,
+            idempotent: true,
+            raffle: raffleSnap.exists ? raffleViewFromDoc(raffleSnap) : null,
+            purchase: purchaseSnap.exists ? rafflePurchaseViewFromDoc(purchaseSnap) : null,
+        };
+    }
+    const [raffleSnapAfter, purchaseSnapAfter] = await Promise.all([raffleRef.get(), purchaseRef.get()]);
+    return {
+        ok: true,
+        idempotent: false,
+        raffle: raffleSnapAfter.exists ? raffleViewFromDoc(raffleSnapAfter) : null,
+        purchase: purchaseSnapAfter.exists ? rafflePurchaseViewFromDoc(purchaseSnapAfter) : result.purchase,
+    };
+});
+exports.listMyRafflePurchases = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const raffleId = String(request.data?.raffleId || "").trim();
+    const pageSize = Math.min(50, Math.max(1, Math.floor(Number(request.data?.pageSize) || 20)));
+    const cursor = request.data?.cursor;
+    const cursorMs = cursor?.createdAtMs != null ? Math.floor(Number(cursor.createdAtMs)) : null;
+    const cursorId = cursor?.purchaseId ? String(cursor.purchaseId) : null;
+    let q = db
+        .collection(COL.rafflePurchases)
+        .where("userId", "==", uid)
+        .orderBy("createdAt", "desc")
+        .orderBy(firestore_2.FieldPath.documentId(), "desc")
+        .limit(pageSize + 1);
+    if (raffleId) {
+        q = db
+            .collection(COL.rafflePurchases)
+            .where("userId", "==", uid)
+            .where("raffleId", "==", raffleId)
+            .orderBy("createdAt", "desc")
+            .orderBy(firestore_2.FieldPath.documentId(), "desc")
+            .limit(pageSize + 1);
+    }
+    if (cursorMs != null && cursorId) {
+        q = q.startAfter(firestore_2.Timestamp.fromMillis(cursorMs), cursorId);
+    }
+    const snap = await q.get();
+    const docs = snap.docs;
+    const pageDocs = docs.slice(0, pageSize);
+    const hasMore = docs.length > pageSize;
+    const last = pageDocs[pageDocs.length - 1];
+    const nextCursor = hasMore && last
+        ? {
+            createdAtMs: rafflePurchaseViewFromDoc(last).createdAtMs ?? 0,
+            purchaseId: last.id,
+        }
+        : null;
+    return {
+        ok: true,
+        items: pageDocs.map((d) => rafflePurchaseViewFromDoc(d)),
+        nextCursor,
+    };
+});
+exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const adminUid = request.auth?.uid;
+    assertAuthed(adminUid);
+    await assertAdmin(adminUid);
+    const raffleId = String(request.data?.raffleId || "").trim();
+    const title = String(request.data?.title || "").trim();
+    const description = request.data?.description == null ? null : String(request.data.description);
+    const status = String(request.data?.status || "draft").trim();
+    const releasedCount = normalizeRaffleReleasedCount(request.data?.releasedCount);
+    const ticketPrice = normalizeRaffleTicketPrice(request.data?.ticketPrice);
+    const maxPerPurchase = normalizeRaffleMaxPerPurchase(request.data?.maxPerPurchase);
+    const prizeCurrencyRaw = request.data?.prizeCurrency;
+    const prizeCurrency = isRewardCurrency(prizeCurrencyRaw) ? prizeCurrencyRaw : "coins";
+    const prizeAmount = normalizeRafflePrizeAmount(request.data?.prizeAmount);
+    const allocationInput = request.data?.allocationMode;
+    const prizeImageUrlUpdate = normalizeOptionalPrizeImageUrlFromRequest(request.data?.prizeImageUrl);
+    const startsAtMs = request.data?.startsAtMs != null ? Math.floor(Number(request.data.startsAtMs)) : null;
+    const endsAtMs = request.data?.endsAtMs != null ? Math.floor(Number(request.data.endsAtMs)) : null;
+    const startsAt = startsAtMs != null && Number.isFinite(startsAtMs) ? firestore_2.Timestamp.fromMillis(startsAtMs) : null;
+    const endsAt = endsAtMs != null && Number.isFinite(endsAtMs) ? firestore_2.Timestamp.fromMillis(endsAtMs) : null;
+    if (!title) {
+        throw new https_1.HttpsError("invalid-argument", "Título obrigatório.");
+    }
+    if (!["draft", "active"].includes(status)) {
+        throw new https_1.HttpsError("invalid-argument", "status deve ser draft ou active.");
+    }
+    if (startsAt && endsAt && startsAt.toMillis() >= endsAt.toMillis()) {
+        throw new https_1.HttpsError("invalid-argument", "Datas inválidas: endsAt deve ser depois de startsAt.");
+    }
+    const system = await getRaffleSystemConfig();
+    const ref = raffleId ? db.doc(`${COL.raffles}/${raffleId}`) : db.collection(COL.raffles).doc();
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const prev = snap.exists ? raffleDocFromFirestore(snap.id, (snap.data() || {})) : null;
+        const resolvedAllocation = allocationInput === "sequential"
+            ? "sequential"
+            : allocationInput === "random"
+                ? "random"
+                : prev
+                    ? prev.allocationMode
+                    : "random";
+        if (prev) {
+            if (!["draft", "active"].includes(prev.status)) {
+                throw new https_1.HttpsError("failed-precondition", "Não é possível editar sorteios já encerrados.");
+            }
+            if (prev.soldCount > releasedCount) {
+                throw new https_1.HttpsError("failed-precondition", "releasedCount não pode ser menor que números já vendidos.");
+            }
+            if (prev.nextSequentialNumber > releasedCount) {
+                throw new https_1.HttpsError("failed-precondition", "releasedCount não pode ser menor que números já reservados (sequencial).");
+            }
+            if (prev.soldCount > 0 && resolvedAllocation !== prev.allocationMode) {
+                throw new https_1.HttpsError("failed-precondition", "Não é possível alterar o modo de numeração após existirem vendas.");
+            }
+        }
+        if (status === "active") {
+            await assertNoOtherActiveRaffle(prev?.id ?? null);
+        }
+        const nextSequentialNumber = prev ? Math.min(prev.nextSequentialNumber, releasedCount) : 0;
+        const soldCount = prev?.soldCount ?? 0;
+        const soldTicketsRevenue = prev?.soldTicketsRevenue ?? 0;
+        const payload = {
+            title,
+            description,
+            status,
+            releasedCount,
+            nextSequentialNumber,
+            soldCount,
+            soldTicketsRevenue,
+            ticketPrice,
+            maxPerPurchase,
+            prizeCurrency,
+            prizeAmount,
+            allocationMode: resolvedAllocation,
+            startsAt,
+            endsAt,
+            noWinnerPolicy: "no_payout_close",
+            drawTimeZone: system.drawTimeZone,
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        };
+        if (prizeImageUrlUpdate !== undefined) {
+            payload.prizeImageUrl = prizeImageUrlUpdate;
+        }
+        if (resolvedAllocation === "random") {
+            if (!snap.exists) {
+                payload.soldBits = Buffer.alloc(raffleSoldBitsByteLength(releasedCount), 0);
+            }
+            else if (prev && releasedCount > prev.releasedCount) {
+                const rawPrev = (snap.data() || {});
+                const oldBuf = readSoldBitsBuffer(rawPrev.soldBits, prev.releasedCount);
+                const newLen = raffleSoldBitsByteLength(releasedCount);
+                const extended = Buffer.alloc(newLen, 0);
+                oldBuf.copy(extended, 0, 0, Math.min(oldBuf.length, newLen));
+                payload.soldBits = extended;
+            }
+        }
+        if (!snap.exists) {
+            payload.createdAt = firestore_2.FieldValue.serverTimestamp();
+            payload.closedAt = null;
+            payload.drawnAt = null;
+            payload.paidAt = null;
+            payload.winningNumber = null;
+            payload.winnerUserId = null;
+            payload.winnerPurchaseId = null;
+        }
+        tx.set(ref, payload, { merge: true });
+    });
+    const after = await ref.get();
+    return { ok: true, raffle: after.exists ? raffleViewFromDoc(after) : null };
+});
+exports.adminCloseRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const adminUid = request.auth?.uid;
+    assertAuthed(adminUid);
+    await assertAdmin(adminUid);
+    const raffleId = String(request.data?.raffleId || "").trim();
+    if (!raffleId)
+        throw new https_1.HttpsError("invalid-argument", "raffleId obrigatório.");
+    const ref = db.doc(`${COL.raffles}/${raffleId}`);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists)
+            throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
+        const raffle = raffleDocFromFirestore(snap.id, (snap.data() || {}));
+        if (raffle.status !== "active") {
+            throw new https_1.HttpsError("failed-precondition", "Somente sorteios ativos podem ser encerrados manualmente.");
+        }
+        tx.set(ref, {
+            status: "closed",
+            closedAt: firestore_2.FieldValue.serverTimestamp(),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    });
+    const after = await ref.get();
+    return { ok: true, raffle: after.exists ? raffleViewFromDoc(after) : null };
+});
+exports.adminDrawRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const adminUid = request.auth?.uid;
+    assertAuthed(adminUid);
+    await assertAdmin(adminUid);
+    const raffleId = String(request.data?.raffleId || "").trim();
+    if (!raffleId)
+        throw new https_1.HttpsError("invalid-argument", "raffleId obrigatório.");
+    const ref = db.doc(`${COL.raffles}/${raffleId}`);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists)
+            throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
+        const raffle = raffleDocFromFirestore(snap.id, (snap.data() || {}));
+        if (raffle.status === "active") {
+            tx.set(ref, {
+                status: "closed",
+                closedAt: firestore_2.FieldValue.serverTimestamp(),
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        }
+    });
+    await drawClosedRaffle(raffleId);
+    const after = await ref.get();
+    return { ok: true, raffle: after.exists ? raffleViewFromDoc(after) : null };
 });
 exports.processReferralReward = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -5483,6 +6780,7 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     });
     await bumpPlayMatchMissions(hostUid);
     await bumpPlayMatchMissions(guestUid);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
     return {
         status: "completed",
@@ -5614,7 +6912,7 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
             quizLastRevealCorrectIndex: question.correctIndex,
             quizLastRevealQuestionText: question.q,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizSubmitWindowMs),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now() + QUIZ_ROUND_REVEAL_MS, quizSubmitWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return {
@@ -5997,7 +7295,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 quizLastRevealCorrectIndex: question.correctIndex,
                 quizLastRevealQuestionText: question.q,
                 timeoutEmptyRounds: 0,
-                actionDeadlineAt: pvpActionDeadlineTs(Date.now(), quizTimeoutMs),
+                actionDeadlineAt: pvpActionDeadlineTs(Date.now() + QUIZ_ROUND_REVEAL_MS, quizTimeoutMs),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
             return { kind: "quiz_round" };
@@ -6447,10 +7745,10 @@ exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCH
         }
     }
 });
-exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * *" }, async () => {
+exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" }, async () => {
     await closeRankingJob("diario");
 });
-exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * 0" }, async () => {
+exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 1" }, async () => {
     await closeRankingJob("semanal");
 });
 exports.closeMonthlyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" }, async () => {
@@ -6467,10 +7765,10 @@ exports.adminCloseRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
     await closeRankingJob(period);
     return { ok: true };
 });
-exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * *" }, async () => {
+exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" }, async () => {
     await closeReferralRankingJob("daily");
 });
-exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "59 23 * * 0" }, async () => {
+exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 1" }, async () => {
     await closeReferralRankingJob("weekly");
 });
 exports.closeReferralMonthlyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" }, async () => {
@@ -6486,5 +7784,8 @@ exports.adminCloseReferralRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
     }
     await closeReferralRankingJob(period);
     return { ok: true };
+});
+exports.tickRaffles = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" }, async () => {
+    await runRaffleLifecycleTick(Date.now());
 });
 //# sourceMappingURL=index.js.map

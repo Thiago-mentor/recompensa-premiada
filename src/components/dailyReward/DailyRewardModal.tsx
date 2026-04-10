@@ -18,6 +18,72 @@ function formatCoins(n: number): string {
   return new Intl.NumberFormat("pt-BR").format(Math.max(0, n));
 }
 
+type DailyRewardLayout = {
+  dialogClassName: string;
+  edgeMaskClassName: string;
+  trackClassName: string;
+  slotWidth: string;
+  slotClassName: string;
+  titleClassName: string;
+  artworkClassName: string;
+  amountClassName: string;
+  amountLabelClassName: string;
+  ticketClassName: string;
+  bonusClassName: string;
+  todayBadgeClassName: string;
+};
+
+function getDailyRewardLayout(slotCount: number): DailyRewardLayout {
+  if (slotCount >= 15) {
+    return {
+      dialogClassName: "max-w-[min(100vw-0.75rem,44rem)] sm:max-w-2xl",
+      edgeMaskClassName: "w-6",
+      trackClassName: "gap-1.5 pb-1.5 pt-3",
+      slotWidth: "3.35rem",
+      slotClassName: "px-1 pb-2 pt-1 min-h-[8.8rem]",
+      titleClassName: "min-h-[1.85rem] text-[9px]",
+      artworkClassName: "h-[2.7rem]",
+      amountClassName: "text-[10px]",
+      amountLabelClassName: "text-[8px]",
+      ticketClassName: "text-[8px]",
+      bonusClassName: "px-1 py-0.5 text-[6px]",
+      todayBadgeClassName: "px-1.5 py-0.5 text-[7px]",
+    };
+  }
+
+  if (slotCount >= 8) {
+    return {
+      dialogClassName: "max-w-[min(100vw-0.75rem,38rem)] sm:max-w-xl",
+      edgeMaskClassName: "w-7",
+      trackClassName: "gap-2 pb-2 pt-3",
+      slotWidth: "4rem",
+      slotClassName: "px-1.5 pb-2.5 pt-1.5 min-h-[9.6rem]",
+      titleClassName: "min-h-[2rem] text-[9px]",
+      artworkClassName: "h-[3rem]",
+      amountClassName: "text-[11px]",
+      amountLabelClassName: "text-[9px]",
+      ticketClassName: "text-[8px]",
+      bonusClassName: "px-1 py-0.5 text-[7px]",
+      todayBadgeClassName: "px-1.5 py-0.5 text-[7px]",
+    };
+  }
+
+  return {
+    dialogClassName: "max-w-md",
+    edgeMaskClassName: "w-8",
+    trackClassName: "gap-2.5 pb-2 pt-3",
+    slotWidth: "4.65rem",
+    slotClassName: "px-1.5 pb-2.5 pt-1.5 min-h-[10.4rem]",
+    titleClassName: "min-h-[2.1rem] text-[10px]",
+    artworkClassName: "h-[3.25rem]",
+    amountClassName: "text-[11px]",
+    amountLabelClassName: "text-[9px]",
+    ticketClassName: "text-[9px]",
+    bonusClassName: "px-1 py-0.5 text-[7px]",
+    todayBadgeClassName: "px-2 py-0.5 text-[8px]",
+  };
+}
+
 export function DailyRewardModal({
   open,
   slots,
@@ -68,6 +134,7 @@ export function DailyRewardModal({
   if (!open || typeof window === "undefined") return null;
 
   const hasCurrent = slots.some((s) => s.status === "current");
+  const layout = getDailyRewardLayout(slots.length);
 
   return createPortal(
     <motion.div
@@ -82,8 +149,9 @@ export function DailyRewardModal({
     >
       <motion.div
         className={cn(
-          "relative w-full max-w-md overflow-hidden rounded-[1.35rem] border-[3px] border-[#f5d94a] p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_24px_60px_-12px_rgba(0,0,0,0.65),0_0_80px_-20px_rgba(245,217,74,0.35)] sm:p-5",
+          "relative w-full overflow-hidden rounded-[1.35rem] border-[3px] border-[#f5d94a] p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_24px_60px_-12px_rgba(0,0,0,0.65),0_0_80px_-20px_rgba(245,217,74,0.35)] sm:p-5",
           "bg-gradient-to-b from-[#5c3eb0] via-[#4f3496] to-[#3d2675]",
+          layout.dialogClassName,
         )}
         initial={{ opacity: 0, scale: 0.94, y: 28 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -122,15 +190,26 @@ export function DailyRewardModal({
 
         <div className="relative mt-4">
           <div
-            className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-8 bg-gradient-to-r from-[#4f3496] to-transparent"
+            className={cn(
+              "pointer-events-none absolute inset-y-0 left-0 z-[1] bg-gradient-to-r from-[#4f3496] to-transparent",
+              layout.edgeMaskClassName,
+            )}
             aria-hidden
           />
           <div
-            className="pointer-events-none absolute inset-y-0 right-0 z-[1] w-8 bg-gradient-to-l from-[#4f3496] to-transparent"
+            className={cn(
+              "pointer-events-none absolute inset-y-0 right-0 z-[1] bg-gradient-to-l from-[#4f3496] to-transparent",
+              layout.edgeMaskClassName,
+            )}
             aria-hidden
           />
 
-          <div className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2 pt-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div
+            className={cn(
+              "flex snap-x snap-mandatory overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+              layout.trackClassName,
+            )}
+          >
             {slots.map((s) => {
               const isCurrent = s.status === "current";
               const isClaimed = s.status === "claimed";
@@ -141,8 +220,10 @@ export function DailyRewardModal({
                 <div
                   key={s.dayNum}
                   ref={isCurrent ? currentRef : undefined}
+                  style={{ width: layout.slotWidth }}
                   className={cn(
-                    "relative flex w-[4.65rem] shrink-0 snap-center flex-col rounded-2xl border-2 px-1.5 pb-2.5 pt-1.5 text-center transition-shadow duration-300",
+                    "relative flex shrink-0 snap-center flex-col rounded-2xl border-2 text-center transition-shadow duration-300",
+                    layout.slotClassName,
                     isCurrent &&
                       "z-[2] scale-[1.07] border-[#ffe566] bg-gradient-to-b from-[#ffe566] to-[#f5c918] text-slate-900 shadow-[0_0_24px_-4px_rgba(255,229,102,0.75),0_8px_20px_-8px_rgba(0,0,0,0.5)] ring-2 ring-amber-200/60",
                     isClaimed &&
@@ -152,14 +233,20 @@ export function DailyRewardModal({
                   )}
                 >
                   {isCurrent ? (
-                    <span className="absolute -top-2 left-1/2 z-[1] -translate-x-1/2 rounded-full bg-slate-900 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#ffe566] shadow-md">
+                    <span
+                      className={cn(
+                        "absolute -top-2 left-1/2 z-[1] -translate-x-1/2 rounded-full bg-slate-900 font-black uppercase tracking-wider text-[#ffe566] shadow-md",
+                        layout.todayBadgeClassName,
+                      )}
+                    >
                       Hoje
                     </span>
                   ) : null}
 
                   <div
                     className={cn(
-                      "flex min-h-[2.1rem] flex-col items-center justify-center text-[10px] font-bold uppercase leading-tight",
+                      "flex flex-col items-center justify-center font-bold uppercase leading-tight",
+                      layout.titleClassName,
                       isCurrent ? "text-slate-800" : "text-white/85",
                     )}
                   >
@@ -175,7 +262,8 @@ export function DailyRewardModal({
 
                   <div
                     className={cn(
-                      "relative mx-auto mt-1.5 h-[3.25rem] w-full overflow-hidden rounded-xl",
+                      "relative mx-auto mt-1.5 w-full overflow-hidden rounded-xl",
+                      layout.artworkClassName,
                       "bg-[radial-gradient(circle_at_50%_28%,rgba(255,255,255,0.45),transparent_52%)]",
                       isCurrent ? "bg-amber-200/95" : "bg-violet-800/90",
                     )}
@@ -190,14 +278,22 @@ export function DailyRewardModal({
 
                   <p
                     className={cn(
-                      "mt-2 text-[11px] font-extrabold leading-tight",
+                      "mt-2 font-extrabold leading-tight",
+                      layout.amountClassName,
                       isCurrent ? "text-slate-900" : "text-amber-50/95",
                     )}
                   >
                     {formatCoins(s.coins)}
-                    <span className="block text-[9px] font-bold opacity-90">PR</span>
+                    <span className={cn("block font-bold opacity-90", layout.amountLabelClassName)}>
+                      PR
+                    </span>
                     {s.gems > 0 ? (
-                      <span className="mt-0.5 block text-[9px] font-bold text-fuchsia-200">
+                      <span
+                        className={cn(
+                          "mt-0.5 block font-bold text-fuchsia-200",
+                          layout.ticketClassName,
+                        )}
+                      >
                         +{s.gems} TICKET
                       </span>
                     ) : null}
@@ -206,7 +302,8 @@ export function DailyRewardModal({
                   {bonusLabel ? (
                     <span
                       className={cn(
-                        "mt-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide",
+                        "mt-1 inline-flex items-center gap-0.5 rounded-md font-bold uppercase tracking-wide",
+                        layout.bonusClassName,
                         isCurrent
                           ? "bg-slate-900/15 text-slate-800"
                           : "bg-black/25 text-amber-100/90",

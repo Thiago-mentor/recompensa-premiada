@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES, routeJogosFilaBuscar } from "@/lib/constants/routes";
+import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { resolveMatchEconomy } from "@/lib/games/gameEconomy";
 import {
   DEFAULT_PVP_CHOICE_SECONDS,
@@ -22,6 +23,7 @@ import { callFunction } from "@/services/callables/client";
 import { isAutoQueueGame } from "@/services/matchmaking/autoQueueService";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { GameId } from "@/types/game";
+import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { cn } from "@/lib/utils/cn";
 import { AnimatePresence, motion } from "framer-motion";
@@ -31,6 +33,7 @@ type PptHand = (typeof PPT_HANDS)[number];
 
 /** Tempo para exibir o resultado da rodada antes de abrir a próxima pergunta (sem toque). */
 const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1800;
+const PPT_ROUND_REVEAL_MS = 3200;
 
 /** Padrão de segundos para UI; valores reais vêm de `system_configs/economy.pvpChoiceSeconds`. */
 
@@ -165,6 +168,14 @@ function buildRoundFlashPayload(room: GameRoomDocument, isHost: boolean): RoundF
     hostLabel: isHost ? "Você" : hostNome.length > 14 ? `${hostNome.slice(0, 14)}…` : hostNome,
     guestLabel: isHost ? (guestNome.length > 14 ? `${guestNome.slice(0, 14)}…` : guestNome) : "Você",
   };
+}
+
+function resolvePptRoundFlashDurationMs(room: GameRoomDocument, pptChoiceSeconds: number): number {
+  if (room.gameId !== "ppt") return PPT_ROUND_REVEAL_MS;
+  const deadlineMs = firestoreTimeToMs(room.actionDeadlineAt);
+  if (deadlineMs == null) return PPT_ROUND_REVEAL_MS;
+  const nextRoundStartMs = deadlineMs - Math.max(1, Math.floor(pptChoiceSeconds || 0)) * 1000;
+  return Math.max(0, nextRoundStartMs - Date.now());
 }
 
 function RoundRevealOverlay({ flash }: { flash: RoundFlashPayload }) {
@@ -1002,6 +1013,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const skipInitialRoundFlashRef = useRef(true);
   const roundFlashTimeoutRef = useRef<number | null>(null);
   const [boostRewardPercent, setBoostRewardPercent] = useState(25);
+  const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
   const [pvpChoiceSec, setPvpChoiceSec] = useState<PvpChoiceSecondsConfig>(() =>
     parsePvpChoiceSeconds(undefined),
   );
@@ -1015,7 +1027,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
       ref,
       (snap) => {
         if (!snap.exists()) return;
-        const data = snap.data();
+        const data = snap.data() as Partial<SystemEconomyConfig>;
+        setBoostSystemEnabled(isBoostSystemEnabled(data));
         setPvpChoiceSec(parsePvpChoiceSeconds(data));
         setBoostRewardPercent(
           typeof data.boostRewardPercent === "number"
@@ -1258,12 +1271,14 @@ export function SalaClient({ roomId }: { roomId: string }) {
     if (roundFlashTimeoutRef.current) {
       window.clearTimeout(roundFlashTimeoutRef.current);
     }
+    const roundFlashDurationMs = resolvePptRoundFlashDurationMs(room, pvpChoiceSec.ppt);
+    if (roundFlashDurationMs <= 0) return;
     setRoundFlash(payload);
     roundFlashTimeoutRef.current = window.setTimeout(() => {
       setRoundFlash(null);
       roundFlashTimeoutRef.current = null;
-    }, 3200);
-  }, [room, uid, roundOutcomeFlashKey]);
+    }, roundFlashDurationMs);
+  }, [room, uid, roundOutcomeFlashKey, pvpChoiceSec.ppt]);
 
   useEffect(() => {
     return () => {
@@ -1312,8 +1327,21 @@ export function SalaClient({ roomId }: { roomId: string }) {
       : null;
 
   /** Resultado da rodada já veio do servidor; não usar o prazo da *próxima* pergunta como contagem regressiva aqui. */
-  const quizInterstitialForTimer =
+  const quizInterstitialReveal =
     !!room && room.gameId === "quiz" && !matchDone && quizInterstitialRevealActive(room);
+  const quizRevealGateKey =
+    quizInterstitialReveal ? `${room?.quizRound ?? 0}:${String(room?.quizQuestionId ?? "")}` : null;
+  const interstitialRevealCorrectIndex =
+    quizInterstitialReveal && typeof room?.quizLastRevealCorrectIndex === "number"
+      ? room.quizLastRevealCorrectIndex
+      : null;
+  const quizRevealBlocking =
+    !!quizInterstitialReveal &&
+    interstitialRevealCorrectIndex != null &&
+    (room?.quizLastRevealOptions?.length ?? 0) > 0 &&
+    quizRevealGateKey != null &&
+    quizRevealDismissedKey !== quizRevealGateKey;
+  const quizInterstitialForTimer = quizRevealBlocking;
 
   useEffect(() => {
     if (!showPptPlay || matchDone || actionDeadlineAtMs == null) return;
@@ -1341,6 +1369,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
     }
 
     const syncTimer = () => {
+      const roundDelayMs = actionDeadlineAtMs - Date.now() - pvpChoiceSec.ppt * 1000;
+      if (roundDelayMs > 0) {
+        setSecondsLeft(pvpChoiceSec.ppt);
+        return;
+      }
       const remainingMs = Math.max(0, actionDeadlineAtMs - Date.now());
       const left = Math.max(0, Math.ceil(remainingMs / 1000));
       setSecondsLeft(left);
@@ -1566,14 +1599,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
     };
   }, [inLiveReactionMatch, roomId]);
 
-  const quizRevealGateKey =
-    room != null &&
-    room.gameId === "quiz" &&
-    !matchDone &&
-    quizInterstitialRevealActive(room)
-      ? `${room.quizRound ?? 0}:${String(room.quizQuestionId ?? "")}`
-      : null;
-
   useEffect(() => {
     if (quizRevealGateKey == null) {
       setQuizRevealDismissedKey(null);
@@ -1667,17 +1692,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
       : null;
   const quizQuestion = room.quizQuestionText ?? "";
   const quizOptions = room.quizOptions ?? [];
-  const quizInterstitialReveal = !matchDone && isQuiz && quizInterstitialRevealActive(room);
-  const interstitialRevealCorrectIndex =
-    quizInterstitialReveal && typeof room.quizLastRevealCorrectIndex === "number"
-      ? room.quizLastRevealCorrectIndex
-      : null;
-  const quizRevealBlocking =
-    !!quizInterstitialReveal &&
-    interstitialRevealCorrectIndex != null &&
-    (room.quizLastRevealOptions?.length ?? 0) > 0 &&
-    quizRevealGateKey != null &&
-    quizRevealDismissedKey !== quizRevealGateKey;
   const myLastQuizRoundPick = isHost ? room.quizLastHostAnswerIndex : room.quizLastGuestAnswerIndex;
   const quizYouWrongLastRound =
     !!quizInterstitialReveal &&
@@ -1717,7 +1731,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
     showReactionPlay && actionDeadlineAtMs != null && reactionClock >= actionDeadlineAtMs;
   const rewardResolvedAtMs = firestoreTimeToMs(room.atualizadoEm) ?? Date.now();
   const activeBoostUntilMs = firestoreTimeToMs(profile?.activeBoostUntil);
-  const rewardBoostActive = activeBoostUntilMs != null && activeBoostUntilMs > rewardResolvedAtMs;
+  const rewardBoostActive =
+    boostSystemEnabled && activeBoostUntilMs != null && activeBoostUntilMs > rewardResolvedAtMs;
   const duelTarget = isQuiz ? quizTarget : isReaction ? reactionTarget : target;
   const duelMyPts = isQuiz ? myQuizPts : isReaction ? myReactionPts : myPts;
   const duelOppPts = isQuiz ? oppQuizPts : isReaction ? oppReactionPts : oppPts;
@@ -2390,7 +2405,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   <div
                     className={cn(
                       "relative flex h-[4rem] w-[4rem] shrink-0 items-center justify-center rounded-full border-[3px] bg-slate-950/95 sm:h-[5.5rem] sm:w-[5.5rem]",
-                      quizInterstitialReveal
+                      quizRevealBlocking
                         ? "border-emerald-400/55"
                         : myQuizAnswered
                           ? "border-cyan-400/55"
@@ -2401,7 +2416,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                               : "border-cyan-400/55",
                     )}
                     style={{
-                      background: quizInterstitialReveal
+                      background: quizRevealBlocking
                         ? "conic-gradient(rgb(52 211 153 / 0.55) 360deg, rgb(15 23 42 / 0.92) 0deg)"
                         : `conic-gradient(${
                             myQuizAnswered
@@ -2420,18 +2435,18 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   >
                     <div className="absolute inset-1.5 flex flex-col items-center justify-center rounded-full bg-slate-950/95 ring-1 ring-white/10 sm:inset-2.5">
                       <span className="text-[8px] font-bold uppercase tracking-widest text-white/30">
-                        {quizInterstitialReveal ? "Rodada" : "Tempo"}
+                        {quizRevealBlocking ? "Rodada" : "Tempo"}
                       </span>
                       <span
                         className={cn(
                           "font-mono text-xl font-black tabular-nums sm:text-3xl",
-                          quizInterstitialReveal ? "text-emerald-200" : "text-cyan-200",
+                          quizRevealBlocking ? "text-emerald-200" : "text-cyan-200",
                         )}
                       >
-                        {quizInterstitialReveal ? "OK" : myQuizAnswered ? "OK" : quizSecondsLeft}
+                        {quizRevealBlocking ? "OK" : myQuizAnswered ? "OK" : quizSecondsLeft}
                       </span>
                       <span className="text-[9px] text-white/25">
-                        {quizInterstitialReveal ? "resolv." : myQuizAnswered ? "env." : "s"}
+                        {quizRevealBlocking ? "resolv." : myQuizAnswered ? "env." : "s"}
                       </span>
                     </div>
                   </div>

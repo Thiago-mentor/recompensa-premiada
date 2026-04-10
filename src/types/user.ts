@@ -32,7 +32,7 @@ export interface UserProfile {
   storedBoostMinutes?: number;
   /** Quando o boost de PR ativo termina; null/ausente = sem boost em execução. */
   activeBoostUntil?: Timestamp | null;
-  /** Créditos raros para super prêmios / jackpots futuros. */
+  /** Créditos raros para entradas especiais / jackpots futuros. */
   superPrizeEntries?: number;
   level: number;
   streakAtual: number;

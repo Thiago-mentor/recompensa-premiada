@@ -13,6 +13,7 @@ const links = [
   { href: ROUTES.admin.jogos, label: "Arena" },
   { href: ROUTES.admin.usuarios, label: "Usuários" },
   { href: ROUTES.admin.rankings, label: "Rankings" },
+  { href: ROUTES.admin.sorteios, label: "Sorteios" },
   { href: ROUTES.admin.quiz, label: "Quiz" },
   { href: ROUTES.admin.recompensas, label: "Saque PIX" },
   { href: ROUTES.admin.configuracoes, label: "Configurações" },

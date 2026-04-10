@@ -198,7 +198,7 @@ export function listChestRewardSummaryParts(rewards: ChestRewardSnapshot): strin
       : null,
     rewards.boostMinutes > 0 ? `Boost ${rewards.boostMinutes} min` : null,
     rewards.superPrizeEntries > 0
-      ? `+${rewards.superPrizeEntries} entrada${rewards.superPrizeEntries === 1 ? "" : "s"} de super prêmio`
+      ? `+${rewards.superPrizeEntries} entrada${rewards.superPrizeEntries === 1 ? " especial" : "s especiais"}`
       : null,
   ].filter((part): part is string => Boolean(part));
 }

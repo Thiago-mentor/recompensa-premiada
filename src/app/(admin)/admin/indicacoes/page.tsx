@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   doc,
@@ -13,7 +13,7 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
+import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
@@ -241,9 +241,10 @@ export default function AdminIndicacoesPage() {
   const [campaignForm, setCampaignForm] = useState(EMPTY_CAMPAIGN);
   const [rows, setRows] = useState<ReferralRecord[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | ReferralStatus>("all");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ tone: "info" | "success" | "error"; text: string } | null>(null);
   const [closingPeriod, setClosingPeriod] = useState<"" | "daily" | "weekly" | "monthly">("");
   const [busyReferralAction, setBusyReferralAction] = useState<string | null>(null);
+  const topRef = useRef<HTMLDivElement | null>(null);
   const [stats, setStats] = useState<{
     total: number;
     pending: number;
@@ -258,65 +259,113 @@ export default function AdminIndicacoesPage() {
     blocked: 0,
   });
 
-  const loadAll = useCallback(async () => {
-    const db = getFirebaseFirestore();
-    const [cfgSnap, campaignSnap, referralSnap, total, pending, valid, rewarded, blocked] = await Promise.all([
-      getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system")),
-      getDocs(query(collection(db, COLLECTIONS.referralCampaigns), orderBy("startAt", "desc"), limit(20))),
-      getDocs(
-        statusFilter === "all"
-          ? query(collection(db, COLLECTIONS.referrals), orderBy("createdAt", "desc"), limit(100))
-          : query(
-              collection(db, COLLECTIONS.referrals),
-              where("status", "==", statusFilter),
-              orderBy("createdAt", "desc"),
-              limit(100),
-            ),
-      ),
-      getCountFromServer(collection(db, COLLECTIONS.referrals)),
-      getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "pending"))),
-      getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "valid"))),
-      getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "rewarded"))),
-      getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "blocked"))),
-    ]);
-
-    if (cfgSnap.exists()) {
-      const raw = cfgSnap.data() as Record<string, unknown>;
-      const rawConfig = raw as unknown as Partial<ReferralSystemConfig>;
-      const nextConfig: ReferralSystemConfig = {
-        ...EMPTY_CONFIG,
-        ...rawConfig,
-        defaultInviterRewardAmount: Math.max(
-          0,
-          Number(raw.defaultInviterRewardAmount ?? raw.defaultInviterRewardCoins ?? EMPTY_CONFIG.defaultInviterRewardAmount) || 0,
-        ),
-        defaultInviterRewardCurrency: (raw.defaultInviterRewardCurrency as ReferralRewardCurrency) || "coins",
-        defaultInvitedRewardAmount: Math.max(
-          0,
-          Number(raw.defaultInvitedRewardAmount ?? raw.defaultInvitedRewardCoins ?? EMPTY_CONFIG.defaultInvitedRewardAmount) || 0,
-        ),
-        defaultInvitedRewardCurrency: (raw.defaultInvitedRewardCurrency as ReferralRewardCurrency) || "coins",
-        rankingEnabled: raw.rankingEnabled !== false,
-        rankingRules: {
-          ...EMPTY_CONFIG.rankingRules,
-          ...((raw.rankingRules as ReferralSystemConfig["rankingRules"] | undefined) ?? {}),
-        },
-      };
-      setConfig(nextConfig);
-      setDailyPrizeTiers(normalizePrizeTiers(nextConfig.rankingRules.daily));
-      setWeeklyPrizeTiers(normalizePrizeTiers(nextConfig.rankingRules.weekly));
-      setMonthlyPrizeTiers(normalizePrizeTiers(nextConfig.rankingRules.monthly));
-    }
-    setCampaigns(campaignSnap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralCampaign));
-    setRows(referralSnap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralRecord));
-    setStats({
-      total: total.data().count,
-      pending: pending.data().count,
-      valid: valid.data().count,
-      rewarded: rewarded.data().count,
-      blocked: blocked.data().count,
+  const scrollToTop = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [statusFilter]);
+  }, []);
+
+  const showMessage = useCallback(
+    (tone: "info" | "success" | "error", text: string) => {
+      setMsg({ tone, text });
+      scrollToTop();
+    },
+    [scrollToTop],
+  );
+
+  const ensureFreshAdminSession = useCallback(async () => {
+    const currentUser = getFirebaseAuth().currentUser;
+    if (!currentUser) {
+      throw new Error("Sessão inválida. Entre novamente para continuar.");
+    }
+    const tokenResult = await currentUser.getIdTokenResult(true);
+    if (tokenResult.claims.admin !== true) {
+      throw new Error(
+        "Sua sessão não está com permissões de admin atualizadas. Saia e entre novamente no painel.",
+      );
+    }
+  }, []);
+
+  const loadAll = useCallback(
+    async (options?: { suppressMessage?: boolean }) => {
+      try {
+        await ensureFreshAdminSession();
+        const db = getFirebaseFirestore();
+        const [cfgSnap, campaignSnap, referralSnap, total, pending, valid, rewarded, blocked] =
+          await Promise.all([
+            getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system")),
+            getDocs(query(collection(db, COLLECTIONS.referralCampaigns), orderBy("startAt", "desc"), limit(20))),
+            getDocs(
+              statusFilter === "all"
+                ? query(collection(db, COLLECTIONS.referrals), orderBy("createdAt", "desc"), limit(100))
+                : query(
+                    collection(db, COLLECTIONS.referrals),
+                    where("status", "==", statusFilter),
+                    orderBy("createdAt", "desc"),
+                    limit(100),
+                  ),
+            ),
+            getCountFromServer(collection(db, COLLECTIONS.referrals)),
+            getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "pending"))),
+            getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "valid"))),
+            getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "rewarded"))),
+            getCountFromServer(query(collection(db, COLLECTIONS.referrals), where("status", "==", "blocked"))),
+          ]);
+
+        if (cfgSnap.exists()) {
+          const raw = cfgSnap.data() as Record<string, unknown>;
+          const rawConfig = raw as unknown as Partial<ReferralSystemConfig>;
+          const nextConfig: ReferralSystemConfig = {
+            ...EMPTY_CONFIG,
+            ...rawConfig,
+            defaultInviterRewardAmount: Math.max(
+              0,
+              Number(
+                raw.defaultInviterRewardAmount ??
+                  raw.defaultInviterRewardCoins ??
+                  EMPTY_CONFIG.defaultInviterRewardAmount,
+              ) || 0,
+            ),
+            defaultInviterRewardCurrency: (raw.defaultInviterRewardCurrency as ReferralRewardCurrency) || "coins",
+            defaultInvitedRewardAmount: Math.max(
+              0,
+              Number(
+                raw.defaultInvitedRewardAmount ??
+                  raw.defaultInvitedRewardCoins ??
+                  EMPTY_CONFIG.defaultInvitedRewardAmount,
+              ) || 0,
+            ),
+            defaultInvitedRewardCurrency: (raw.defaultInvitedRewardCurrency as ReferralRewardCurrency) || "coins",
+            rankingEnabled: raw.rankingEnabled !== false,
+            rankingRules: {
+              ...EMPTY_CONFIG.rankingRules,
+              ...((raw.rankingRules as ReferralSystemConfig["rankingRules"] | undefined) ?? {}),
+            },
+          };
+          setConfig(nextConfig);
+          setDailyPrizeTiers(normalizePrizeTiers(nextConfig.rankingRules.daily));
+          setWeeklyPrizeTiers(normalizePrizeTiers(nextConfig.rankingRules.weekly));
+          setMonthlyPrizeTiers(normalizePrizeTiers(nextConfig.rankingRules.monthly));
+        }
+        setCampaigns(campaignSnap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralCampaign));
+        setRows(referralSnap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralRecord));
+        setStats({
+          total: total.data().count,
+          pending: pending.data().count,
+          valid: valid.data().count,
+          rewarded: rewarded.data().count,
+          blocked: blocked.data().count,
+        });
+      } catch (error) {
+        if (!options?.suppressMessage) {
+          showMessage("error", formatFirebaseError(error));
+        }
+        throw error;
+      }
+    },
+    [ensureFreshAdminSession, showMessage, statusFilter],
+  );
 
   useEffect(() => {
     loadAll().catch(() => undefined);
@@ -343,6 +392,7 @@ export default function AdminIndicacoesPage() {
   async function saveConfig() {
     setMsg(null);
     try {
+      await ensureFreshAdminSession();
       const nextConfig: ReferralSystemConfig = {
         ...config,
         rankingRules: {
@@ -362,16 +412,24 @@ export default function AdminIndicacoesPage() {
         },
         { merge: true },
       );
-      setMsg("Configurações de indicação salvas.");
-      await loadAll();
+      try {
+        await loadAll({ suppressMessage: true });
+        showMessage("success", "Configurações de indicação salvas.");
+      } catch {
+        showMessage(
+          "success",
+          "Configurações salvas. A fila pode levar um instante para recarregar no painel.",
+        );
+      }
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : "Erro ao salvar configurações.");
+      showMessage("error", formatFirebaseError(error));
     }
   }
 
   async function saveCampaign() {
     setMsg(null);
     try {
+      await ensureFreshAdminSession();
       const db = getFirebaseFirestore();
       const targetId = campaignForm.id.trim() || `campaign_${Date.now()}`;
       await setDoc(
@@ -402,11 +460,16 @@ export default function AdminIndicacoesPage() {
         },
         { merge: true },
       );
-      setMsg("Campanha salva.");
       setCampaignForm(EMPTY_CAMPAIGN);
-      await loadAll();
+      setCampaignEditorTab("dados");
+      try {
+        await loadAll({ suppressMessage: true });
+        showMessage("success", "Campanha salva.");
+      } catch {
+        showMessage("success", "Campanha salva. A listagem pode levar um instante para recarregar.");
+      }
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : "Erro ao salvar campanha.");
+      showMessage("error", formatFirebaseError(error));
     }
   }
 
@@ -414,11 +477,12 @@ export default function AdminIndicacoesPage() {
     setMsg(null);
     setBusyReferralAction(`${referralId}:${action}`);
     try {
+      await ensureFreshAdminSession();
       await callFunction("adminReviewReferral", { referralId, action });
-      setMsg("Ação aplicada na indicação.");
-      await loadAll();
+      await loadAll({ suppressMessage: true });
+      showMessage("success", "Ação aplicada na indicação.");
     } catch (error) {
-      setMsg(formatFirebaseError(error));
+      showMessage("error", formatFirebaseError(error));
     } finally {
       setBusyReferralAction(null);
     }
@@ -428,11 +492,12 @@ export default function AdminIndicacoesPage() {
     setMsg(null);
     setBusyReferralAction(`${referralId}:reprocess`);
     try {
+      await ensureFreshAdminSession();
       await callFunction("adminReprocessReferral", { referralId });
-      setMsg("Progresso da indicação reprocessado.");
-      await loadAll();
+      await loadAll({ suppressMessage: true });
+      showMessage("success", "Progresso da indicação reprocessado.");
     } catch (error) {
-      setMsg(formatFirebaseError(error));
+      showMessage("error", formatFirebaseError(error));
     } finally {
       setBusyReferralAction(null);
     }
@@ -442,11 +507,12 @@ export default function AdminIndicacoesPage() {
     setMsg(null);
     setClosingPeriod(period);
     try {
+      await ensureFreshAdminSession();
       await callFunction("adminCloseReferralRanking", { period });
-      setMsg("Fechamento do ranking de indicações executado.");
-      await loadAll();
+      await loadAll({ suppressMessage: true });
+      showMessage("success", "Fechamento do ranking de indicações executado.");
     } catch (error) {
-      setMsg(formatFirebaseError(error));
+      showMessage("error", formatFirebaseError(error));
     } finally {
       setClosingPeriod("");
     }
@@ -497,6 +563,7 @@ export default function AdminIndicacoesPage() {
 
   return (
     <div className="space-y-6 pb-8">
+      <div ref={topRef} />
       <section className="overflow-hidden rounded-[28px] border border-cyan-400/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_30%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_35%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.96))] p-6 shadow-[0_0_60px_-20px_rgba(34,211,238,0.28)]">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-3xl">
@@ -539,7 +606,7 @@ export default function AdminIndicacoesPage() {
         </div>
       </section>
 
-      {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
+      {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Stat title="Volume total" value={stats.total} subtitle="Indicacoes monitoradas" icon={Layers3} tone="slate" />
@@ -1087,6 +1154,8 @@ export default function AdminIndicacoesPage() {
                       minMatchesPlayed: String(campaign.config.qualificationRules.minMatchesPlayed),
                       minMissionRewardsClaimed: String(campaign.config.qualificationRules.minMissionRewardsClaimed),
                     });
+                    setCampaignEditorTab("dados");
+                    showMessage("info", `Campanha "${campaign.name}" carregada para edição.`);
                   }}
                 >
                   <div className="flex items-start justify-between gap-3">

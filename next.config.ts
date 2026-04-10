@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "lh3.googleusercontent.com", pathname: "/**" },
       { protocol: "https", hostname: "firebasestorage.googleapis.com", pathname: "/**" },
+      { protocol: "http", hostname: "127.0.0.1", pathname: "/**" },
+      { protocol: "http", hostname: "localhost", pathname: "/**" },
     ],
   },
   async headers() {
