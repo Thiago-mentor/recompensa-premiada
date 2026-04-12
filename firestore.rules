@@ -111,14 +111,44 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /rankings_daily/{period}/games/{gameId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+
+      match /entries/{uid} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
+    }
+
     match /rankings_weekly/{period}/entries/{uid} {
       allow read: if isSignedIn();
       allow create, update, delete: if false;
     }
 
+    match /rankings_weekly/{period}/games/{gameId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+
+      match /entries/{uid} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
+    }
+
     match /rankings_monthly/{period}/entries/{uid} {
       allow read: if isSignedIn();
       allow create, update, delete: if false;
+    }
+
+    match /rankings_monthly/{period}/games/{gameId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+
+      match /entries/{uid} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
     }
 
     match /clan_rankings_weekly/{period} {

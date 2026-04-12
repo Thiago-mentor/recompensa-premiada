@@ -657,7 +657,7 @@ export default function RankingPage() {
               description="Histórico total do confronto selecionado, sem dividir por período."
             />
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="mt-4 grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
               <RankingSummaryCard
                 title="Seu resumo"
                 subtitle={`${selectedRankingGame?.title ?? activeRankingGameSelection.gameId} · Total`}
@@ -686,7 +686,7 @@ export default function RankingPage() {
               description="A classificação mostra apenas o confronto e o período selecionados."
             />
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="mt-4 grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
               <RankingSummaryCard
                 title="Seu resumo"
                 subtitle={`${selectedRankingGame?.title ?? activeRankingGameSelection.gameId} · ${currentRankingPeriodLabel}`}
@@ -819,14 +819,14 @@ function RankingSummaryCard({
   emptyText: string;
 }) {
   return (
-    <div className="game-panel p-3.5">
+    <div className="game-panel p-3">
       <p className="game-kicker text-cyan-100/58">{title}</p>
-      <div className="game-panel-soft mt-3 rounded-[1.2rem] p-3.5">
+      <div className="game-panel-soft mt-3 rounded-[1.1rem] p-3">
         {entry ? (
           <div className="flex items-center gap-3">
             <div
               aria-label={entry.nome}
-              className="h-14 w-14 rounded-[20px] border border-white/10 bg-cover bg-center shadow-[0_0_30px_-16px_rgba(34,211,238,0.45)]"
+              className="h-12 w-12 rounded-[18px] border border-white/10 bg-cover bg-center shadow-[0_0_30px_-16px_rgba(34,211,238,0.45)]"
               style={{
                 backgroundImage: `url(${resolveAvatarUrl({
                   photoUrl: entry.foto,
@@ -852,7 +852,7 @@ function RankingSummaryCard({
         )}
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-3 gap-2">
         <CompactMetric label="Posição" value={position != null ? `#${position}` : "--"} />
         <CompactMetric label="Vitórias" value={entry ? String(entry.vitorias) : "--"} />
         <CompactMetric label="Partidas" value={entry ? String(entry.partidas) : "--"} />
@@ -1061,9 +1061,9 @@ function ClanRankingRow({
 
 function CompactMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="game-panel-soft flex min-h-[74px] flex-col justify-between rounded-[1rem] px-3 py-2.5">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/58">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    <div className="game-panel-soft flex min-h-[60px] flex-col justify-between rounded-[1rem] px-2.5 py-2 text-center">
+      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-cyan-100/58">{label}</p>
+      <p className="mt-1 text-sm font-semibold leading-none text-white">{value}</p>
     </div>
   );
 }
