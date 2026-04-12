@@ -15,7 +15,7 @@ import {
   getActiveRaffleCallable,
 } from "@/services/raffle/raffleService";
 import { uploadRafflePrizeImage } from "@/services/raffle/prizeImageUpload";
-import type { RaffleView } from "@/types/raffle";
+import type { RaffleScheduleMode, RaffleView } from "@/types/raffle";
 import type { RaffleSystemConfig } from "@/types/systemConfig";
 import {
   RAFFLE_DEFAULT_DRAW_TIME_ZONE,
@@ -26,6 +26,7 @@ import {
   clampRaffleReleasedCount,
   clampRaffleTicketPrice,
   formatRaffleNumber,
+  getRaffleProgressPercent,
 } from "@/utils/raffle";
 import { Loader2, Save, Shuffle, StopCircle } from "lucide-react";
 
@@ -46,6 +47,27 @@ function fromDatetimeLocal(value: string): number | null {
   if (!value.trim()) return null;
   const t = new Date(value).getTime();
   return Number.isFinite(t) ? t : null;
+}
+
+function resolveScheduleMode(raffle: Pick<RaffleView, "scheduleMode" | "endsAtMs"> | null | undefined): RaffleScheduleMode {
+  if (raffle?.scheduleMode === "until_sold_out") return "until_sold_out";
+  if (raffle?.scheduleMode === "date_range") return "date_range";
+  return raffle?.endsAtMs == null ? "until_sold_out" : "date_range";
+}
+
+function scheduleModeLabel(mode: RaffleScheduleMode): string {
+  return mode === "until_sold_out" ? "Até esgotar os números" : "Início e fim por data";
+}
+
+function raffleWinnerLabel(raffle: Pick<RaffleView, "winnerName" | "winnerUsername"> | null | undefined): string {
+  if (!raffle) return "—";
+  if (raffle.winnerUsername) return `@${raffle.winnerUsername}`;
+  if (raffle.winnerName) return raffle.winnerName;
+  return "—";
+}
+
+function sanitizeWinningNumberInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 6);
 }
 
 export default function AdminSorteiosPage() {
@@ -69,6 +91,7 @@ export default function AdminSorteiosPage() {
   const [maxPerPurchase, setMaxPerPurchase] = useState(String(RAFFLE_DEFAULT_MAX_PER_PURCHASE));
   const [prizeCurrency, setPrizeCurrency] = useState<"coins" | "gems" | "rewardBalance">("coins");
   const [prizeAmount, setPrizeAmount] = useState("1000");
+  const [scheduleMode, setScheduleMode] = useState<RaffleScheduleMode>("date_range");
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [endsAtLocal, setEndsAtLocal] = useState("");
 
@@ -80,6 +103,7 @@ export default function AdminSorteiosPage() {
   const [liveRaffle, setLiveRaffle] = useState<RaffleView | null>(null);
   const [closing, setClosing] = useState(false);
   const [drawing, setDrawing] = useState(false);
+  const [winningNumberInput, setWinningNumberInput] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -108,18 +132,44 @@ export default function AdminSorteiosPage() {
         setLiveRaffle(active.raffle);
         if (active.raffle) {
           const r = active.raffle;
-          setRaffleId(r.id);
-          setTitle(r.title);
-          setDescription(r.description ?? "");
-          setStatus(r.status === "draft" || r.status === "active" ? r.status : "draft");
-          setReleasedCount(String(r.releasedCount));
-          setTicketPrice(String(r.ticketPrice));
-          setMaxPerPurchase(String(r.maxPerPurchase));
-          setPrizeCurrency(r.prizeCurrency);
-          setPrizeAmount(String(r.prizeAmount));
-          setStartsAtLocal(toDatetimeLocalValue(r.startsAtMs));
-          setEndsAtLocal(toDatetimeLocalValue(r.endsAtMs));
-          setPrizeImageUrl(r.prizeImageUrl ?? null);
+          setWinningNumberInput(r.winningNumber != null ? formatRaffleNumber(r.winningNumber) : "");
+          if (r.status === "draft" || r.status === "active") {
+            setRaffleId(r.id);
+            setTitle(r.title);
+            setDescription(r.description ?? "");
+            setStatus(r.status);
+            setReleasedCount(String(r.releasedCount));
+            setTicketPrice(String(r.ticketPrice));
+            setMaxPerPurchase(String(r.maxPerPurchase));
+            setPrizeCurrency(r.prizeCurrency);
+            setPrizeAmount(String(r.prizeAmount));
+            setScheduleMode(resolveScheduleMode(r));
+            setStartsAtLocal(toDatetimeLocalValue(r.startsAtMs));
+            setEndsAtLocal(toDatetimeLocalValue(r.endsAtMs));
+            setPrizeImageUrl(r.prizeImageUrl ?? null);
+            setPendingPrizeImage(null);
+            setClearPrizeImage(false);
+          } else {
+            setRaffleId("");
+            setTitle("Sorteio oficial");
+            setDescription("");
+            setStatus("draft");
+            setScheduleMode("date_range");
+            setStartsAtLocal("");
+            setEndsAtLocal("");
+            setPrizeImageUrl(null);
+            setPendingPrizeImage(null);
+            setClearPrizeImage(false);
+          }
+        } else {
+          setRaffleId("");
+          setTitle("Sorteio oficial");
+          setDescription("");
+          setStatus("draft");
+          setScheduleMode("date_range");
+          setStartsAtLocal("");
+          setEndsAtLocal("");
+          setPrizeImageUrl(null);
           setPendingPrizeImage(null);
           setClearPrizeImage(false);
         }
@@ -143,6 +193,43 @@ export default function AdminSorteiosPage() {
     setPrizeImagePreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [pendingPrizeImage]);
+
+  function populateEditableFormFromRaffle(r: RaffleView) {
+    setRaffleId(r.id);
+    setTitle(r.title);
+    setDescription(r.description ?? "");
+    setStatus(r.status === "draft" || r.status === "active" ? r.status : "draft");
+    setReleasedCount(String(r.releasedCount));
+    setTicketPrice(String(r.ticketPrice));
+    setMaxPerPurchase(String(r.maxPerPurchase));
+    setPrizeCurrency(r.prizeCurrency);
+    setPrizeAmount(String(r.prizeAmount));
+    setScheduleMode(resolveScheduleMode(r));
+    setStartsAtLocal(toDatetimeLocalValue(r.startsAtMs));
+    setEndsAtLocal(toDatetimeLocalValue(r.endsAtMs));
+    setPrizeImageUrl(r.prizeImageUrl ?? null);
+    setPendingPrizeImage(null);
+    setClearPrizeImage(false);
+  }
+
+  function resetFormForNewRaffle() {
+    setRaffleId("");
+    setTitle("Sorteio oficial");
+    setDescription("");
+    setStatus("draft");
+    setReleasedCount(String(clampRaffleReleasedCount(defaultReleasedCount)));
+    setTicketPrice(String(clampRaffleTicketPrice(defaultTicketPrice)));
+    setMaxPerPurchase(String(clampRaffleMaxPerPurchase(defaultMaxPerPurchase)));
+    setPrizeCurrency(defaultPrizeCurrency);
+    setPrizeAmount(defaultPrizeAmount);
+    setScheduleMode("date_range");
+    setStartsAtLocal("");
+    setEndsAtLocal("");
+    setPrizeImageUrl(null);
+    setPendingPrizeImage(null);
+    setClearPrizeImage(false);
+    setWinningNumberInput("");
+  }
 
   async function saveSystemConfig() {
     setMsg(null);
@@ -176,7 +263,7 @@ export default function AdminSorteiosPage() {
     setSaving(true);
     try {
       const startsAtMs = fromDatetimeLocal(startsAtLocal);
-      const endsAtMs = fromDatetimeLocal(endsAtLocal);
+      const endsAtMs = scheduleMode === "until_sold_out" ? null : fromDatetimeLocal(endsAtLocal);
 
       const buildPayload = (extra: Record<string, unknown> = {}) => ({
         raffleId: raffleId.trim() || undefined,
@@ -188,6 +275,7 @@ export default function AdminSorteiosPage() {
         maxPerPurchase: clampRaffleMaxPerPurchase(maxPerPurchase),
         prizeCurrency,
         prizeAmount: Math.max(0, Math.floor(Number(prizeAmount) || 0)),
+        scheduleMode,
         startsAtMs,
         endsAtMs,
         ...extra,
@@ -220,9 +308,9 @@ export default function AdminSorteiosPage() {
 
       const res = await adminCreateOrUpdateRaffleCallable(buildPayload({ ...imageExtra, raffleId: id || undefined }));
       if (res.raffle) {
-        setRaffleId(res.raffle.id);
         setLiveRaffle(res.raffle);
-        setPrizeImageUrl(res.raffle.prizeImageUrl ?? null);
+        setWinningNumberInput(res.raffle.winningNumber != null ? formatRaffleNumber(res.raffle.winningNumber) : "");
+        populateEditableFormFromRaffle(res.raffle);
       }
       setClearPrizeImage(false);
       setMsg("Sorteio salvo.");
@@ -234,13 +322,14 @@ export default function AdminSorteiosPage() {
   }
 
   async function closeRaffle() {
-    if (!raffleId.trim()) return;
+    const targetRaffleId = liveRaffle?.id?.trim() || raffleId.trim();
+    if (!targetRaffleId) return;
     setMsg(null);
     setClosing(true);
     try {
-      const res = await adminCloseRaffleCallable(raffleId.trim());
+      const res = await adminCloseRaffleCallable(targetRaffleId);
       if (res.raffle) setLiveRaffle(res.raffle);
-      setMsg("Sorteio encerrado para compras.");
+      setMsg("Sorteio encerrado para compras. Agora informe o número oficial.");
     } catch (e) {
       setMsg(formatFirebaseError(e));
     } finally {
@@ -249,13 +338,29 @@ export default function AdminSorteiosPage() {
   }
 
   async function drawRaffle() {
-    if (!raffleId.trim()) return;
+    const targetRaffleId = liveRaffle?.id?.trim() || raffleId.trim();
+    if (!targetRaffleId) return;
+    const sanitizedWinningNumber = sanitizeWinningNumberInput(winningNumberInput);
+    if (!sanitizedWinningNumber) {
+      setMsg("Informe o número oficial para finalizar o sorteio.");
+      return;
+    }
     setMsg(null);
     setDrawing(true);
     try {
-      const res = await adminDrawRaffleCallable(raffleId.trim());
-      if (res.raffle) setLiveRaffle(res.raffle);
-      setMsg("Sorteio processado (fechamento + sorteio).");
+      const res = await adminDrawRaffleCallable({
+        raffleId: targetRaffleId,
+        winningNumber: Number(sanitizedWinningNumber),
+      });
+      if (res.raffle) {
+        setLiveRaffle(res.raffle);
+        if (res.raffle.status === "draft" || res.raffle.status === "active") {
+          populateEditableFormFromRaffle(res.raffle);
+        } else {
+          resetFormForNewRaffle();
+        }
+      }
+      setMsg("Número oficial lançado e sorteio finalizado.");
     } catch (e) {
       setMsg(formatFirebaseError(e));
     } finally {
@@ -271,19 +376,36 @@ export default function AdminSorteiosPage() {
     setPrizeAmount(defaultPrizeAmount);
   }
 
+  const liveProgressPercent = liveRaffle
+    ? getRaffleProgressPercent(liveRaffle.soldCount, liveRaffle.releasedCount)
+    : 0;
+  const liveScheduleMode = resolveScheduleMode(liveRaffle);
+  const canCloseLiveRaffle = liveRaffle?.status === "active";
+  const canFinalizeLiveRaffle = liveRaffle?.status === "active" || liveRaffle?.status === "closed";
+
   return (
     <div className="space-y-6 pb-4">
       <div className="rounded-[1.8rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_56px_-24px_rgba(139,92,246,0.35)]">
         <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-200/70">Admin</p>
         <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Sorteios</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/70">
-          Configure a faixa liberada, preço em TICKET e prêmio. O fechamento automático roda a cada minuto; você também
-          pode encerrar e sortear manualmente.
+          Configure o sorteio com modo por datas ou até esgotar. Quando encerrar as compras, informe o número oficial
+          para o sistema localizar automaticamente o ganhador.
         </p>
       </div>
 
       {msg ? (
-        <AlertBanner tone={msg.includes("salva") || msg.includes("processado") || msg.includes("encerrado") ? "success" : "error"}>
+        <AlertBanner
+          tone={
+            msg.includes("salva") ||
+            msg.includes("processado") ||
+            msg.includes("encerrado") ||
+            msg.includes("lançado") ||
+            msg.includes("finalizado")
+              ? "success"
+              : "error"
+          }
+        >
           {msg}
         </AlertBanner>
       ) : null}
@@ -341,15 +463,32 @@ export default function AdminSorteiosPage() {
           <div>
             <h2 className="text-lg font-black text-white">Sorteio atual</h2>
             <p className="mt-1 text-sm text-white/55">
-              ID: {raffleId || "(novo após salvar)"} · Status no servidor:{" "}
+              ID: {liveRaffle?.id || raffleId || "(novo após salvar)"} · Status no servidor:{" "}
               <strong className="text-white">{liveRaffle ? liveRaffle.status : "—"}</strong>
             </p>
+            {liveRaffle ? (
+              <p className="mt-1 text-xs text-white/45">
+                Modo: <strong className="text-white">{scheduleModeLabel(liveScheduleMode)}</strong>
+              </p>
+            ) : null}
           </div>
-          {liveRaffle?.winningNumber != null ? (
-            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
-              Número sorteado: <strong>{formatRaffleNumber(liveRaffle.winningNumber)}</strong>
-            </div>
-          ) : null}
+          <div className="space-y-2">
+            {liveRaffle?.winningNumber != null ? (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+                Número sorteado: <strong>{formatRaffleNumber(liveRaffle.winningNumber)}</strong>
+              </div>
+            ) : null}
+            {liveRaffle?.status === "paid" ? (
+              <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+                Ganhador: <strong>{raffleWinnerLabel(liveRaffle)}</strong>
+              </div>
+            ) : null}
+            {liveRaffle?.status === "no_winner" ? (
+              <div className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/75">
+                Sem ganhador para o número lançado.
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -364,6 +503,17 @@ export default function AdminSorteiosPage() {
             >
               <option value="draft">Rascunho</option>
               <option value="active">Ativo</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-white/60">Modo do sorteio</span>
+            <select
+              value={scheduleMode}
+              onChange={(e) => setScheduleMode(e.target.value as RaffleScheduleMode)}
+              className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
+            >
+              <option value="date_range">Início e fim com datas</option>
+              <option value="until_sold_out">Início e encerra ao acabar os números</option>
             </select>
           </div>
           <Field label="Faixa liberada (1–1.000.000)" value={releasedCount} onChange={setReleasedCount} />
@@ -445,15 +595,22 @@ export default function AdminSorteiosPage() {
               className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold text-white/60">Encerramento (local)</span>
-            <input
-              type="datetime-local"
-              value={endsAtLocal}
-              onChange={(e) => setEndsAtLocal(e.target.value)}
-              className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
-            />
-          </div>
+          {scheduleMode === "date_range" ? (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-white/60">Encerramento (local)</span>
+              <input
+                type="datetime-local"
+                value={endsAtLocal}
+                onChange={(e) => setEndsAtLocal(e.target.value)}
+                className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
+              />
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-3 text-sm text-white/55">
+              A data final será registrada automaticamente quando todos os números forem vendidos ou se você encerrar o
+              sorteio manualmente.
+            </div>
+          )}
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -461,31 +618,95 @@ export default function AdminSorteiosPage() {
             <Save className="h-4 w-4" />
             Salvar sorteio
           </Button>
-          <Button type="button" variant="secondary" onClick={() => void closeRaffle()} disabled={saving || !raffleId || closing}>
-            <StopCircle className="h-4 w-4" />
-            {closing ? "Encerrando..." : "Encerrar compras"}
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => void drawRaffle()} disabled={saving || !raffleId || drawing}>
-            <Shuffle className="h-4 w-4" />
-            {drawing ? "Sorteando..." : "Fechar + sortear agora"}
-          </Button>
         </div>
 
         {liveRaffle ? (
-          <div className="mt-5 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-4 text-sm text-white/65 sm:grid-cols-2">
-            <p>
-              Vendidos: <strong className="text-white">{liveRaffle.soldCount}</strong>
-            </p>
-            <p>
-              Arrecadação (TICKET): <strong className="text-white">{liveRaffle.soldTicketsRevenue}</strong>
-            </p>
-            <p>
-              Próximo número: <strong className="text-white">{formatRaffleNumber(liveRaffle.nextSequentialNumber)}</strong>
-            </p>
-            <p>
-              Liberados: <strong className="text-white">{liveRaffle.releasedCount}</strong>
-            </p>
-          </div>
+          <>
+            <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,280px)_1fr]">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-white/60">Número oficial / Federal</span>
+                <input
+                  value={winningNumberInput}
+                  onChange={(e) => setWinningNumberInput(sanitizeWinningNumberInput(e.target.value))}
+                  inputMode="numeric"
+                  placeholder="Ex.: 012345"
+                  className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white outline-none ring-amber-500/30 focus:ring-2"
+                />
+                <p className="text-[11px] text-white/45">
+                  Informe o número exato para localizar o ganhador automaticamente.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void closeRaffle()}
+                  disabled={saving || !canCloseLiveRaffle || closing}
+                >
+                  <StopCircle className="h-4 w-4" />
+                  {closing ? "Encerrando..." : "Encerrar compras"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void drawRaffle()}
+                  disabled={
+                    saving ||
+                    !canFinalizeLiveRaffle ||
+                    drawing ||
+                    !sanitizeWinningNumberInput(winningNumberInput)
+                  }
+                >
+                  <Shuffle className="h-4 w-4" />
+                  {drawing ? "Finalizando..." : "Lançar número oficial"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-white/10 bg-black/25 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Progresso</p>
+                  <p className="mt-1 text-lg font-black text-white">{liveProgressPercent}% concluído</p>
+                </div>
+                <div className="text-sm text-white/60">
+                  <strong className="text-white">{liveRaffle.soldCount}</strong> / {liveRaffle.releasedCount} números
+                </div>
+              </div>
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 transition-[width]"
+                  style={{ width: `${liveProgressPercent}%` }}
+                />
+              </div>
+              <div className="mt-4 grid gap-2 text-sm text-white/65 sm:grid-cols-2">
+                <p>
+                  Vendidos: <strong className="text-white">{liveRaffle.soldCount}</strong>
+                </p>
+                <p>
+                  Arrecadação (TICKET): <strong className="text-white">{liveRaffle.soldTicketsRevenue}</strong>
+                </p>
+                <p>
+                  Próximo número: <strong className="text-white">{formatRaffleNumber(liveRaffle.nextSequentialNumber)}</strong>
+                </p>
+                <p>
+                  Liberados: <strong className="text-white">{liveRaffle.releasedCount}</strong>
+                </p>
+                <p>
+                  Início:{" "}
+                  <strong className="text-white">
+                    {liveRaffle.startsAtMs ? toDatetimeLocalValue(liveRaffle.startsAtMs).replace("T", " ") : "—"}
+                  </strong>
+                </p>
+                <p>
+                  Fim:{" "}
+                  <strong className="text-white">
+                    {liveRaffle.endsAtMs ? toDatetimeLocalValue(liveRaffle.endsAtMs).replace("T", " ") : "Até esgotar"}
+                  </strong>
+                </p>
+              </div>
+            </div>
+          </>
         ) : null}
       </section>
     </div>

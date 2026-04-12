@@ -23,17 +23,17 @@ export function RankingTable({
   if (entries.length === 0) return null;
 
   return (
-    <div className="game-panel overflow-hidden rounded-[1.5rem] shadow-[0_0_36px_-24px_rgba(139,92,246,0.5)]">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-white/5 text-[10px] font-semibold uppercase tracking-wider text-cyan-100/52">
+    <div className="game-panel overflow-hidden rounded-[1.25rem] shadow-[0_0_36px_-24px_rgba(139,92,246,0.5)] sm:rounded-[1.5rem]">
+      <table className="w-full table-fixed text-left text-[13px] sm:text-sm">
+        <thead className="bg-white/5 text-[9px] font-semibold uppercase tracking-[0.16em] text-cyan-100/52 sm:text-[10px] sm:tracking-wider">
           <tr>
-            <th className="px-4 py-3">#</th>
-            <th className="px-4 py-3">Jogador</th>
+            <th className="w-10 px-2.5 py-2.5 sm:w-14 sm:px-4 sm:py-3">#</th>
+            <th className="px-2.5 py-2.5 sm:px-4 sm:py-3">Jogador</th>
             {showPrizeColumn ? (
               <th className="hidden px-4 py-3 text-left lg:table-cell">Prêmio</th>
             ) : null}
-            <th className="px-4 py-3 text-right">Vitórias</th>
-            <th className="hidden px-4 py-3 text-right sm:table-cell">Partidas</th>
+            <th className="hidden w-20 px-3 py-3 text-right sm:table-cell sm:px-4">Vitórias</th>
+            <th className="hidden w-20 px-3 py-3 text-right md:table-cell sm:px-4">Partidas</th>
           </tr>
         </thead>
         <tbody>
@@ -49,11 +49,13 @@ export function RankingTable({
                   isMe ? "bg-amber-500/15" : "hover:bg-white/[0.03]",
                 )}
               >
-                <td className="px-4 py-3 font-mono text-white/55">{pos}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                <td className="px-2.5 py-2.5 font-mono tabular-nums text-white/55 sm:px-4 sm:py-3">
+                  {pos}
+                </td>
+                <td className="px-2.5 py-2.5 sm:px-4 sm:py-3">
+                  <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                     <div
-                      className="h-11 w-11 shrink-0 rounded-[18px] border border-white/10 bg-cover bg-center"
+                      className="h-9 w-9 shrink-0 rounded-[14px] border border-white/10 bg-cover bg-center sm:h-11 sm:w-11 sm:rounded-[18px]"
                       style={{
                         backgroundImage: `url(${resolveAvatarUrl({
                           photoUrl: e.foto,
@@ -63,10 +65,15 @@ export function RankingTable({
                         })})`,
                       }}
                     />
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-white">{e.nome}</p>
-                      <p className="mt-0.5 text-xs text-white/45">
-                        {e.username ? `@${e.username}` : `${e.partidas} partidas`}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-semibold leading-tight text-white sm:text-sm">
+                        {e.nome}
+                      </p>
+                      <p className="mt-0.5 truncate text-[11px] leading-tight text-white/45 sm:text-xs">
+                        {e.username ? `@${e.username}` : "sem @usuário"}
+                      </p>
+                      <p className="mt-1 text-[10px] leading-tight text-violet-200 sm:hidden">
+                        {e.vitorias} vitórias · {e.partidas} partidas
                       </p>
                     </div>
                   </div>
@@ -78,10 +85,10 @@ export function RankingTable({
                     </span>
                   </td>
                 ) : null}
-                <td className="px-4 py-3 text-right font-semibold text-violet-200">
+                <td className="hidden px-3 py-3 text-right font-semibold text-violet-200 sm:table-cell sm:px-4">
                   {e.vitorias}
                 </td>
-                <td className="hidden px-4 py-3 text-right text-white/60 sm:table-cell">
+                <td className="hidden px-3 py-3 text-right text-white/60 md:table-cell sm:px-4">
                   {e.partidas}
                 </td>
               </tr>

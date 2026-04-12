@@ -31,3 +31,9 @@ export function formatRaffleNumber(value: number | string | null | undefined): s
 export function formatRaffleRange(start: number, end: number): string {
   return `${formatRaffleNumber(start)} - ${formatRaffleNumber(end)}`;
 }
+
+export function getRaffleProgressPercent(soldCount: number, releasedCount: number): number {
+  const total = Math.max(1, Math.floor(Number(releasedCount) || 0));
+  const sold = Math.max(0, Math.floor(Number(soldCount) || 0));
+  return Math.max(0, Math.min(100, Math.round((sold / total) * 100)));
+}

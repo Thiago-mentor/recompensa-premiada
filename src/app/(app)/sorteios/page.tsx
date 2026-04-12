@@ -18,7 +18,7 @@ import {
 } from "@/services/raffle/raffleService";
 import type { RafflePurchaseView, RaffleView } from "@/types/raffle";
 import { cn } from "@/lib/utils/cn";
-import { formatRaffleNumber, formatRaffleRange } from "@/utils/raffle";
+import { formatRaffleNumber, formatRaffleRange, getRaffleProgressPercent } from "@/utils/raffle";
 import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
 import { ChevronDown, ChevronUp, Sparkles, Ticket } from "lucide-react";
 
@@ -44,12 +44,23 @@ function statusLabel(status: RaffleView["status"]): string {
   const m: Record<RaffleView["status"], string> = {
     draft: "Rascunho",
     active: "Ativo",
-    closed: "Encerrado (sorteio pendente)",
+    closed: "Encerrado (aguardando número oficial)",
     drawn: "Sorteado (pagamento pendente)",
     paid: "Concluído com vencedor",
     no_winner: "Encerrado sem vencedor",
   };
   return m[status] ?? status;
+}
+
+function scheduleModeLabel(raffle: Pick<RaffleView, "scheduleMode" | "endsAtMs">): string {
+  const mode = raffle.scheduleMode ?? (raffle.endsAtMs == null ? "until_sold_out" : "date_range");
+  return mode === "until_sold_out" ? "Até esgotar os números" : "Início e fim por data";
+}
+
+function winnerLabel(raffle: Pick<RaffleView, "winnerName" | "winnerUsername">): string {
+  if (raffle.winnerUsername) return `@${raffle.winnerUsername}`;
+  if (raffle.winnerName) return raffle.winnerName;
+  return "—";
 }
 
 function formatWhen(ms: number | null | undefined): string {
@@ -200,7 +211,8 @@ export default function SorteiosPage() {
   const hero = useMemo(() => {
     if (!raffle) return null;
     const remaining = Math.max(0, raffle.releasedCount - raffle.soldCount);
-    return { remaining };
+    const progressPercent = getRaffleProgressPercent(raffle.soldCount, raffle.releasedCount);
+    return { remaining, progressPercent };
   }, [raffle]);
 
   return (
@@ -280,16 +292,30 @@ export default function SorteiosPage() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <StatPill label="Preço / número" value={`${raffle.ticketPrice} TICKET`} />
               <StatPill label="Números liberados" value={String(raffle.releasedCount)} />
               <StatPill label="Já vendidos" value={String(raffle.soldCount)} />
               <StatPill label="Disponíveis" value={hero ? String(hero.remaining) : "—"} />
+              <StatPill label="Progresso" value={hero ? `${hero.progressPercent}%` : "—"} />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/55">
+                <span>Modo: {scheduleModeLabel(raffle)}</span>
+                <span>{hero ? `${hero.progressPercent}% concluído` : "—"}</span>
+              </div>
+              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 transition-[width]"
+                  style={{ width: `${hero?.progressPercent ?? 0}%` }}
+                />
+              </div>
             </div>
 
             <div className="mt-4 grid gap-2 text-xs text-white/45 sm:grid-cols-2">
               <p>Início: {formatWhen(raffle.startsAtMs)}</p>
-              <p>Encerramento: {formatWhen(raffle.endsAtMs)}</p>
+              <p>Encerramento: {raffle.endsAtMs ? formatWhen(raffle.endsAtMs) : "Até esgotar os números"}</p>
             </div>
 
             {raffle.status === "active" ? (
@@ -336,12 +362,17 @@ export default function SorteiosPage() {
             ) : (
               <div className="mt-6 border-t border-white/10 pt-5 text-sm text-white/55">
                 {raffle.status === "closed" || raffle.status === "drawn" ? (
-                  <p>Este sorteio já foi encerrado para compras. Aguarde o resultado.</p>
+                  <p>Este sorteio já foi encerrado para compras. Aguarde o lançamento do número oficial.</p>
                 ) : raffle.status === "paid" && raffle.winningNumber != null ? (
-                  <p>
-                    Número sorteado:{" "}
-                    <strong className="text-white">{formatRaffleNumber(raffle.winningNumber)}</strong>
-                  </p>
+                  <div className="space-y-1">
+                    <p>
+                      Número sorteado:{" "}
+                      <strong className="text-white">{formatRaffleNumber(raffle.winningNumber)}</strong>
+                    </p>
+                    <p>
+                      Ganhador: <strong className="text-white">{winnerLabel(raffle)}</strong>
+                    </p>
+                  </div>
                 ) : raffle.status === "no_winner" && raffle.winningNumber != null ? (
                   <p>
                     Sorteio encerrado. Número sorteado:{" "}

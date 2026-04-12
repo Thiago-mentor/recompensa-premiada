@@ -85,13 +85,16 @@ export async function adminCloseRaffleCallable(raffleId: string): Promise<{
   return res.data;
 }
 
-export async function adminDrawRaffleCallable(raffleId: string): Promise<{
+export async function adminDrawRaffleCallable(input: { raffleId: string; winningNumber: number }): Promise<{
   ok: boolean;
   raffle: RaffleView | null;
 }> {
-  const res = await callFunction<{ raffleId: string }, { ok: boolean; raffle: RaffleView | null }>(
+  const res = await callFunction<
+    { raffleId: string; winningNumber: number },
+    { ok: boolean; raffle: RaffleView | null }
+  >(
     "adminDrawRaffle",
-    { raffleId },
+    input,
   );
   return res.data;
 }

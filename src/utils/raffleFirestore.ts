@@ -1,5 +1,5 @@
 import type { DocumentSnapshot } from "firebase/firestore";
-import type { RaffleAllocationMode, RaffleView } from "@/types/raffle";
+import type { RaffleAllocationMode, RaffleScheduleMode, RaffleView } from "@/types/raffle";
 import { clampRaffleMaxPerPurchase, clampRaffleReleasedCount, clampRaffleTicketPrice } from "@/utils/raffle";
 
 const RAFFLE_STATUSES: RaffleView["status"][] = [
@@ -33,6 +33,12 @@ function parseAllocationMode(raw: unknown): RaffleAllocationMode {
   return raw === "random" ? "random" : "sequential";
 }
 
+function parseScheduleMode(raw: unknown, endsAtMs: number | null): RaffleScheduleMode {
+  if (raw === "until_sold_out") return "until_sold_out";
+  if (raw === "date_range") return "date_range";
+  return endsAtMs == null ? "until_sold_out" : "date_range";
+}
+
 /** Converte snapshot Firestore do sorteio para o mesmo formato retornado pelas callables. */
 export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | null {
   if (!snap.exists()) return null;
@@ -43,6 +49,8 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
     prizeCurrencyRaw === "gems" || prizeCurrencyRaw === "rewardBalance" || prizeCurrencyRaw === "coins"
       ? prizeCurrencyRaw
       : "coins";
+  const startsAtMs = tsToMs(d.startsAt);
+  const endsAtMs = tsToMs(d.endsAt);
 
   return {
     id,
@@ -61,14 +69,17 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
       typeof d.prizeImageUrl === "string" && d.prizeImageUrl.trim()
         ? d.prizeImageUrl.trim().slice(0, 2048)
         : null,
-    startsAtMs: tsToMs(d.startsAt),
-    endsAtMs: tsToMs(d.endsAt),
+    startsAtMs,
+    endsAtMs,
+    scheduleMode: parseScheduleMode(d.scheduleMode, endsAtMs),
     closedAtMs: tsToMs(d.closedAt),
     drawnAtMs: tsToMs(d.drawnAt),
     paidAtMs: tsToMs(d.paidAt),
     winningNumber: d.winningNumber == null ? null : Math.max(0, Math.floor(Number(d.winningNumber) || 0)),
     winnerUserId: typeof d.winnerUserId === "string" ? d.winnerUserId : null,
     winnerPurchaseId: typeof d.winnerPurchaseId === "string" ? d.winnerPurchaseId : null,
+    winnerName: typeof d.winnerName === "string" ? d.winnerName : null,
+    winnerUsername: typeof d.winnerUsername === "string" ? d.winnerUsername : null,
     noWinnerPolicy: "no_payout_close",
     allocationMode: parseAllocationMode(d.allocationMode),
     drawTimeZone: typeof d.drawTimeZone === "string" ? d.drawTimeZone : null,

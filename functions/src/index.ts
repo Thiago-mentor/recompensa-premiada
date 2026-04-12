@@ -716,6 +716,12 @@ function normalizeRafflePrizeAmount(raw: unknown): number {
   return Math.max(0, parsed);
 }
 
+function normalizeRaffleScheduleMode(raw: unknown, endsAt: Timestamp | null): RaffleScheduleMode {
+  if (raw === "until_sold_out") return "until_sold_out";
+  if (raw === "date_range") return "date_range";
+  return endsAt ? "date_range" : "until_sold_out";
+}
+
 const RAFFLE_PRIZE_IMAGE_URL_MAX = 2048;
 
 function parsePrizeImageUrlFromDoc(raw: unknown): string | null {
@@ -794,6 +800,8 @@ function raffleDocFromFirestore(id: string, data: Record<string, unknown>): Raff
   const status = String(data.status || "draft") as RaffleStatus;
   const prizeCurrencyRaw = data.prizeCurrency;
   const prizeCurrency = isRewardCurrency(prizeCurrencyRaw) ? prizeCurrencyRaw : "coins";
+  const startsAt = coerceTimestampOrNull(data.startsAt);
+  const endsAt = coerceTimestampOrNull(data.endsAt);
   return {
     id,
     title: String(data.title || "").trim() || "Sorteio",
@@ -822,8 +830,9 @@ function raffleDocFromFirestore(id: string, data: Record<string, unknown>): Raff
         : data.allocationMode === "sequential"
           ? "sequential"
           : "sequential",
-    startsAt: coerceTimestampOrNull(data.startsAt),
-    endsAt: coerceTimestampOrNull(data.endsAt),
+    startsAt,
+    endsAt,
+    scheduleMode: normalizeRaffleScheduleMode(data.scheduleMode, endsAt),
     closedAt: coerceTimestampOrNull(data.closedAt),
     drawnAt: coerceTimestampOrNull(data.drawnAt),
     paidAt: coerceTimestampOrNull(data.paidAt),
@@ -831,6 +840,8 @@ function raffleDocFromFirestore(id: string, data: Record<string, unknown>): Raff
       data.winningNumber == null ? null : Math.max(0, Math.floor(Number(data.winningNumber) || 0)),
     winnerUserId: typeof data.winnerUserId === "string" ? data.winnerUserId : null,
     winnerPurchaseId: typeof data.winnerPurchaseId === "string" ? data.winnerPurchaseId : null,
+    winnerName: typeof data.winnerName === "string" ? data.winnerName : null,
+    winnerUsername: typeof data.winnerUsername === "string" ? data.winnerUsername : null,
     noWinnerPolicy: data.noWinnerPolicy === "no_payout_close" ? "no_payout_close" : "no_payout_close",
     drawTimeZone:
       typeof data.drawTimeZone === "string" && data.drawTimeZone.trim()
@@ -859,12 +870,15 @@ function raffleViewFromDoc(docSnap: DocumentSnapshot): Record<string, unknown> {
     prizeImageUrl: d.prizeImageUrl,
     startsAtMs: d.startsAt ? d.startsAt.toMillis() : null,
     endsAtMs: d.endsAt ? d.endsAt.toMillis() : null,
+    scheduleMode: d.scheduleMode,
     closedAtMs: d.closedAt ? d.closedAt.toMillis() : null,
     drawnAtMs: d.drawnAt ? d.drawnAt.toMillis() : null,
     paidAtMs: d.paidAt ? d.paidAt.toMillis() : null,
     winningNumber: d.winningNumber,
     winnerUserId: d.winnerUserId,
     winnerPurchaseId: d.winnerPurchaseId,
+    winnerName: d.winnerName ?? null,
+    winnerUsername: d.winnerUsername ?? null,
     noWinnerPolicy: d.noWinnerPolicy,
     allocationMode: d.allocationMode,
     drawTimeZone: d.drawTimeZone,
@@ -943,9 +957,56 @@ function isRafflePurchaseWindowOpen(raffle: RaffleDoc, nowMs: number): boolean {
   return true;
 }
 
-function pickWinningNumber(releasedCount: number): number {
+function isRaffleSoldOut(raffle: RaffleDoc): boolean {
+  const allocatedCount =
+    raffle.allocationMode === "random" ? raffle.soldCount : raffle.nextSequentialNumber;
+  return allocatedCount >= raffle.releasedCount;
+}
+
+function shouldAutoCloseRaffle(raffle: RaffleDoc, nowMs: number): boolean {
+  if (raffle.status !== "active") return false;
+  if (isRaffleSoldOut(raffle)) return true;
+  if (raffle.scheduleMode === "date_range" && raffle.endsAt && raffle.endsAt.toMillis() <= nowMs) {
+    return true;
+  }
+  return false;
+}
+
+function buildCloseRafflePayload(raffle: RaffleDoc): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    status: "closed",
+    closedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (raffle.scheduleMode === "until_sold_out" && !raffle.endsAt) {
+    payload.endsAt = FieldValue.serverTimestamp();
+  }
+  return payload;
+}
+
+function buildNoWinnerRafflePayload(winningNumber: number): Record<string, unknown> {
+  return {
+    status: "no_winner",
+    winningNumber,
+    winnerUserId: null,
+    winnerPurchaseId: null,
+    winnerName: null,
+    winnerUsername: null,
+    drawnAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+function normalizeWinningNumberForRaffle(raw: unknown, releasedCount: number): number {
+  const parsed = Math.floor(Number(raw));
   const max = Math.max(1, Math.min(RAFFLE_MAX_RELEASED_COUNT, Math.floor(releasedCount)));
-  return randomInt(0, max - 1);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed >= max) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Número vencedor inválido. Informe um número entre 0 e ${max - 1}.`,
+    );
+  }
+  return parsed;
 }
 
 function readStoredBoostMinutes(data: Record<string, unknown> | undefined): number {
@@ -1900,6 +1961,7 @@ type RankingPeriodMode = "diario" | "semanal" | "mensal";
 type RewardCurrency = "coins" | "gems" | "rewardBalance";
 type RaffleStatus = "draft" | "active" | "closed" | "drawn" | "paid" | "no_winner";
 type RaffleNoWinnerPolicy = "no_payout_close";
+type RaffleScheduleMode = "date_range" | "until_sold_out";
 type RewardValue = { amount: number; currency: RewardCurrency };
 type RankingPrizeRewards = { coins: number; gems: number; rewardBalance: number };
 type RankingPrizeTierResolved = { posicaoMax: number; rewards: RankingPrizeRewards };
@@ -1993,12 +2055,15 @@ type RaffleDoc = {
   allocationMode: RaffleAllocationMode;
   startsAt: Timestamp | null;
   endsAt: Timestamp | null;
+  scheduleMode: RaffleScheduleMode;
   closedAt?: Timestamp | null;
   drawnAt?: Timestamp | null;
   paidAt?: Timestamp | null;
   winningNumber?: number | null;
   winnerUserId?: string | null;
   winnerPurchaseId?: string | null;
+  winnerName?: string | null;
+  winnerUsername?: string | null;
   noWinnerPolicy: RaffleNoWinnerPolicy;
   drawTimeZone: string;
   createdAt?: Timestamp | null;
@@ -6699,22 +6764,16 @@ async function closeRaffleIfDue(raffleId: string, nowMs: number): Promise<boolea
     if (!snap.exists) return false;
     const raw = (snap.data() || {}) as Record<string, unknown>;
     const raffle = raffleDocFromFirestore(snap.id, raw);
-    if (raffle.status !== "active") return false;
-    if (!raffle.endsAt || raffle.endsAt.toMillis() > nowMs) return false;
-    tx.set(
-      ref,
-      {
-        status: "closed",
-        closedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+    if (!shouldAutoCloseRaffle(raffle, nowMs)) return false;
+    tx.set(ref, buildCloseRafflePayload(raffle), { merge: true });
     return true;
   });
 }
 
-async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" | "paid" | "no_winner"> {
+async function drawClosedRaffle(
+  raffleId: string,
+  winningNumberRaw: unknown,
+): Promise<"skipped" | "drawn" | "paid" | "no_winner"> {
   const raffleRef = db.doc(`${COL.raffles}/${raffleId}`);
   const purchaseColl = db.collection(COL.rafflePurchases);
 
@@ -6724,7 +6783,7 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
   if (header.status !== "closed") return "skipped";
   if (header.drawnAt) return "skipped";
 
-  const winningNumber = pickWinningNumber(header.releasedCount);
+  const winningNumber = normalizeWinningNumberForRaffle(winningNumberRaw, header.releasedCount);
   const arrQ = await purchaseColl
     .where("raffleId", "==", raffleId)
     .where("numbers", "array-contains", winningNumber)
@@ -6774,52 +6833,19 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
     if (raffle.drawnAt) return { kind: "skip" as const };
 
     if (outcome === "no_winner") {
-      tx.set(
-        raffleRef,
-        {
-          status: "no_winner",
-          winningNumber,
-          winnerUserId: null,
-          winnerPurchaseId: null,
-          drawnAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+      tx.set(raffleRef, buildNoWinnerRafflePayload(winningNumber), { merge: true });
       return { kind: "no_winner" as const };
     }
 
     if (!winnerUserId || !winnerPurchaseId) {
-      tx.set(
-        raffleRef,
-        {
-          status: "no_winner",
-          winningNumber,
-          winnerUserId: null,
-          winnerPurchaseId: null,
-          drawnAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+      tx.set(raffleRef, buildNoWinnerRafflePayload(winningNumber), { merge: true });
       return { kind: "no_winner" as const };
     }
 
     const purchaseRef = db.doc(`${COL.rafflePurchases}/${winnerPurchaseId}`);
     const purchaseSnap = await tx.get(purchaseRef);
     if (!purchaseSnap.exists) {
-      tx.set(
-        raffleRef,
-        {
-          status: "no_winner",
-          winningNumber,
-          winnerUserId: null,
-          winnerPurchaseId: null,
-          drawnAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+      tx.set(raffleRef, buildNoWinnerRafflePayload(winningNumber), { merge: true });
       return { kind: "no_winner" as const };
     }
 
@@ -6842,20 +6868,21 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
         rangeEnd >= winningNumber;
     }
     if (!covers) {
-      tx.set(
-        raffleRef,
-        {
-          status: "no_winner",
-          winningNumber,
-          winnerUserId: null,
-          winnerPurchaseId: null,
-          drawnAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+      tx.set(raffleRef, buildNoWinnerRafflePayload(winningNumber), { merge: true });
       return { kind: "no_winner" as const };
     }
+
+    const winnerUserRef = db.doc(`${COL.users}/${winnerUserId}`);
+    const winnerUserSnap = await tx.get(winnerUserRef);
+    const winnerData = winnerUserSnap.exists
+      ? ((winnerUserSnap.data() || {}) as Record<string, unknown>)
+      : {};
+    const winnerName =
+      typeof winnerData.nome === "string" && winnerData.nome.trim() ? winnerData.nome.trim() : null;
+    const winnerUsername =
+      typeof winnerData.username === "string" && winnerData.username.trim()
+        ? winnerData.username.trim()
+        : null;
 
     tx.set(
       raffleRef,
@@ -6864,6 +6891,8 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
         winningNumber,
         winnerUserId,
         winnerPurchaseId,
+        winnerName,
+        winnerUsername,
         drawnAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -6875,6 +6904,8 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
       prizeCurrency: raffle.prizeCurrency,
       prizeAmount: raffle.prizeAmount,
       winnerUserId,
+      winnerName,
+      winnerUsername,
     };
   });
 
@@ -6914,6 +6945,8 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
           status: "no_winner",
           winnerUserId: null,
           winnerPurchaseId: null,
+          winnerName: null,
+          winnerUsername: null,
           paidAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         },
@@ -6930,6 +6963,8 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
           status: "no_winner",
           winnerUserId: null,
           winnerPurchaseId: null,
+          winnerName: null,
+          winnerUsername: null,
           paidAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         },
@@ -6964,6 +6999,12 @@ async function drawClosedRaffle(raffleId: string): Promise<"skipped" | "drawn" |
       raffleRef,
       {
         status: "paid",
+        winnerName:
+          typeof u.nome === "string" && u.nome.trim() ? u.nome.trim() : drawResult.winnerName ?? null,
+        winnerUsername:
+          typeof u.username === "string" && u.username.trim()
+            ? u.username.trim()
+            : drawResult.winnerUsername ?? null,
         paidAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -6982,11 +7023,6 @@ async function runRaffleLifecycleTick(nowMs = Date.now()) {
   for (const docSnap of activeSnap.docs) {
     await closeRaffleIfDue(docSnap.id, nowMs);
   }
-
-  const closedSnap = await db.collection(COL.raffles).where("status", "==", "closed").limit(10).get();
-  for (const docSnap of closedSnap.docs) {
-    await drawClosedRaffle(docSnap.id);
-  }
 }
 
 export const getActiveRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -6999,11 +7035,21 @@ export const getActiveRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
   }
 
   const q = await db.collection(COL.raffles).where("status", "==", "active").limit(1).get();
-  if (q.empty) {
-    return { ok: true, enabled: true, raffle: null as Record<string, unknown> | null };
+  if (!q.empty) {
+    return { ok: true, enabled: true, raffle: raffleViewFromDoc(q.docs[0]) };
   }
 
-  return { ok: true, enabled: true, raffle: raffleViewFromDoc(q.docs[0]) };
+  const latestSnap = await db.collection(COL.raffles).orderBy("updatedAt", "desc").limit(10).get();
+  const latestPublished = latestSnap.docs.find((docSnap) => {
+    const raffle = raffleDocFromFirestore(docSnap.id, (docSnap.data() || {}) as Record<string, unknown>);
+    return raffle.status !== "draft";
+  });
+
+  return {
+    ok: true,
+    enabled: true,
+    raffle: latestPublished ? raffleViewFromDoc(latestPublished) : (null as Record<string, unknown> | null),
+  };
 });
 
 export const purchaseRaffleNumbers = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -7142,15 +7188,20 @@ export const purchaseRaffleNumbers = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       numbers = picked;
       rangeStart = Math.min(...picked);
       rangeEnd = Math.max(...picked);
+      const nextSoldCount = raffle.soldCount + quantity;
+      const raffleUpdate: Record<string, unknown> = {
+        soldBits: buf,
+        soldCount: FieldValue.increment(quantity),
+        soldTicketsRevenue: FieldValue.increment(ticketCost),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (nextSoldCount >= raffle.releasedCount) {
+        Object.assign(raffleUpdate, buildCloseRafflePayload(raffle));
+      }
 
       tx.set(
         raffleRef,
-        {
-          soldBits: buf,
-          soldCount: FieldValue.increment(quantity),
-          soldTicketsRevenue: FieldValue.increment(ticketCost),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
+        raffleUpdate,
         { merge: true },
       );
 
@@ -7177,15 +7228,19 @@ export const purchaseRaffleNumbers = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       const nextPointer = rangeEndSeq + 1;
       rangeStart = rangeStartSeq;
       rangeEnd = rangeEndSeq;
+      const raffleUpdate: Record<string, unknown> = {
+        nextSequentialNumber: nextPointer,
+        soldCount: FieldValue.increment(quantity),
+        soldTicketsRevenue: FieldValue.increment(ticketCost),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (nextPointer >= raffle.releasedCount) {
+        Object.assign(raffleUpdate, buildCloseRafflePayload(raffle));
+      }
 
       tx.set(
         raffleRef,
-        {
-          nextSequentialNumber: nextPointer,
-          soldCount: FieldValue.increment(quantity),
-          soldTicketsRevenue: FieldValue.increment(ticketCost),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
+        raffleUpdate,
         { merge: true },
       );
 
@@ -7312,13 +7367,16 @@ export const adminCreateOrUpdateRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (re
   const prizeCurrency = isRewardCurrency(prizeCurrencyRaw) ? prizeCurrencyRaw : "coins";
   const prizeAmount = normalizeRafflePrizeAmount(request.data?.prizeAmount);
   const allocationInput = request.data?.allocationMode;
+  const scheduleModeInput = request.data?.scheduleMode;
   const prizeImageUrlUpdate = normalizeOptionalPrizeImageUrlFromRequest(request.data?.prizeImageUrl);
 
   const startsAtMs = request.data?.startsAtMs != null ? Math.floor(Number(request.data.startsAtMs)) : null;
   const endsAtMs = request.data?.endsAtMs != null ? Math.floor(Number(request.data.endsAtMs)) : null;
   const startsAt =
     startsAtMs != null && Number.isFinite(startsAtMs) ? Timestamp.fromMillis(startsAtMs) : null;
-  const endsAt = endsAtMs != null && Number.isFinite(endsAtMs) ? Timestamp.fromMillis(endsAtMs) : null;
+  const rawEndsAt = endsAtMs != null && Number.isFinite(endsAtMs) ? Timestamp.fromMillis(endsAtMs) : null;
+  const requestedScheduleMode = normalizeRaffleScheduleMode(scheduleModeInput, rawEndsAt);
+  const endsAt = requestedScheduleMode === "until_sold_out" ? null : rawEndsAt;
 
   if (!title) {
     throw new HttpsError("invalid-argument", "Título obrigatório.");
@@ -7328,6 +7386,12 @@ export const adminCreateOrUpdateRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (re
   }
   if (startsAt && endsAt && startsAt.toMillis() >= endsAt.toMillis()) {
     throw new HttpsError("invalid-argument", "Datas inválidas: endsAt deve ser depois de startsAt.");
+  }
+  if (status === "active" && !startsAt) {
+    throw new HttpsError("invalid-argument", "Defina a data de início antes de ativar o sorteio.");
+  }
+  if (status === "active" && requestedScheduleMode === "date_range" && !endsAt) {
+    throw new HttpsError("invalid-argument", "Defina a data final para o modo com início e fim.");
   }
 
   const system = await getRaffleSystemConfig();
@@ -7344,6 +7408,15 @@ export const adminCreateOrUpdateRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (re
           : prev
             ? prev.allocationMode
             : "random";
+    const resolvedScheduleMode: RaffleScheduleMode =
+      scheduleModeInput === "until_sold_out"
+        ? "until_sold_out"
+        : scheduleModeInput === "date_range"
+          ? "date_range"
+          : prev
+            ? prev.scheduleMode
+            : requestedScheduleMode;
+    const resolvedEndsAt = resolvedScheduleMode === "until_sold_out" ? null : endsAt;
 
     if (prev) {
       if (!["draft", "active"].includes(prev.status)) {
@@ -7391,7 +7464,8 @@ export const adminCreateOrUpdateRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (re
       prizeAmount,
       allocationMode: resolvedAllocation,
       startsAt,
-      endsAt,
+      endsAt: resolvedEndsAt,
+      scheduleMode: resolvedScheduleMode,
       noWinnerPolicy: "no_payout_close",
       drawTimeZone: system.drawTimeZone,
       updatedAt: FieldValue.serverTimestamp(),
@@ -7422,6 +7496,8 @@ export const adminCreateOrUpdateRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (re
       payload.winningNumber = null;
       payload.winnerUserId = null;
       payload.winnerPurchaseId = null;
+      payload.winnerName = null;
+      payload.winnerUsername = null;
     }
 
     tx.set(ref, payload, { merge: true });
@@ -7447,15 +7523,7 @@ export const adminCloseRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (request) =>
     if (raffle.status !== "active") {
       throw new HttpsError("failed-precondition", "Somente sorteios ativos podem ser encerrados manualmente.");
     }
-    tx.set(
-      ref,
-      {
-        status: "closed",
-        closedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+    tx.set(ref, buildCloseRafflePayload(raffle), { merge: true });
   });
 
   const after = await ref.get();
@@ -7468,6 +7536,7 @@ export const adminDrawRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
   await assertAdmin(adminUid);
 
   const raffleId = String(request.data?.raffleId || "").trim();
+  const winningNumberRaw = request.data?.winningNumber;
   if (!raffleId) throw new HttpsError("invalid-argument", "raffleId obrigatório.");
 
   const ref = db.doc(`${COL.raffles}/${raffleId}`);
@@ -7476,19 +7545,18 @@ export const adminDrawRaffle = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
     if (!snap.exists) throw new HttpsError("not-found", "Sorteio não encontrado.");
     const raffle = raffleDocFromFirestore(snap.id, (snap.data() || {}) as Record<string, unknown>);
     if (raffle.status === "active") {
-      tx.set(
-        ref,
-        {
-          status: "closed",
-          closedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
+      tx.set(ref, buildCloseRafflePayload(raffle), { merge: true });
+      return;
+    }
+    if (raffle.status !== "closed") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Somente sorteios ativos ou encerrados podem receber o número oficial.",
       );
     }
   });
 
-  await drawClosedRaffle(raffleId);
+  await drawClosedRaffle(raffleId, winningNumberRaw);
   const after = await ref.get();
   return { ok: true, raffle: after.exists ? raffleViewFromDoc(after) : null };
 });

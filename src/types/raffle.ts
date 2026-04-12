@@ -13,6 +13,7 @@ export type RaffleNoWinnerPolicy = "no_payout_close";
 
 /** `sequential` = faixa contínua (legado); `random` = números sorteados sem repetição na faixa liberada. */
 export type RaffleAllocationMode = "sequential" | "random";
+export type RaffleScheduleMode = "date_range" | "until_sold_out";
 
 export type RafflePrizeCurrency = WalletCurrency;
 
@@ -33,12 +34,15 @@ export interface Raffle {
   prizeImageUrl?: string | null;
   startsAt: Timestamp | null;
   endsAt: Timestamp | null;
+  scheduleMode?: RaffleScheduleMode;
   closedAt?: Timestamp | null;
   drawnAt?: Timestamp | null;
   paidAt?: Timestamp | null;
   winningNumber?: number | null;
   winnerUserId?: string | null;
   winnerPurchaseId?: string | null;
+  winnerName?: string | null;
+  winnerUsername?: string | null;
   noWinnerPolicy: RaffleNoWinnerPolicy;
   allocationMode?: RaffleAllocationMode;
   drawTimeZone?: string | null;
@@ -62,12 +66,15 @@ export interface RaffleView {
   prizeImageUrl?: string | null;
   startsAtMs: number | null;
   endsAtMs: number | null;
+  scheduleMode?: RaffleScheduleMode;
   closedAtMs?: number | null;
   drawnAtMs?: number | null;
   paidAtMs?: number | null;
   winningNumber?: number | null;
   winnerUserId?: string | null;
   winnerPurchaseId?: string | null;
+  winnerName?: string | null;
+  winnerUsername?: string | null;
   noWinnerPolicy: RaffleNoWinnerPolicy;
   allocationMode?: RaffleAllocationMode;
   drawTimeZone?: string | null;
