@@ -21,11 +21,14 @@ import {
   RAFFLE_DEFAULT_DRAW_TIME_ZONE,
   RAFFLE_DEFAULT_MAX_PER_PURCHASE,
   RAFFLE_DEFAULT_RELEASED_COUNT,
+  RAFFLE_RELEASE_PRESETS,
   RAFFLE_DEFAULT_TICKET_PRICE,
   clampRaffleMaxPerPurchase,
   clampRaffleReleasedCount,
   clampRaffleTicketPrice,
-  formatRaffleNumber,
+  formatRaffleScopedNumber,
+  formatRaffleReleasedRangeLabel,
+  getRaffleNumberDigits,
   getRaffleProgressPercent,
 } from "@/utils/raffle";
 import { Loader2, Save, Shuffle, StopCircle } from "lucide-react";
@@ -40,6 +43,23 @@ function toDatetimeLocalValue(ms: number | null | undefined): string {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
     return "";
+  }
+}
+
+function formatFederalResultWhen(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  try {
+    return new Date(ms).toLocaleString("pt-BR", {
+      timeZone: RAFFLE_DEFAULT_DRAW_TIME_ZONE,
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
   }
 }
 
@@ -66,12 +86,23 @@ function raffleWinnerLabel(raffle: Pick<RaffleView, "winnerName" | "winnerUserna
   return "—";
 }
 
-function sanitizeWinningNumberInput(value: string): string {
-  return value.replace(/\D/g, "").slice(0, 6);
+function sanitizeWinningNumberInput(value: string, maxDigits = 6): string {
+  return value.replace(/\D/g, "").slice(0, Math.max(1, maxDigits));
 }
+
+function resolveReleasedPresetValue(value: string): string {
+  const normalized = Math.floor(Number(value) || 0);
+  return RAFFLE_RELEASE_PRESETS.some((item) => item.value === normalized) ? String(normalized) : "custom";
+}
+
+type InstantPrizeTierForm = {
+  quantity: string;
+  amount: string;
+};
 
 export default function AdminSorteiosPage() {
   const [msg, setMsg] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -94,6 +125,7 @@ export default function AdminSorteiosPage() {
   const [scheduleMode, setScheduleMode] = useState<RaffleScheduleMode>("date_range");
   const [startsAtLocal, setStartsAtLocal] = useState("");
   const [endsAtLocal, setEndsAtLocal] = useState("");
+  const [instantPrizeTiers, setInstantPrizeTiers] = useState<InstantPrizeTierForm[]>([]);
 
   const [prizeImageUrl, setPrizeImageUrl] = useState<string | null>(null);
   const [pendingPrizeImage, setPendingPrizeImage] = useState<File | null>(null);
@@ -132,7 +164,9 @@ export default function AdminSorteiosPage() {
         setLiveRaffle(active.raffle);
         if (active.raffle) {
           const r = active.raffle;
-          setWinningNumberInput(r.winningNumber != null ? formatRaffleNumber(r.winningNumber) : "");
+          setWinningNumberInput(
+            r.winningNumber != null ? formatRaffleScopedNumber(r.winningNumber, r.releasedCount) : "",
+          );
           if (r.status === "draft" || r.status === "active") {
             setRaffleId(r.id);
             setTitle(r.title);
@@ -146,6 +180,12 @@ export default function AdminSorteiosPage() {
             setScheduleMode(resolveScheduleMode(r));
             setStartsAtLocal(toDatetimeLocalValue(r.startsAtMs));
             setEndsAtLocal(toDatetimeLocalValue(r.endsAtMs));
+            setInstantPrizeTiers(
+              (r.instantPrizeTiers ?? []).map((tier) => ({
+                quantity: String(tier.quantity),
+                amount: String(tier.amount),
+              })),
+            );
             setPrizeImageUrl(r.prizeImageUrl ?? null);
             setPendingPrizeImage(null);
             setClearPrizeImage(false);
@@ -157,6 +197,7 @@ export default function AdminSorteiosPage() {
             setScheduleMode("date_range");
             setStartsAtLocal("");
             setEndsAtLocal("");
+            setInstantPrizeTiers([]);
             setPrizeImageUrl(null);
             setPendingPrizeImage(null);
             setClearPrizeImage(false);
@@ -169,6 +210,7 @@ export default function AdminSorteiosPage() {
           setScheduleMode("date_range");
           setStartsAtLocal("");
           setEndsAtLocal("");
+          setInstantPrizeTiers([]);
           setPrizeImageUrl(null);
           setPendingPrizeImage(null);
           setClearPrizeImage(false);
@@ -194,6 +236,11 @@ export default function AdminSorteiosPage() {
     return () => URL.revokeObjectURL(url);
   }, [pendingPrizeImage]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   function populateEditableFormFromRaffle(r: RaffleView) {
     setRaffleId(r.id);
     setTitle(r.title);
@@ -207,6 +254,12 @@ export default function AdminSorteiosPage() {
     setScheduleMode(resolveScheduleMode(r));
     setStartsAtLocal(toDatetimeLocalValue(r.startsAtMs));
     setEndsAtLocal(toDatetimeLocalValue(r.endsAtMs));
+    setInstantPrizeTiers(
+      (r.instantPrizeTiers ?? []).map((tier) => ({
+        quantity: String(tier.quantity),
+        amount: String(tier.amount),
+      })),
+    );
     setPrizeImageUrl(r.prizeImageUrl ?? null);
     setPendingPrizeImage(null);
     setClearPrizeImage(false);
@@ -225,6 +278,7 @@ export default function AdminSorteiosPage() {
     setScheduleMode("date_range");
     setStartsAtLocal("");
     setEndsAtLocal("");
+    setInstantPrizeTiers([]);
     setPrizeImageUrl(null);
     setPendingPrizeImage(null);
     setClearPrizeImage(false);
@@ -276,6 +330,13 @@ export default function AdminSorteiosPage() {
         prizeCurrency,
         prizeAmount: Math.max(0, Math.floor(Number(prizeAmount) || 0)),
         scheduleMode,
+        instantPrizeTiers: instantPrizeTiers
+          .map((tier) => ({
+            quantity: Math.max(0, Math.floor(Number(tier.quantity) || 0)),
+            amount: Math.max(0, Math.floor(Number(tier.amount) || 0)),
+            currency: "rewardBalance",
+          }))
+          .filter((tier) => tier.quantity > 0 && tier.amount > 0),
         startsAtMs,
         endsAtMs,
         ...extra,
@@ -309,7 +370,11 @@ export default function AdminSorteiosPage() {
       const res = await adminCreateOrUpdateRaffleCallable(buildPayload({ ...imageExtra, raffleId: id || undefined }));
       if (res.raffle) {
         setLiveRaffle(res.raffle);
-        setWinningNumberInput(res.raffle.winningNumber != null ? formatRaffleNumber(res.raffle.winningNumber) : "");
+        setWinningNumberInput(
+          res.raffle.winningNumber != null
+            ? formatRaffleScopedNumber(res.raffle.winningNumber, res.raffle.releasedCount)
+            : "",
+        );
         populateEditableFormFromRaffle(res.raffle);
       }
       setClearPrizeImage(false);
@@ -329,7 +394,13 @@ export default function AdminSorteiosPage() {
     try {
       const res = await adminCloseRaffleCallable(targetRaffleId);
       if (res.raffle) setLiveRaffle(res.raffle);
-      setMsg("Sorteio encerrado para compras. Agora informe o número oficial.");
+      setMsg(
+        res.raffle?.resultScheduledAtMs
+          ? `Sorteio encerrado para compras. Resultado Federal programado para ${formatFederalResultWhen(
+              res.raffle.resultScheduledAtMs,
+            )}.`
+          : "Sorteio encerrado para compras.",
+      );
     } catch (e) {
       setMsg(formatFirebaseError(e));
     } finally {
@@ -340,7 +411,7 @@ export default function AdminSorteiosPage() {
   async function drawRaffle() {
     const targetRaffleId = liveRaffle?.id?.trim() || raffleId.trim();
     if (!targetRaffleId) return;
-    const sanitizedWinningNumber = sanitizeWinningNumberInput(winningNumberInput);
+    const sanitizedWinningNumber = sanitizeWinningNumberInput(winningNumberInput, liveNumberDigits);
     if (!sanitizedWinningNumber) {
       setMsg("Informe o número oficial para finalizar o sorteio.");
       return;
@@ -376,12 +447,39 @@ export default function AdminSorteiosPage() {
     setPrizeAmount(defaultPrizeAmount);
   }
 
+  function updateInstantPrizeTier(index: number, key: keyof InstantPrizeTierForm, value: string) {
+    setInstantPrizeTiers((current) =>
+      current.map((tier, currentIndex) => (currentIndex === index ? { ...tier, [key]: value } : tier)),
+    );
+  }
+
+  function addInstantPrizeTier() {
+    setInstantPrizeTiers((current) => [...current, { quantity: "1", amount: "1" }]);
+  }
+
+  function removeInstantPrizeTier(index: number) {
+    setInstantPrizeTiers((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
   const liveProgressPercent = liveRaffle
     ? getRaffleProgressPercent(liveRaffle.soldCount, liveRaffle.releasedCount)
     : 0;
   const liveScheduleMode = resolveScheduleMode(liveRaffle);
   const canCloseLiveRaffle = liveRaffle?.status === "active";
-  const canFinalizeLiveRaffle = liveRaffle?.status === "active" || liveRaffle?.status === "closed";
+  const liveResultScheduledAtMs = liveRaffle?.resultScheduledAtMs ?? null;
+  const canFinalizeLiveRaffle =
+    liveRaffle?.status === "closed" &&
+    liveResultScheduledAtMs != null &&
+    liveResultScheduledAtMs <= nowMs;
+  const selectedReleasedPreset = resolveReleasedPresetValue(releasedCount);
+  const previewReleasedCount = clampRaffleReleasedCount(releasedCount);
+  const liveReleasedCount = liveRaffle?.releasedCount ?? previewReleasedCount;
+  const liveNumberDigits = getRaffleNumberDigits(liveReleasedCount);
+  const configuredInstantPrizeQuantity = instantPrizeTiers.reduce(
+    (sum, tier) => sum + Math.max(0, Math.floor(Number(tier.quantity) || 0)),
+    0,
+  );
+  const liveInstantPrizeFoundCount = liveRaffle?.instantPrizeHits?.length ?? 0;
 
   return (
     <div className="space-y-6 pb-4">
@@ -475,7 +573,13 @@ export default function AdminSorteiosPage() {
           <div className="space-y-2">
             {liveRaffle?.winningNumber != null ? (
               <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
-                Número sorteado: <strong>{formatRaffleNumber(liveRaffle.winningNumber)}</strong>
+                Número sorteado:{" "}
+                <strong>{formatRaffleScopedNumber(liveRaffle.winningNumber, liveRaffle.releasedCount)}</strong>
+              </div>
+            ) : null}
+            {liveResultScheduledAtMs ? (
+              <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100">
+                Resultado Federal: <strong>{formatFederalResultWhen(liveResultScheduledAtMs)}</strong>
               </div>
             ) : null}
             {liveRaffle?.status === "paid" ? (
@@ -516,7 +620,35 @@ export default function AdminSorteiosPage() {
               <option value="until_sold_out">Início e encerra ao acabar os números</option>
             </select>
           </div>
-          <Field label="Faixa liberada (1–1.000.000)" value={releasedCount} onChange={setReleasedCount} />
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-white/60">Escala da numeração</span>
+            <select
+              value={selectedReleasedPreset}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                if (nextValue === "custom") {
+                  setReleasedCount(String(previewReleasedCount));
+                  return;
+                }
+                setReleasedCount(nextValue);
+              }}
+              className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
+            >
+              {RAFFLE_RELEASE_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.value}>
+                  {preset.label} ({preset.compactRangeLabel}) · {preset.value.toLocaleString("pt-BR")} números
+                </option>
+              ))}
+              <option value="custom">Personalizado</option>
+            </select>
+          </div>
+          {selectedReleasedPreset === "custom" ? (
+            <Field label="Faixa liberada (1–1.000.000)" value={releasedCount} onChange={setReleasedCount} />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/70">
+              Total liberado: <strong className="text-white">{previewReleasedCount.toLocaleString("pt-BR")}</strong>
+            </div>
+          )}
           <Field label="Preço em TICKET / número" value={ticketPrice} onChange={setTicketPrice} />
           <Field label="Máximo por compra" value={maxPerPurchase} onChange={setMaxPerPurchase} />
           <div className="flex flex-col gap-1">
@@ -532,6 +664,62 @@ export default function AdminSorteiosPage() {
             </select>
           </div>
           <Field label="Valor do prêmio" value={prizeAmount} onChange={setPrizeAmount} />
+          <div className="rounded-2xl border border-emerald-400/15 bg-emerald-500/5 p-4 sm:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-emerald-100/85">Números premiados automáticos</p>
+                <p className="mt-1 text-sm text-white/60">
+                  Configure faixas por <strong className="text-white">quantidade + valor em CASH</strong>. Os números
+                  premiados saem aleatórios no momento da compra e o crédito entra automaticamente.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/75">
+                Quantidade configurada: <strong className="text-white">{configuredInstantPrizeQuantity}</strong>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {instantPrizeTiers.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-4 text-sm text-white/50">
+                  Nenhuma faixa premiada configurada.
+                </div>
+              ) : (
+                instantPrizeTiers.map((tier, index) => (
+                  <div
+                    key={`instant-tier-${index}`}
+                    className="grid gap-3 rounded-xl border border-white/10 bg-black/20 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px]"
+                  >
+                    <Field
+                      label={`Faixa ${index + 1} · Quantidade premiada`}
+                      value={tier.quantity}
+                      onChange={(value) => updateInstantPrizeTier(index, "quantity", value)}
+                    />
+                    <Field
+                      label={`Faixa ${index + 1} · Valor em CASH`}
+                      value={tier.amount}
+                      onChange={(value) => updateInstantPrizeTier(index, "amount", value)}
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full"
+                        onClick={() => removeInstantPrizeTier(index)}
+                      >
+                        Remover
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" onClick={() => addInstantPrizeTier()}>
+                Adicionar faixa premiada
+              </Button>
+            </div>
+          </div>
           <div className="flex flex-col gap-2 sm:col-span-2">
             <span className="text-xs font-semibold text-white/60">Foto do prêmio (opcional)</span>
             <div className="flex flex-wrap items-start gap-4">
@@ -595,6 +783,9 @@ export default function AdminSorteiosPage() {
               className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
             />
           </div>
+          <div className="rounded-xl border border-cyan-400/15 bg-cyan-500/5 px-4 py-3 text-sm text-cyan-100/80 lg:col-span-2">
+            Faixa total do sorteio: <strong>{formatRaffleReleasedRangeLabel(previewReleasedCount)}</strong>
+          </div>
           {scheduleMode === "date_range" ? (
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold text-white/60">Encerramento (local)</span>
@@ -627,14 +818,22 @@ export default function AdminSorteiosPage() {
                 <span className="text-xs font-semibold text-white/60">Número oficial / Federal</span>
                 <input
                   value={winningNumberInput}
-                  onChange={(e) => setWinningNumberInput(sanitizeWinningNumberInput(e.target.value))}
+                  onChange={(e) =>
+                    setWinningNumberInput(sanitizeWinningNumberInput(e.target.value, liveNumberDigits))
+                  }
                   inputMode="numeric"
-                  placeholder="Ex.: 012345"
+                  placeholder={`Ex.: ${"9".repeat(liveNumberDigits).padStart(liveNumberDigits, "0")}`}
                   className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white outline-none ring-amber-500/30 focus:ring-2"
                 />
                 <p className="text-[11px] text-white/45">
-                  Informe o número exato para localizar o ganhador automaticamente.
+                  Informe o número exato para localizar o ganhador automaticamente dentro da faixa{" "}
+                  {formatRaffleReleasedRangeLabel(liveRaffle.releasedCount)}.
                 </p>
+                {liveRaffle.status === "closed" && liveResultScheduledAtMs ? (
+                  <p className="text-[11px] text-cyan-100/75">
+                    Liberado para lançamento em {formatFederalResultWhen(liveResultScheduledAtMs)}.
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-end gap-2">
                 <Button
@@ -654,7 +853,7 @@ export default function AdminSorteiosPage() {
                     saving ||
                     !canFinalizeLiveRaffle ||
                     drawing ||
-                    !sanitizeWinningNumberInput(winningNumberInput)
+                    !sanitizeWinningNumberInput(winningNumberInput, liveNumberDigits)
                   }
                 >
                   <Shuffle className="h-4 w-4" />
@@ -687,10 +886,17 @@ export default function AdminSorteiosPage() {
                   Arrecadação (TICKET): <strong className="text-white">{liveRaffle.soldTicketsRevenue}</strong>
                 </p>
                 <p>
-                  Próximo número: <strong className="text-white">{formatRaffleNumber(liveRaffle.nextSequentialNumber)}</strong>
+                  Próximo número:{" "}
+                  <strong className="text-white">
+                    {formatRaffleScopedNumber(liveRaffle.nextSequentialNumber, liveRaffle.releasedCount)}
+                  </strong>
                 </p>
                 <p>
                   Liberados: <strong className="text-white">{liveRaffle.releasedCount}</strong>
+                </p>
+                <p>
+                  Faixa:{" "}
+                  <strong className="text-white">{formatRaffleReleasedRangeLabel(liveRaffle.releasedCount)}</strong>
                 </p>
                 <p>
                   Início:{" "}
@@ -706,6 +912,55 @@ export default function AdminSorteiosPage() {
                 </p>
               </div>
             </div>
+
+            {liveRaffle.instantPrizeTiers && liveRaffle.instantPrizeTiers.length > 0 ? (
+              <div className="mt-4 rounded-xl border border-emerald-400/15 bg-emerald-500/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-100/85">Números premiados automáticos</p>
+                    <p className="mt-1 text-sm text-white/60">
+                      Encontrados até agora: <strong className="text-white">{liveInstantPrizeFoundCount}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  {liveRaffle.instantPrizeTiers.map((tier, index) => (
+                    <div
+                      key={`live-instant-tier-${index}`}
+                      className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/70"
+                    >
+                      <p className="font-semibold text-white">
+                        Faixa {index + 1}: {tier.quantity} número(s) premiado(s) de {tier.amount} CASH
+                      </p>
+                      <p className="mt-1 text-xs text-white/45">
+                        Encontrados: {tier.awardedCount ?? 0} / {tier.quantity}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {liveRaffle.instantPrizeHits && liveRaffle.instantPrizeHits.length > 0 ? (
+                  <div className="mt-4 space-y-2">
+                    {liveRaffle.instantPrizeHits
+                      .slice()
+                      .reverse()
+                      .slice(0, 12)
+                      .map((hit, index) => (
+                        <div
+                          key={`live-hit-${hit.purchaseId}-${hit.number}-${index}`}
+                          className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/75"
+                        >
+                          <strong className="text-emerald-200">
+                            {formatRaffleScopedNumber(hit.number, liveRaffle.releasedCount)}
+                          </strong>{" "}
+                          premiado com {hit.amount} CASH · {hit.winnerUsername ? `@${hit.winnerUsername}` : hit.winnerName || "Jogador"}
+                        </div>
+                      ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </>
         ) : null}
       </section>

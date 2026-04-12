@@ -17,6 +17,28 @@ export type RaffleScheduleMode = "date_range" | "until_sold_out";
 
 export type RafflePrizeCurrency = WalletCurrency;
 
+export interface RaffleInstantPrizeTier {
+  quantity: number;
+  amount: number;
+  currency: RafflePrizeCurrency;
+  awardedCount?: number;
+}
+
+export interface RaffleInstantPrizeHit {
+  number: number;
+  amount: number;
+  currency: RafflePrizeCurrency;
+  tierIndex: number;
+  purchaseId: string;
+  userId: string;
+  winnerName?: string | null;
+  winnerUsername?: string | null;
+}
+
+export interface RaffleInstantPrizeHitView extends RaffleInstantPrizeHit {
+  awardedAtMs?: number | null;
+}
+
 export interface Raffle {
   id: string;
   title: string;
@@ -36,6 +58,7 @@ export interface Raffle {
   endsAt: Timestamp | null;
   scheduleMode?: RaffleScheduleMode;
   closedAt?: Timestamp | null;
+  resultScheduledAt?: Timestamp | null;
   drawnAt?: Timestamp | null;
   paidAt?: Timestamp | null;
   winningNumber?: number | null;
@@ -43,6 +66,8 @@ export interface Raffle {
   winnerPurchaseId?: string | null;
   winnerName?: string | null;
   winnerUsername?: string | null;
+  instantPrizeTiers?: RaffleInstantPrizeTier[];
+  instantPrizeHits?: RaffleInstantPrizeHit[];
   noWinnerPolicy: RaffleNoWinnerPolicy;
   allocationMode?: RaffleAllocationMode;
   drawTimeZone?: string | null;
@@ -68,6 +93,7 @@ export interface RaffleView {
   endsAtMs: number | null;
   scheduleMode?: RaffleScheduleMode;
   closedAtMs?: number | null;
+  resultScheduledAtMs?: number | null;
   drawnAtMs?: number | null;
   paidAtMs?: number | null;
   winningNumber?: number | null;
@@ -75,6 +101,8 @@ export interface RaffleView {
   winnerPurchaseId?: string | null;
   winnerName?: string | null;
   winnerUsername?: string | null;
+  instantPrizeTiers?: RaffleInstantPrizeTier[];
+  instantPrizeHits?: RaffleInstantPrizeHitView[];
   noWinnerPolicy: RaffleNoWinnerPolicy;
   allocationMode?: RaffleAllocationMode;
   drawTimeZone?: string | null;
@@ -108,6 +136,7 @@ export interface RafflePurchaseView {
   rangeEnd: number;
   /** Presente quando o sorteio usa alocação aleatória. */
   numbers?: number[] | null;
+  instantPrizeHits?: RaffleInstantPrizeHit[] | null;
   clientRequestId: string;
   createdAtMs: number | null;
 }

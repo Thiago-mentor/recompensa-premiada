@@ -618,6 +618,63 @@ function normalizeRafflePrizeAmount(raw) {
         return RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultPrizeAmount;
     return Math.max(0, parsed);
 }
+const RAFFLE_MAX_INSTANT_PRIZE_TIERS = 12;
+const RAFFLE_MAX_INSTANT_PRIZE_TOTAL_QUANTITY = 1000;
+function normalizeRaffleInstantPrizeTiers(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    const normalized = raw
+        .slice(0, RAFFLE_MAX_INSTANT_PRIZE_TIERS)
+        .map((item) => {
+        const value = item && typeof item === "object" ? item : null;
+        if (!value)
+            return null;
+        const quantity = Math.max(0, Math.floor(Number(value.quantity) || 0));
+        const amount = Math.max(0, Math.floor(Number(value.amount) || 0));
+        const awardedCount = Math.max(0, Math.floor(Number(value.awardedCount) || 0));
+        if (quantity <= 0 || amount <= 0)
+            return null;
+        return {
+            quantity,
+            amount,
+            currency: isRewardCurrency(value.currency) ? value.currency : "rewardBalance",
+            awardedCount: Math.min(quantity, awardedCount),
+        };
+    })
+        .filter((item) => item != null);
+    const totalQuantity = normalized.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalQuantity > RAFFLE_MAX_INSTANT_PRIZE_TOTAL_QUANTITY) {
+        throw new https_1.HttpsError("invalid-argument", `A soma das quantidades premiadas não pode passar de ${RAFFLE_MAX_INSTANT_PRIZE_TOTAL_QUANTITY}.`);
+    }
+    return normalized;
+}
+function normalizeRaffleInstantPrizeHits(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    return raw
+        .map((item) => {
+        const value = item && typeof item === "object" ? item : null;
+        if (!value)
+            return null;
+        const purchaseId = typeof value.purchaseId === "string" ? value.purchaseId : "";
+        const userId = typeof value.userId === "string" ? value.userId : "";
+        const amount = Math.max(0, Math.floor(Number(value.amount) || 0));
+        if (!purchaseId || !userId || amount <= 0)
+            return null;
+        return {
+            number: Math.max(0, Math.floor(Number(value.number) || 0)),
+            amount,
+            currency: isRewardCurrency(value.currency) ? value.currency : "rewardBalance",
+            tierIndex: Math.max(0, Math.floor(Number(value.tierIndex) || 0)),
+            purchaseId,
+            userId,
+            winnerName: typeof value.winnerName === "string" ? value.winnerName : null,
+            winnerUsername: typeof value.winnerUsername === "string" ? value.winnerUsername : null,
+            awardedAt: coerceTimestampOrNull(value.awardedAt) ?? firestore_2.Timestamp.fromMillis(0),
+        };
+    })
+        .filter((item) => item != null);
+}
 function normalizeRaffleScheduleMode(raw, endsAt) {
     if (raw === "until_sold_out")
         return "until_sold_out";
@@ -730,6 +787,7 @@ function raffleDocFromFirestore(id, data) {
         endsAt,
         scheduleMode: normalizeRaffleScheduleMode(data.scheduleMode, endsAt),
         closedAt: coerceTimestampOrNull(data.closedAt),
+        resultScheduledAt: coerceTimestampOrNull(data.resultScheduledAt),
         drawnAt: coerceTimestampOrNull(data.drawnAt),
         paidAt: coerceTimestampOrNull(data.paidAt),
         winningNumber: data.winningNumber == null ? null : Math.max(0, Math.floor(Number(data.winningNumber) || 0)),
@@ -737,6 +795,8 @@ function raffleDocFromFirestore(id, data) {
         winnerPurchaseId: typeof data.winnerPurchaseId === "string" ? data.winnerPurchaseId : null,
         winnerName: typeof data.winnerName === "string" ? data.winnerName : null,
         winnerUsername: typeof data.winnerUsername === "string" ? data.winnerUsername : null,
+        instantPrizeTiers: normalizeRaffleInstantPrizeTiers(data.instantPrizeTiers),
+        instantPrizeHits: normalizeRaffleInstantPrizeHits(data.instantPrizeHits),
         noWinnerPolicy: data.noWinnerPolicy === "no_payout_close" ? "no_payout_close" : "no_payout_close",
         drawTimeZone: typeof data.drawTimeZone === "string" && data.drawTimeZone.trim()
             ? data.drawTimeZone.trim()
@@ -747,6 +807,7 @@ function raffleDocFromFirestore(id, data) {
 }
 function raffleViewFromDoc(docSnap) {
     const d = raffleDocFromFirestore(docSnap.id, (docSnap.data() || {}));
+    const resultScheduledAt = resolveRaffleResultScheduledAt(d);
     return {
         id: d.id,
         title: d.title,
@@ -765,6 +826,7 @@ function raffleViewFromDoc(docSnap) {
         endsAtMs: d.endsAt ? d.endsAt.toMillis() : null,
         scheduleMode: d.scheduleMode,
         closedAtMs: d.closedAt ? d.closedAt.toMillis() : null,
+        resultScheduledAtMs: resultScheduledAt ? resultScheduledAt.toMillis() : null,
         drawnAtMs: d.drawnAt ? d.drawnAt.toMillis() : null,
         paidAtMs: d.paidAt ? d.paidAt.toMillis() : null,
         winningNumber: d.winningNumber,
@@ -772,6 +834,23 @@ function raffleViewFromDoc(docSnap) {
         winnerPurchaseId: d.winnerPurchaseId,
         winnerName: d.winnerName ?? null,
         winnerUsername: d.winnerUsername ?? null,
+        instantPrizeTiers: d.instantPrizeTiers.map((tier) => ({
+            quantity: tier.quantity,
+            amount: tier.amount,
+            currency: tier.currency,
+            awardedCount: tier.awardedCount,
+        })),
+        instantPrizeHits: d.instantPrizeHits.map((hit) => ({
+            number: hit.number,
+            amount: hit.amount,
+            currency: hit.currency,
+            tierIndex: hit.tierIndex,
+            purchaseId: hit.purchaseId,
+            userId: hit.userId,
+            winnerName: hit.winnerName ?? null,
+            winnerUsername: hit.winnerUsername ?? null,
+            awardedAtMs: hit.awardedAt ? hit.awardedAt.toMillis() : null,
+        })),
         noWinnerPolicy: d.noWinnerPolicy,
         allocationMode: d.allocationMode,
         drawTimeZone: d.drawTimeZone,
@@ -786,6 +865,16 @@ function rafflePurchaseViewFromDoc(docSnap) {
     const numbers = Array.isArray(rawNums) && rawNums.length > 0
         ? rawNums.map((n) => Math.max(0, Math.floor(Number(n) || 0)))
         : null;
+    const instantPrizeHits = normalizeRaffleInstantPrizeHits(d.instantPrizeHits).map((hit) => ({
+        number: hit.number,
+        amount: hit.amount,
+        currency: hit.currency,
+        tierIndex: hit.tierIndex,
+        purchaseId: hit.purchaseId,
+        userId: hit.userId,
+        winnerName: hit.winnerName ?? null,
+        winnerUsername: hit.winnerUsername ?? null,
+    }));
     return {
         id: docSnap.id,
         raffleId: String(d.raffleId || ""),
@@ -796,6 +885,7 @@ function rafflePurchaseViewFromDoc(docSnap) {
         rangeStart: Math.max(0, Math.floor(Number(d.rangeStart) || 0)),
         rangeEnd: Math.max(0, Math.floor(Number(d.rangeEnd) || 0)),
         numbers,
+        instantPrizeHits: instantPrizeHits.length > 0 ? instantPrizeHits : null,
         clientRequestId: String(d.clientRequestId || ""),
         createdAtMs: createdAt.toMillis(),
     };
@@ -837,7 +927,7 @@ function raffleBitSet(buf, index) {
 }
 function shuffleNumberArrayInPlace(nums) {
     for (let i = nums.length - 1; i > 0; i--) {
-        const j = (0, node_crypto_1.randomInt)(0, i);
+        const j = (0, node_crypto_1.randomInt)(0, i + 1);
         const tmp = nums[i];
         nums[i] = nums[j];
         nums[j] = tmp;
@@ -864,14 +954,61 @@ function shouldAutoCloseRaffle(raffle, nowMs) {
     }
     return false;
 }
-function buildCloseRafflePayload(raffle) {
+function canUseSameDayFederalResult(parts) {
+    if (parts.hour < 19)
+        return true;
+    if (parts.hour > 19)
+        return false;
+    if (parts.minute > 0)
+        return false;
+    return parts.second === 0;
+}
+function scheduleFederalResultAt(closedAt, timeZone = DEFAULT_SCHEDULE_OPTS.timeZone) {
+    const closedParts = appDateTimeParts(new Date(closedAt.toMillis()), timeZone);
+    const baseDate = new Date(Date.UTC(closedParts.year, closedParts.month - 1, closedParts.day));
+    for (let offset = 0; offset < 8; offset += 1) {
+        const candidateDate = new Date(baseDate.getTime());
+        candidateDate.setUTCDate(candidateDate.getUTCDate() + offset);
+        const candidateWeekDay = candidateDate.getUTCDay();
+        const isFederalDay = candidateWeekDay === 3 || candidateWeekDay === 6;
+        if (!isFederalDay)
+            continue;
+        if (offset === 0 && !canUseSameDayFederalResult(closedParts))
+            continue;
+        return firestore_2.Timestamp.fromMillis(appDateTimeToUtcMs({
+            year: candidateDate.getUTCFullYear(),
+            month: candidateDate.getUTCMonth() + 1,
+            day: candidateDate.getUTCDate(),
+            hour: 20,
+            minute: 0,
+            second: 0,
+        }, timeZone));
+    }
+    return firestore_2.Timestamp.fromMillis(appDateTimeToUtcMs({
+        year: closedParts.year,
+        month: closedParts.month,
+        day: closedParts.day,
+        hour: 20,
+        minute: 0,
+        second: 0,
+    }, timeZone));
+}
+function resolveRaffleResultScheduledAt(raffle) {
+    if (raffle.resultScheduledAt)
+        return raffle.resultScheduledAt;
+    if (!raffle.closedAt)
+        return null;
+    return scheduleFederalResultAt(raffle.closedAt, raffle.drawTimeZone);
+}
+function buildCloseRafflePayload(raffle, closedAt) {
     const payload = {
         status: "closed",
-        closedAt: firestore_2.FieldValue.serverTimestamp(),
+        closedAt,
+        resultScheduledAt: scheduleFederalResultAt(closedAt, raffle.drawTimeZone),
         updatedAt: firestore_2.FieldValue.serverTimestamp(),
     };
     if (raffle.scheduleMode === "until_sold_out" && !raffle.endsAt) {
-        payload.endsAt = firestore_2.FieldValue.serverTimestamp();
+        payload.endsAt = closedAt;
     }
     return payload;
 }
@@ -894,6 +1031,57 @@ function normalizeWinningNumberForRaffle(raw, releasedCount) {
         throw new https_1.HttpsError("invalid-argument", `Número vencedor inválido. Informe um número entre 0 e ${max - 1}.`);
     }
     return parsed;
+}
+function instantPrizeConfigSignature(tiers) {
+    return JSON.stringify(tiers.map((tier) => ({
+        quantity: tier.quantity,
+        amount: tier.amount,
+        currency: tier.currency,
+    })));
+}
+function resolveInstantPrizeHitsForPurchase(input) {
+    const tiers = input.raffle.instantPrizeTiers.map((tier) => ({ ...tier }));
+    if (tiers.length === 0 || input.ticketNumbers.length === 0) {
+        return { hits: [], tiers };
+    }
+    const hits = [];
+    let soldCursor = input.raffle.soldCount;
+    for (const ticketNumber of input.ticketNumbers) {
+        const remainingNumbers = Math.max(0, input.raffle.releasedCount - soldCursor);
+        const remainingPrizeSlots = tiers.reduce((sum, tier) => sum + Math.max(0, tier.quantity - tier.awardedCount), 0);
+        if (remainingNumbers <= 0 || remainingPrizeSlots <= 0)
+            break;
+        const shouldAward = (0, node_crypto_1.randomInt)(0, remainingNumbers) < remainingPrizeSlots;
+        if (shouldAward) {
+            let prizeOffset = (0, node_crypto_1.randomInt)(0, remainingPrizeSlots);
+            let tierIndex = 0;
+            for (let index = 0; index < tiers.length; index += 1) {
+                const remainingInTier = Math.max(0, tiers[index].quantity - tiers[index].awardedCount);
+                if (remainingInTier <= 0)
+                    continue;
+                if (prizeOffset < remainingInTier) {
+                    tierIndex = index;
+                    break;
+                }
+                prizeOffset -= remainingInTier;
+            }
+            const tier = tiers[tierIndex];
+            tier.awardedCount += 1;
+            hits.push({
+                number: ticketNumber,
+                amount: tier.amount,
+                currency: tier.currency,
+                tierIndex,
+                purchaseId: input.purchaseId,
+                userId: input.userId,
+                winnerName: input.winnerName,
+                winnerUsername: input.winnerUsername,
+                awardedAt: input.awardedAt,
+            });
+        }
+        soldCursor += 1;
+    }
+    return { hits, tiers };
 }
 function readStoredBoostMinutes(data) {
     if (!data)
@@ -1527,6 +1715,15 @@ function appDateTimeParts(d = new Date(), timeZone = DEFAULT_SCHEDULE_OPTS.timeZ
 function appDateToUtcMs(parts) {
     const approxUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
     const offsetParts = appDateTimeParts(new Date(approxUtc));
+    const offsetUtc = Date.UTC(offsetParts.year, offsetParts.month - 1, offsetParts.day, offsetParts.hour, offsetParts.minute, offsetParts.second);
+    return approxUtc - (offsetUtc - approxUtc);
+}
+function appDateTimeToUtcMs(parts, timeZone = DEFAULT_SCHEDULE_OPTS.timeZone) {
+    const hour = parts.hour ?? 0;
+    const minute = parts.minute ?? 0;
+    const second = parts.second ?? 0;
+    const approxUtc = Date.UTC(parts.year, parts.month - 1, parts.day, hour, minute, second);
+    const offsetParts = appDateTimeParts(new Date(approxUtc), timeZone);
     const offsetUtc = Date.UTC(offsetParts.year, offsetParts.month - 1, offsetParts.day, offsetParts.hour, offsetParts.minute, offsetParts.second);
     return approxUtc - (offsetUtc - approxUtc);
 }
@@ -5434,7 +5631,7 @@ async function closeRaffleIfDue(raffleId, nowMs) {
         const raffle = raffleDocFromFirestore(snap.id, raw);
         if (!shouldAutoCloseRaffle(raffle, nowMs))
             return false;
-        tx.set(ref, buildCloseRafflePayload(raffle), { merge: true });
+        tx.set(ref, buildCloseRafflePayload(raffle, firestore_2.Timestamp.fromMillis(nowMs)), { merge: true });
         return true;
     });
 }
@@ -5449,6 +5646,12 @@ async function drawClosedRaffle(raffleId, winningNumberRaw) {
         return "skipped";
     if (header.drawnAt)
         return "skipped";
+    const scheduledResultAt = resolveRaffleResultScheduledAt(header);
+    if (scheduledResultAt && scheduledResultAt.toMillis() > Date.now()) {
+        throw new https_1.HttpsError("failed-precondition", `O número oficial só pode ser lançado após ${scheduledResultAt
+            .toDate()
+            .toLocaleString("pt-BR", { timeZone: header.drawTimeZone || DEFAULT_SCHEDULE_OPTS.timeZone })}.`);
+    }
     const winningNumber = normalizeWinningNumberForRaffle(winningNumberRaw, header.releasedCount);
     const arrQ = await purchaseColl
         .where("raffleId", "==", raffleId)
@@ -5722,6 +5925,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             throw new https_1.HttpsError("failed-precondition", "Este sorteio não está ativo para compras.");
         }
         const nowMs = Date.now();
+        const nowTs = firestore_2.Timestamp.fromMillis(nowMs);
         if (!isRafflePurchaseWindowOpen(raffle, nowMs)) {
             throw new https_1.HttpsError("failed-precondition", "Fora da janela de compras deste sorteio.");
         }
@@ -5743,10 +5947,8 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             throw new https_1.HttpsError("failed-precondition", "Saldo de TICKET insuficiente.");
         }
         const newGems = gems - ticketCost;
-        tx.set(userRef, {
-            gems: firestore_2.FieldValue.increment(-ticketCost),
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        }, { merge: true });
+        const winnerName = typeof u.nome === "string" && u.nome.trim() ? String(u.nome).trim() : null;
+        const winnerUsername = typeof u.username === "string" && u.username.trim() ? String(u.username).trim() : null;
         addWalletTxInTx(tx, {
             id: hashId("raffle_buy", purchaseId),
             userId: uid,
@@ -5760,6 +5962,12 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         let rangeStart = 0;
         let rangeEnd = 0;
         let numbers;
+        let ticketNumbers = [];
+        const raffleUpdate = {
+            soldCount: firestore_2.FieldValue.increment(quantity),
+            soldTicketsRevenue: firestore_2.FieldValue.increment(ticketCost),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        };
         if (raffle.allocationMode === "random") {
             const rawRaffle = (raffleSnap.data() || {});
             const buf = readSoldBitsBuffer(rawRaffle.soldBits, raffle.releasedCount);
@@ -5768,7 +5976,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             const maxAttempts = Math.max(800, quantity * 250);
             while (picked.length < quantity && attempts < maxAttempts) {
                 attempts += 1;
-                const cand = (0, node_crypto_1.randomInt)(0, raffle.releasedCount - 1);
+                const cand = (0, node_crypto_1.randomInt)(0, raffle.releasedCount);
                 if (raffleBitIsSet(buf, cand))
                     continue;
                 raffleBitSet(buf, cand);
@@ -5779,35 +5987,14 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             }
             shuffleNumberArrayInPlace(picked);
             numbers = picked;
+            ticketNumbers = [...picked];
             rangeStart = Math.min(...picked);
             rangeEnd = Math.max(...picked);
             const nextSoldCount = raffle.soldCount + quantity;
-            const raffleUpdate = {
-                soldBits: buf,
-                soldCount: firestore_2.FieldValue.increment(quantity),
-                soldTicketsRevenue: firestore_2.FieldValue.increment(ticketCost),
-                updatedAt: firestore_2.FieldValue.serverTimestamp(),
-            };
+            raffleUpdate.soldBits = buf;
             if (nextSoldCount >= raffle.releasedCount) {
-                Object.assign(raffleUpdate, buildCloseRafflePayload(raffle));
+                Object.assign(raffleUpdate, buildCloseRafflePayload(raffle, nowTs));
             }
-            tx.set(raffleRef, raffleUpdate, { merge: true });
-            const purchasePayload = {
-                raffleId,
-                raffleTitle: raffle.title,
-                userId: uid,
-                quantity,
-                ticketCost,
-                rangeStart,
-                rangeEnd,
-                numbers,
-                clientRequestId,
-                createdAt: firestore_2.Timestamp.now(),
-            };
-            tx.set(purchaseRef, {
-                ...purchasePayload,
-                createdAt: firestore_2.FieldValue.serverTimestamp(),
-            });
         }
         else {
             const rangeStartSeq = raffle.nextSequentialNumber;
@@ -5815,32 +6002,76 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             const nextPointer = rangeEndSeq + 1;
             rangeStart = rangeStartSeq;
             rangeEnd = rangeEndSeq;
-            const raffleUpdate = {
-                nextSequentialNumber: nextPointer,
-                soldCount: firestore_2.FieldValue.increment(quantity),
-                soldTicketsRevenue: firestore_2.FieldValue.increment(ticketCost),
-                updatedAt: firestore_2.FieldValue.serverTimestamp(),
-            };
+            ticketNumbers = Array.from({ length: quantity }, (_, index) => rangeStartSeq + index);
+            raffleUpdate.nextSequentialNumber = nextPointer;
             if (nextPointer >= raffle.releasedCount) {
-                Object.assign(raffleUpdate, buildCloseRafflePayload(raffle));
+                Object.assign(raffleUpdate, buildCloseRafflePayload(raffle, nowTs));
             }
-            tx.set(raffleRef, raffleUpdate, { merge: true });
-            const purchasePayload = {
-                raffleId,
-                raffleTitle: raffle.title,
+        }
+        const { hits: instantPrizeHits, tiers: updatedInstantPrizeTiers, } = resolveInstantPrizeHitsForPurchase({
+            raffle,
+            purchaseId,
+            userId: uid,
+            winnerName,
+            winnerUsername,
+            ticketNumbers,
+            awardedAt: nowTs,
+        });
+        raffleUpdate.instantPrizeTiers = updatedInstantPrizeTiers;
+        if (instantPrizeHits.length > 0) {
+            raffleUpdate.instantPrizeHits = [...raffle.instantPrizeHits, ...instantPrizeHits];
+        }
+        const balanceAfterByCurrency = {
+            coins: Number(u.coins || 0),
+            gems: newGems,
+            rewardBalance: Number(u.rewardBalance || 0),
+        };
+        const userDeltas = {
+            coins: 0,
+            gems: -ticketCost,
+            rewardBalance: 0,
+        };
+        for (const hit of instantPrizeHits) {
+            balanceAfterByCurrency[hit.currency] += hit.amount;
+            userDeltas[hit.currency] += hit.amount;
+            addWalletTxInTx(tx, {
+                id: hashId("raffle_instant_prize", purchaseId, String(hit.number), String(hit.tierIndex)),
                 userId: uid,
-                quantity,
-                ticketCost,
-                rangeStart,
-                rangeEnd,
-                clientRequestId,
-                createdAt: firestore_2.Timestamp.now(),
-            };
-            tx.set(purchaseRef, {
-                ...purchasePayload,
-                createdAt: firestore_2.FieldValue.serverTimestamp(),
+                tipo: "sorteio_premio",
+                moeda: rewardFieldName(hit.currency),
+                valor: hit.amount,
+                saldoApos: balanceAfterByCurrency[hit.currency],
+                descricao: `Número premiado · ${raffle.title} · ${hit.number}`,
+                referenciaId: purchaseId,
             });
         }
+        const userUpdate = {
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        };
+        for (const currency of ["coins", "gems", "rewardBalance"]) {
+            if (userDeltas[currency] !== 0) {
+                userUpdate[rewardFieldName(currency)] = firestore_2.FieldValue.increment(userDeltas[currency]);
+            }
+        }
+        tx.set(userRef, userUpdate, { merge: true });
+        tx.set(raffleRef, raffleUpdate, { merge: true });
+        const purchasePayload = {
+            raffleId,
+            raffleTitle: raffle.title,
+            userId: uid,
+            quantity,
+            ticketCost,
+            rangeStart,
+            rangeEnd,
+            numbers,
+            instantPrizeHits: instantPrizeHits.length > 0 ? instantPrizeHits : undefined,
+            clientRequestId,
+            createdAt: firestore_2.Timestamp.now(),
+        };
+        tx.set(purchaseRef, {
+            ...purchasePayload,
+            createdAt: firestore_2.FieldValue.serverTimestamp(),
+        });
         return {
             kind: "created",
             purchase: {
@@ -5853,6 +6084,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 rangeStart,
                 rangeEnd,
                 numbers: numbers ?? null,
+                instantPrizeHits: instantPrizeHits.length > 0 ? instantPrizeHits : null,
                 clientRequestId,
                 createdAtMs: Date.now(),
             },
@@ -5934,6 +6166,7 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
     const prizeAmount = normalizeRafflePrizeAmount(request.data?.prizeAmount);
     const allocationInput = request.data?.allocationMode;
     const scheduleModeInput = request.data?.scheduleMode;
+    const requestedInstantPrizeTiers = normalizeRaffleInstantPrizeTiers(request.data?.instantPrizeTiers);
     const prizeImageUrlUpdate = normalizeOptionalPrizeImageUrlFromRequest(request.data?.prizeImageUrl);
     const startsAtMs = request.data?.startsAtMs != null ? Math.floor(Number(request.data.startsAtMs)) : null;
     const endsAtMs = request.data?.endsAtMs != null ? Math.floor(Number(request.data.endsAtMs)) : null;
@@ -5955,6 +6188,10 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
     }
     if (status === "active" && requestedScheduleMode === "date_range" && !endsAt) {
         throw new https_1.HttpsError("invalid-argument", "Defina a data final para o modo com início e fim.");
+    }
+    const totalInstantPrizeQuantity = requestedInstantPrizeTiers.reduce((sum, tier) => sum + tier.quantity, 0);
+    if (totalInstantPrizeQuantity > releasedCount) {
+        throw new https_1.HttpsError("invalid-argument", "A quantidade total de números premiados não pode passar da faixa liberada.");
     }
     const system = await getRaffleSystemConfig();
     const ref = raffleId ? db.doc(`${COL.raffles}/${raffleId}`) : db.collection(COL.raffles).doc();
@@ -5989,6 +6226,10 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
             if (prev.soldCount > 0 && resolvedAllocation !== prev.allocationMode) {
                 throw new https_1.HttpsError("failed-precondition", "Não é possível alterar o modo de numeração após existirem vendas.");
             }
+            if (prev.soldCount > 0 &&
+                instantPrizeConfigSignature(prev.instantPrizeTiers) !== instantPrizeConfigSignature(requestedInstantPrizeTiers)) {
+                throw new https_1.HttpsError("failed-precondition", "Não é possível alterar os números premiados após existirem vendas.");
+            }
         }
         if (status === "active") {
             await assertNoOtherActiveRaffle(prev?.id ?? null);
@@ -6012,6 +6253,14 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
             startsAt,
             endsAt: resolvedEndsAt,
             scheduleMode: resolvedScheduleMode,
+            instantPrizeTiers: prev && prev.soldCount > 0
+                ? prev.instantPrizeTiers
+                : requestedInstantPrizeTiers.map((tier) => ({
+                    quantity: tier.quantity,
+                    amount: tier.amount,
+                    currency: tier.currency,
+                    awardedCount: 0,
+                })),
             noWinnerPolicy: "no_payout_close",
             drawTimeZone: system.drawTimeZone,
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
@@ -6035,6 +6284,7 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
         if (!snap.exists) {
             payload.createdAt = firestore_2.FieldValue.serverTimestamp();
             payload.closedAt = null;
+            payload.resultScheduledAt = null;
             payload.drawnAt = null;
             payload.paidAt = null;
             payload.winningNumber = null;
@@ -6042,6 +6292,7 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
             payload.winnerPurchaseId = null;
             payload.winnerName = null;
             payload.winnerUsername = null;
+            payload.instantPrizeHits = [];
         }
         tx.set(ref, payload, { merge: true });
     });
@@ -6056,6 +6307,7 @@ exports.adminCloseRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
     if (!raffleId)
         throw new https_1.HttpsError("invalid-argument", "raffleId obrigatório.");
     const ref = db.doc(`${COL.raffles}/${raffleId}`);
+    const closedAt = firestore_2.Timestamp.now();
     await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists)
@@ -6064,7 +6316,7 @@ exports.adminCloseRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
         if (raffle.status !== "active") {
             throw new https_1.HttpsError("failed-precondition", "Somente sorteios ativos podem ser encerrados manualmente.");
         }
-        tx.set(ref, buildCloseRafflePayload(raffle), { merge: true });
+        tx.set(ref, buildCloseRafflePayload(raffle, closedAt), { merge: true });
     });
     const after = await ref.get();
     return { ok: true, raffle: after.exists ? raffleViewFromDoc(after) : null };
@@ -6083,12 +6335,8 @@ exports.adminDrawRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
         if (!snap.exists)
             throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
         const raffle = raffleDocFromFirestore(snap.id, (snap.data() || {}));
-        if (raffle.status === "active") {
-            tx.set(ref, buildCloseRafflePayload(raffle), { merge: true });
-            return;
-        }
         if (raffle.status !== "closed") {
-            throw new https_1.HttpsError("failed-precondition", "Somente sorteios ativos ou encerrados podem receber o número oficial.");
+            throw new https_1.HttpsError("failed-precondition", "Somente sorteios encerrados podem receber o número oficial.");
         }
     });
     await drawClosedRaffle(raffleId, winningNumberRaw);

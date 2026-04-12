@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
@@ -18,11 +18,17 @@ import {
 } from "@/services/raffle/raffleService";
 import type { RafflePurchaseView, RaffleView } from "@/types/raffle";
 import { cn } from "@/lib/utils/cn";
-import { formatRaffleNumber, formatRaffleRange, getRaffleProgressPercent } from "@/utils/raffle";
+import {
+  formatRaffleReleasedRangeLabel,
+  formatRaffleScopedNumber,
+  formatRaffleScopedRange,
+  getRaffleProgressPercent,
+} from "@/utils/raffle";
 import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
 import { ChevronDown, ChevronUp, Sparkles, Ticket } from "lucide-react";
 
 const MAX_EXPAND_NUMBERS = 240;
+type SorteiosTab = "atual" | "finalizados";
 
 function shuffleArrayInPlace(nums: number[]): void {
   for (let i = nums.length - 1; i > 0; i--) {
@@ -63,6 +69,19 @@ function winnerLabel(raffle: Pick<RaffleView, "winnerName" | "winnerUsername">):
   return "—";
 }
 
+function isFinalizedRaffle(status: RaffleView["status"]): boolean {
+  return status === "paid" || status === "no_winner" || status === "drawn";
+}
+
+function instantPrizeWinnerLabel(hit: {
+  winnerName?: string | null;
+  winnerUsername?: string | null;
+}): string {
+  if (hit.winnerUsername) return `@${hit.winnerUsername}`;
+  if (hit.winnerName) return hit.winnerName;
+  return "Jogador";
+}
+
 function formatWhen(ms: number | null | undefined): string {
   if (ms == null) return "—";
   try {
@@ -72,11 +91,30 @@ function formatWhen(ms: number | null | undefined): string {
   }
 }
 
+function formatFederalResultWhen(ms: number | null | undefined): string {
+  if (ms == null) return "—";
+  try {
+    return new Date(ms).toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
 export default function SorteiosPage() {
   const { user, profile, refreshProfile } = useAuth();
+  const [activeTab, setActiveTab] = useState<SorteiosTab>("atual");
   const [loading, setLoading] = useState(true);
   const [enabled, setEnabled] = useState(true);
   const [raffle, setRaffle] = useState<RaffleView | null>(null);
+  const [finalizedRaffles, setFinalizedRaffles] = useState<RaffleView[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [buying, setBuying] = useState(false);
@@ -113,6 +151,22 @@ export default function SorteiosPage() {
     });
     return () => unsub();
   }, [enabled, raffle?.id]);
+
+  useEffect(() => {
+    if (!enabled) {
+      setFinalizedRaffles([]);
+      return;
+    }
+    const db = getFirebaseFirestore();
+    const historyQuery = query(collection(db, COLLECTIONS.raffles), orderBy("updatedAt", "desc"), limit(24));
+    const unsub = onSnapshot(historyQuery, (snap) => {
+      const next = snap.docs
+        .map((docSnap) => mapRaffleSnapshotToView(docSnap))
+        .filter((item): item is RaffleView => item != null && isFinalizedRaffle(item.status));
+      setFinalizedRaffles(next);
+    });
+    return () => unsub();
+  }, [enabled]);
 
   useEffect(() => {
     if (!raffle?.maxPerPurchase) return;
@@ -251,7 +305,31 @@ export default function SorteiosPage() {
         </AlertBanner>
       ) : null}
 
-      {loading ? (
+      <section className="rounded-2xl border border-white/10 bg-slate-950/75 p-2">
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { id: "atual", label: "Atual" },
+            { id: "finalizados", label: `Finalizados (${finalizedRaffles.length})` },
+          ] as const).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "rounded-xl px-4 py-3 text-sm font-semibold transition",
+                activeTab === tab.id
+                  ? "bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white"
+                  : "bg-white/[0.03] text-white/65 hover:bg-white/[0.06]",
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeTab === "atual" ? (
+        loading ? (
         <p className="text-sm text-white/55">Carregando sorteio...</p>
       ) : !enabled ? (
         <AlertBanner tone="info">Sorteios desativados no momento.</AlertBanner>
@@ -316,6 +394,11 @@ export default function SorteiosPage() {
             <div className="mt-4 grid gap-2 text-xs text-white/45 sm:grid-cols-2">
               <p>Início: {formatWhen(raffle.startsAtMs)}</p>
               <p>Encerramento: {raffle.endsAtMs ? formatWhen(raffle.endsAtMs) : "Até esgotar os números"}</p>
+              <p>Faixa: {formatRaffleReleasedRangeLabel(raffle.releasedCount)}</p>
+              <p>Modo: {scheduleModeLabel(raffle)}</p>
+              {raffle.resultScheduledAtMs ? (
+                <p className="sm:col-span-2">Resultado Federal: {formatFederalResultWhen(raffle.resultScheduledAtMs)}</p>
+              ) : null}
             </div>
 
             {raffle.status === "active" ? (
@@ -362,12 +445,24 @@ export default function SorteiosPage() {
             ) : (
               <div className="mt-6 border-t border-white/10 pt-5 text-sm text-white/55">
                 {raffle.status === "closed" || raffle.status === "drawn" ? (
-                  <p>Este sorteio já foi encerrado para compras. Aguarde o lançamento do número oficial.</p>
+                  <div className="space-y-1">
+                    <p>Este sorteio já foi encerrado para compras.</p>
+                    {raffle.resultScheduledAtMs ? (
+                      <p>
+                        Resultado da Federal previsto para{" "}
+                        <strong className="text-white">{formatFederalResultWhen(raffle.resultScheduledAtMs)}</strong>.
+                      </p>
+                    ) : (
+                      <p>Aguarde o lançamento do número oficial.</p>
+                    )}
+                  </div>
                 ) : raffle.status === "paid" && raffle.winningNumber != null ? (
                   <div className="space-y-1">
                     <p>
                       Número sorteado:{" "}
-                      <strong className="text-white">{formatRaffleNumber(raffle.winningNumber)}</strong>
+                      <strong className="text-white">
+                        {formatRaffleScopedNumber(raffle.winningNumber, raffle.releasedCount)}
+                      </strong>
                     </p>
                     <p>
                       Ganhador: <strong className="text-white">{winnerLabel(raffle)}</strong>
@@ -376,8 +471,10 @@ export default function SorteiosPage() {
                 ) : raffle.status === "no_winner" && raffle.winningNumber != null ? (
                   <p>
                     Sorteio encerrado. Número sorteado:{" "}
-                    <strong className="text-white">{formatRaffleNumber(raffle.winningNumber)}</strong> — sem titular
-                    vendido.
+                    <strong className="text-white">
+                      {formatRaffleScopedNumber(raffle.winningNumber, raffle.releasedCount)}
+                    </strong>{" "}
+                    — sem titular vendido.
                   </p>
                 ) : (
                   <p>Status: {statusLabel(raffle.status)}</p>
@@ -385,6 +482,66 @@ export default function SorteiosPage() {
               </div>
             )}
           </section>
+
+          {raffle.instantPrizeTiers && raffle.instantPrizeTiers.length > 0 ? (
+            <section className="rounded-[1.75rem] border border-emerald-400/20 bg-emerald-950/10 p-5 sm:p-6">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-emerald-200/85" />
+                <h3 className="text-lg font-black text-white">Números premiados</h3>
+              </div>
+              <p className="mt-1 text-sm text-white/55">
+                Quando um número premiado é comprado, o CASH entra automaticamente e ele aparece aqui para todos.
+              </p>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {raffle.instantPrizeTiers.map((tier, index) => (
+                  <div key={`tier-${index}`} className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                    <p className="text-sm font-semibold text-white">
+                      Faixa {index + 1}: {tier.quantity} número(s) de {tier.amount} CASH
+                    </p>
+                    <p className="mt-1 text-xs text-white/45">
+                      Encontrados: {tier.awardedCount ?? 0} / {tier.quantity}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {raffle.instantPrizeHits && raffle.instantPrizeHits.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  {raffle.instantPrizeHits
+                    .slice()
+                    .reverse()
+                    .map((hit, index) => (
+                      <div
+                        key={`public-hit-${hit.purchaseId}-${hit.number}-${index}`}
+                        className="rounded-2xl border border-emerald-300/20 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_45%),linear-gradient(180deg,rgba(2,6,23,0.9),rgba(15,23,42,0.9))] px-4 py-3 text-sm text-white/75 shadow-[0_0_28px_-18px_rgba(16,185,129,0.8)]"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-100/90">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Número Premiado
+                            </p>
+                            <p className="mt-2 text-lg font-black tracking-tight text-emerald-100">
+                              {formatRaffleScopedNumber(hit.number, raffle.releasedCount)}
+                            </p>
+                            <p className="mt-1 text-xs text-white/55">{instantPrizeWinnerLabel(hit)}</p>
+                          </div>
+                          <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Premiação</p>
+                            <p className="mt-1 text-sm font-bold text-emerald-200">{hit.amount} CASH</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-white/50">
+                  Nenhum número premiado foi encontrado ainda.
+                </div>
+              )}
+            </section>
+          ) : null}
 
           <section className="rounded-[1.75rem] border border-white/10 bg-slate-950/80 p-5 sm:p-6">
             <div className="flex items-center gap-2">
@@ -412,11 +569,16 @@ export default function SorteiosPage() {
                         <p className="text-sm font-semibold text-white">
                           {p.numbers && p.numbers.length > 0
                             ? `${p.quantity} números aleatórios`
-                            : `Faixa ${formatRaffleRange(p.rangeStart, p.rangeEnd)}`}
+                            : `Faixa ${formatRaffleScopedRange(p.rangeStart, p.rangeEnd, raffle.releasedCount)}`}
                         </p>
                         {p.numbers && p.numbers.length > 0 ? (
                           <p className="text-xs text-white/40">
-                            Referência mín.–máx.: {formatRaffleRange(Math.min(...p.numbers), Math.max(...p.numbers))}
+                            Referência mín.–máx.:{" "}
+                            {formatRaffleScopedRange(
+                              Math.min(...p.numbers),
+                              Math.max(...p.numbers),
+                              raffle.releasedCount,
+                            )}
                           </p>
                         ) : null}
                         <p className="text-xs text-white/45">
@@ -425,6 +587,13 @@ export default function SorteiosPage() {
                             ? new Date(p.createdAtMs).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
                             : "—"}
                         </p>
+                        {p.instantPrizeHits && p.instantPrizeHits.length > 0 ? (
+                          <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            {p.instantPrizeHits.length} número(s) premiado(s) ·{" "}
+                            {p.instantPrizeHits.reduce((sum, hit) => sum + hit.amount, 0)} CASH
+                          </p>
+                        ) : null}
                       </div>
                       <button
                         type="button"
@@ -447,7 +616,9 @@ export default function SorteiosPage() {
                         rangeStart={p.rangeStart}
                         rangeEnd={p.rangeEnd}
                         numbers={p.numbers}
+                        instantPrizeHits={p.instantPrizeHits}
                         expandKey={p.id}
+                        releasedCount={raffle.releasedCount}
                       />
                     ) : null}
                   </li>
@@ -469,6 +640,29 @@ export default function SorteiosPage() {
             ) : null}
           </section>
         </>
+      )
+      ) : !enabled ? (
+        <AlertBanner tone="info">Sorteios desativados no momento.</AlertBanner>
+      ) : finalizedRaffles.length === 0 ? (
+        <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-5 text-sm text-white/65">
+          Ainda não há sorteios finalizados para mostrar.
+        </div>
+      ) : (
+        <section className="rounded-[1.75rem] border border-white/10 bg-slate-950/80 p-5 sm:p-6">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-cyan-200/80" />
+            <h3 className="text-lg font-black text-white">Sorteios finalizados</h3>
+          </div>
+          <p className="mt-1 text-sm text-white/55">
+            Consulte os resultados anteriores, com número sorteado, progresso e ganhador.
+          </p>
+
+          <div className="mt-4 space-y-4">
+            {finalizedRaffles.map((item) => (
+              <FinalizedRaffleCard key={item.id} raffle={item} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );
@@ -487,13 +681,27 @@ function ExpandedNumbers({
   rangeStart,
   rangeEnd,
   numbers,
+  instantPrizeHits,
   expandKey,
+  releasedCount,
 }: {
   rangeStart: number;
   rangeEnd: number;
   numbers?: number[] | null;
+  instantPrizeHits?: RafflePurchaseView["instantPrizeHits"];
   expandKey: string;
+  releasedCount: number;
 }) {
+  const instantPrizeByNumber = useMemo(
+    () =>
+      new Map(
+        (instantPrizeHits ?? []).map((hit) => [
+          hit.number,
+          hit,
+        ]),
+      ),
+    [instantPrizeHits],
+  );
   const { nums, total, hint } = useMemo(() => {
     if (numbers && numbers.length > 0) {
       const capped =
@@ -514,9 +722,13 @@ function ExpandedNumbers({
     return {
       nums: arr,
       total: totalR,
-      hint: `amostra em ordem aleatória; faixa contínua ${formatRaffleRange(start, end)}.`,
+      hint: `amostra em ordem aleatória; faixa contínua ${formatRaffleScopedRange(
+        start,
+        end,
+        releasedCount,
+      )}.`,
     } as const;
-  }, [numbers, rangeStart, rangeEnd]);
+  }, [numbers, rangeStart, rangeEnd, releasedCount]);
 
   return (
     <div className="mt-3 border-t border-white/10 pt-3">
@@ -525,13 +737,28 @@ function ExpandedNumbers({
           <span
             key={`${expandKey}-${n}`}
             className={cn(
-              "inline-flex min-w-[4.25rem] justify-center rounded-md border border-white/10 bg-white/5 px-2 py-1 font-mono text-[11px] text-white/85",
+              "inline-flex min-w-[4.25rem] items-center justify-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 font-mono text-[11px] text-white/85",
+              instantPrizeByNumber.has(n) &&
+                "border-emerald-300/35 bg-emerald-500/18 text-emerald-100 shadow-[0_0_20px_-10px_rgba(16,185,129,0.9)]",
             )}
           >
-            {formatRaffleNumber(n)}
+            {instantPrizeByNumber.has(n) ? <Sparkles className="h-3 w-3 shrink-0" /> : null}
+            {formatRaffleScopedNumber(n, releasedCount)}
           </span>
         ))}
       </div>
+      {instantPrizeHits && instantPrizeHits.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {instantPrizeHits.map((hit, index) => (
+            <span
+              key={`${expandKey}-hit-${hit.number}-${index}`}
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-100"
+            >
+              {formatRaffleScopedNumber(hit.number, releasedCount)} · {hit.amount} CASH
+            </span>
+          ))}
+        </div>
+      ) : null}
       {total > MAX_EXPAND_NUMBERS ? (
         <p className="mt-2 text-xs text-amber-200/80">
           Mostrando {MAX_EXPAND_NUMBERS} de {total} números ({hint})
@@ -540,5 +767,74 @@ function ExpandedNumbers({
         <p className="mt-2 text-xs text-white/40">{hint}</p>
       )}
     </div>
+  );
+}
+
+function FinalizedRaffleCard({ raffle }: { raffle: RaffleView }) {
+  const progressPercent = getRaffleProgressPercent(raffle.soldCount, raffle.releasedCount);
+
+  return (
+    <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/55">
+            {statusLabel(raffle.status)}
+          </p>
+          <h4 className="mt-1 text-lg font-black text-white">{raffle.title}</h4>
+          {raffle.description ? <p className="mt-2 text-sm text-white/55">{raffle.description}</p> : null}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-right">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Prêmio</p>
+          <p className="mt-1 text-base font-bold text-emerald-200">{prizeLabel(raffle.prizeCurrency, raffle.prizeAmount)}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <StatPill label="Números liberados" value={String(raffle.releasedCount)} />
+        <StatPill label="Vendidos" value={String(raffle.soldCount)} />
+        <StatPill label="Progresso" value={`${progressPercent}%`} />
+        <StatPill
+          label="Número sorteado"
+          value={
+            raffle.winningNumber != null
+              ? formatRaffleScopedNumber(raffle.winningNumber, raffle.releasedCount)
+              : "—"
+          }
+        />
+        <StatPill
+          label="Ganhador"
+          value={raffle.status === "no_winner" ? "Sem ganhador" : winnerLabel(raffle)}
+        />
+      </div>
+
+      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-500"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-2 text-xs text-white/45 sm:grid-cols-2 lg:grid-cols-5">
+        <p>Modo: {scheduleModeLabel(raffle)}</p>
+        <p>Início: {formatWhen(raffle.startsAtMs)}</p>
+        <p>Fim: {raffle.endsAtMs ? formatWhen(raffle.endsAtMs) : "Até esgotar os números"}</p>
+        <p>Faixa: {formatRaffleReleasedRangeLabel(raffle.releasedCount)}</p>
+        <p>Atualizado: {formatWhen(raffle.updatedAtMs)}</p>
+      </div>
+
+      {raffle.instantPrizeHits && raffle.instantPrizeHits.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {raffle.instantPrizeHits.slice(0, 12).map((hit, index) => (
+            <span
+              key={`final-hit-${raffle.id}-${hit.number}-${index}`}
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-500/12 px-3 py-1 text-xs font-semibold text-emerald-100 shadow-[0_0_20px_-12px_rgba(16,185,129,0.8)]"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {formatRaffleScopedNumber(hit.number, raffle.releasedCount)} · {hit.amount} CASH
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </article>
   );
 }

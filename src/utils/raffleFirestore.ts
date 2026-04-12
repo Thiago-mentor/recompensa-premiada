@@ -1,6 +1,17 @@
 import type { DocumentSnapshot } from "firebase/firestore";
-import type { RaffleAllocationMode, RaffleScheduleMode, RaffleView } from "@/types/raffle";
-import { clampRaffleMaxPerPurchase, clampRaffleReleasedCount, clampRaffleTicketPrice } from "@/utils/raffle";
+import type {
+  RaffleAllocationMode,
+  RaffleInstantPrizeHitView,
+  RaffleInstantPrizeTier,
+  RaffleScheduleMode,
+  RaffleView,
+} from "@/types/raffle";
+import {
+  clampRaffleMaxPerPurchase,
+  clampRaffleReleasedCount,
+  clampRaffleTicketPrice,
+  computeRaffleResultScheduleMs,
+} from "@/utils/raffle";
 
 const RAFFLE_STATUSES: RaffleView["status"][] = [
   "draft",
@@ -39,6 +50,54 @@ function parseScheduleMode(raw: unknown, endsAtMs: number | null): RaffleSchedul
   return endsAtMs == null ? "until_sold_out" : "date_range";
 }
 
+function parseInstantPrizeCurrency(raw: unknown): RaffleInstantPrizeTier["currency"] {
+  return raw === "coins" || raw === "gems" || raw === "rewardBalance" ? raw : "rewardBalance";
+}
+
+function parseInstantPrizeTiers(raw: unknown): RaffleInstantPrizeTier[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const value = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+      if (!value) return null;
+      const quantity = Math.max(0, Math.floor(Number(value.quantity) || 0));
+      const amount = Math.max(0, Math.floor(Number(value.amount) || 0));
+      if (quantity <= 0 || amount <= 0) return null;
+      return {
+        quantity,
+        amount,
+        currency: parseInstantPrizeCurrency(value.currency),
+        awardedCount: Math.max(0, Math.floor(Number(value.awardedCount) || 0)),
+      } satisfies RaffleInstantPrizeTier;
+    })
+    .filter((item): item is RaffleInstantPrizeTier => item != null);
+}
+
+function parseInstantPrizeHits(raw: unknown): RaffleInstantPrizeHitView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const value = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+      if (!value) return null;
+      const purchaseId = typeof value.purchaseId === "string" ? value.purchaseId : "";
+      const userId = typeof value.userId === "string" ? value.userId : "";
+      const amount = Math.max(0, Math.floor(Number(value.amount) || 0));
+      if (!purchaseId || !userId || amount <= 0) return null;
+      return {
+        number: Math.max(0, Math.floor(Number(value.number) || 0)),
+        amount,
+        currency: parseInstantPrizeCurrency(value.currency),
+        tierIndex: Math.max(0, Math.floor(Number(value.tierIndex) || 0)),
+        purchaseId,
+        userId,
+        winnerName: typeof value.winnerName === "string" ? value.winnerName : null,
+        winnerUsername: typeof value.winnerUsername === "string" ? value.winnerUsername : null,
+        awardedAtMs: tsToMs(value.awardedAt),
+      } satisfies RaffleInstantPrizeHitView;
+    })
+    .filter((item): item is RaffleInstantPrizeHitView => item != null);
+}
+
 /** Converte snapshot Firestore do sorteio para o mesmo formato retornado pelas callables. */
 export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | null {
   if (!snap.exists()) return null;
@@ -51,6 +110,12 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
       : "coins";
   const startsAtMs = tsToMs(d.startsAt);
   const endsAtMs = tsToMs(d.endsAt);
+  const closedAtMs = tsToMs(d.closedAt);
+  const drawTimeZone = typeof d.drawTimeZone === "string" ? d.drawTimeZone : null;
+  const resultScheduledAtMs =
+    tsToMs(d.resultScheduledAt) ?? computeRaffleResultScheduleMs(closedAtMs, drawTimeZone ?? undefined);
+  const instantPrizeTiers = parseInstantPrizeTiers(d.instantPrizeTiers);
+  const instantPrizeHits = parseInstantPrizeHits(d.instantPrizeHits);
 
   return {
     id,
@@ -72,7 +137,8 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
     startsAtMs,
     endsAtMs,
     scheduleMode: parseScheduleMode(d.scheduleMode, endsAtMs),
-    closedAtMs: tsToMs(d.closedAt),
+    closedAtMs,
+    resultScheduledAtMs,
     drawnAtMs: tsToMs(d.drawnAt),
     paidAtMs: tsToMs(d.paidAt),
     winningNumber: d.winningNumber == null ? null : Math.max(0, Math.floor(Number(d.winningNumber) || 0)),
@@ -80,9 +146,11 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
     winnerPurchaseId: typeof d.winnerPurchaseId === "string" ? d.winnerPurchaseId : null,
     winnerName: typeof d.winnerName === "string" ? d.winnerName : null,
     winnerUsername: typeof d.winnerUsername === "string" ? d.winnerUsername : null,
+    instantPrizeTiers,
+    instantPrizeHits,
     noWinnerPolicy: "no_payout_close",
     allocationMode: parseAllocationMode(d.allocationMode),
-    drawTimeZone: typeof d.drawTimeZone === "string" ? d.drawTimeZone : null,
+    drawTimeZone,
     createdAtMs: tsToMs(d.createdAt),
     updatedAtMs: tsToMs(d.updatedAt),
   };
