@@ -46,6 +46,9 @@ export interface UserProfile {
   scoreRankingDiario: number;
   scoreRankingSemanal: number;
   scoreRankingMensal: number;
+  scoreRankingDiarioKey?: string | null;
+  scoreRankingSemanalKey?: string | null;
+  scoreRankingMensalKey?: string | null;
   banido: boolean;
   riscoFraude: FraudRiskLevel;
   /** Indicação validada (ex.: convidado cumpriu ação mínima) */
@@ -64,6 +67,7 @@ export interface UserProfile {
   totalMissionRewardsClaimed?: number;
   criadoEm: Timestamp;
   atualizadoEm: Timestamp;
+  lastActiveAt?: Timestamp | null;
   /** Timestamps de fim de cooldown por `gameId` (Cloud Functions). */
   gameCooldownUntil?: Record<string, Timestamp | unknown>;
   matchBurst?: { windowStart: Timestamp; count: number };

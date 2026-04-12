@@ -27,6 +27,7 @@ export interface MatchRecord {
   gameType?: GameId;
   userId: string;
   opponentId?: string | null;
+  clanIdAtEvent?: string | null;
   resultado: "vitoria" | "derrota" | "empate";
   /** Alias legível em inglês (espelho de resultado) */
   result?: "vitoria" | "derrota" | "empate";

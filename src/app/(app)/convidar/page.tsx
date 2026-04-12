@@ -42,6 +42,9 @@ import {
 
 type TabId = "convite" | "convidados" | "ranking";
 
+/** Sub-abas só na área de divulgação. */
+type InvitePanelTab = "painel" | "guia";
+
 function statusLabel(status: ReferralStatus): string {
   switch (status) {
     case "pending":
@@ -214,6 +217,7 @@ function getProgressItemIcon(item: ReferralQualificationStatusItem): LucideIcon 
 export default function ConvidarPage() {
   const { profile } = useAuth();
   const [tab, setTab] = useState<TabId>("convite");
+  const [invitePanel, setInvitePanel] = useState<InvitePanelTab>("painel");
   const [period, setPeriod] = useState<ReferralRankingPeriod>("daily");
   const [copied, setCopied] = useState<string | null>(null);
   const { config, campaign, invitedRows, myReferral, ranking, myRanking } = useReferralDashboard(period);
@@ -251,8 +255,6 @@ export default function ConvidarPage() {
   const rankingCurrencySummary = getRankingCurrencySummary(campaign?.config.rankingPrizes, period);
   const rankingPrizeTiers = getRankingPrizeTiers(config, campaign, period);
   const totalEarned = getReferralEarnedTotal(inviterRewardCurrency, profile);
-  const podiumEntries = ranking.slice(0, 3);
-  const remainingRanking = ranking.slice(3);
 
   const rankingPosition = useMemo(() => {
     if (!myRanking) return null;
@@ -299,183 +301,239 @@ export default function ConvidarPage() {
 
   return (
     <div className="space-y-5">
-      <section className="overflow-hidden rounded-[1.85rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_60px_-24px_rgba(34,211,238,0.25)]">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:justify-between">
-          <div className="max-w-2xl flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-200/75">
-              Motor de crescimento
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-white">
-              Convide, compartilhe e transforme isso em marketing
-            </h1>
-            <p className="mt-2 text-sm leading-relaxed text-white/60">
-              {campaignDescription}
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-white/75">
-                {campaignTitle}
-              </span>
-              <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-bold text-cyan-200">
-                Você recebe {formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)}
-              </span>
-              {invitedRewardEnabled ? (
-                <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-200">
-                  Convidado recebe {formatRewardLabel(invitedRewardAmount, invitedRewardCurrency)}
-                </span>
-              ) : (
-                <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-amber-200">
-                  Recompensa liberada apos o desafio
-                </span>
-              )}
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <Button size="lg" onClick={() => void shareInvite()} disabled={!profile}>
-                <Share2 className="h-4 w-4" />
-                Compartilhar agora
-              </Button>
-              <Button
-                size="lg"
-                variant="secondary"
-                onClick={() => void copyValue(inviteLink, "link")}
-                disabled={!profile}
-              >
-                <Copy className="h-4 w-4" />
-                Copiar link
-              </Button>
-            </div>
-
-            <Button
-              variant="ghost"
-              className="mt-2 min-h-[44px] w-full border border-white/10 bg-white/5 text-white/85 hover:bg-white/10 sm:w-auto"
-              onClick={() => void copyValue(promoMessage, "message")}
-              disabled={!profile || !promoMessage}
-            >
-              <Copy className="h-4 w-4" />
-              Copiar texto pronto para divulgar
-            </Button>
-          </div>
-
-          <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-black/20 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            <div className="flex items-center gap-3">
-              <div
-                aria-label={profile?.nome || "Convite"}
-                className="h-12 w-12 shrink-0 rounded-2xl border border-white/10 bg-cover bg-center"
-                style={{
-                  backgroundImage: `url(${resolveAvatarUrl({
-                    photoUrl: profile?.foto,
-                    name: profile?.nome,
-                    username: profile?.username,
-                    uid: profile?.uid,
-                  })})`,
-                }}
-              />
-              <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
-                  Seu convite ao vivo
-                </p>
-                <p className="truncate text-sm font-semibold text-white">
-                  {profile?.nome || profile?.username || "Sua campanha"}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-[1.35rem] border border-violet-400/20 bg-violet-500/10 px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-100/70">
-                Código principal
-              </p>
-              <p className="mt-2 text-3xl font-black tracking-[0.18em] text-white">
-                {inviteCode}
-              </p>
-              <p className="mt-2 text-xs leading-relaxed text-white/55">
-                Use esse código em bio, story, grupo, anúncio ou mensagem direta para acelerar a
-                conversão.
-              </p>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <HeroInviteMiniStat
-                label="Válidas"
-                value={String(validCount)}
-                tone="emerald"
-              />
-              <HeroInviteMiniStat
-                label="Ganhos"
-                value={`${totalEarned} ${rewardCurrencyLabel(inviterRewardCurrency)}`}
-                tone="cyan"
-              />
-            </div>
-
-            <Button
-              variant="secondary"
-              className="mt-3 w-full border-white/10"
-              onClick={() => void copyValue(inviteCode, "code")}
-              disabled={!profile}
-            >
-              <Copy className="h-4 w-4" />
-              Copiar código
-            </Button>
-          </div>
-        </div>
-      </section>
+      <header className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
+        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200/75">Indicações</p>
+        <h1 className="mt-1 text-2xl font-black tracking-tight text-white">Convites</h1>
+        <p className="mt-1 text-sm text-white/55">
+          Divulgue, acompanhe quem entrou e dispute o ranking — tudo por abas.
+        </p>
+      </header>
 
       {copied ? <AlertBanner tone="success">{copiedFeedbackLabel(copied)}</AlertBanner> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <InviteOverviewCard
-          label="Convidados"
-          value={String(invitedCount)}
-          hint="Base total de convites"
-          icon={<Users className="h-4 w-4 text-white/80" />}
-        />
-        <InviteOverviewCard
-          label="Válidas"
-          value={String(validCount)}
-          hint="Já converteram"
-          icon={<CheckCircle2 className="h-4 w-4 text-emerald-200" />}
-          tone="success"
-        />
-        <InviteOverviewCard
-          label="Pendentes"
-          value={String(pendingCount)}
-          hint="Ainda em qualificação"
-          icon={<UserPlus2 className="h-4 w-4 text-amber-200" />}
-          tone="warning"
-        />
-        <InviteOverviewCard
-          label="Ganhos"
-          value={`${totalEarned} ${rewardCurrencyLabel(inviterRewardCurrency)}`}
-          hint="Retorno acumulado"
-          icon={<Gift className="h-4 w-4 text-cyan-200" />}
-          tone="info"
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5">
-        {[
-          { id: "convite" as const, label: "Meu convite", icon: Gift },
-          { id: "convidados" as const, label: "Meus convidados", icon: Users },
-          { id: "ranking" as const, label: "Ranking", icon: Trophy },
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition",
-              tab === id
-                ? "bg-gradient-to-r from-cyan-600/25 via-violet-600/30 to-fuchsia-600/25 text-white"
-                : "text-white/55 hover:bg-white/5 hover:text-white/80",
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <nav
+        className="sticky top-0 z-20 -mx-1 rounded-2xl border border-white/10 bg-[#070712]/92 px-1 py-1.5 shadow-[0_8px_32px_-12px_rgba(0,0,0,0.65)] backdrop-blur-md sm:static sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
+        aria-label="Seções de convites"
+      >
+        <div
+          role="tablist"
+          className="flex snap-x snap-mandatory gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {(
+            [
+              { id: "convite" as const, label: "Divulgar", short: "Divulgar", icon: Gift },
+              { id: "convidados" as const, label: "Convidados", short: "Convidados", icon: Users },
+              { id: "ranking" as const, label: "Ranking", short: "Ranking", icon: Trophy },
+            ] as const
+          ).map(({ id, label, short, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={cn(
+                "flex min-w-[31%] shrink-0 snap-center items-center justify-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-semibold transition sm:min-w-0 sm:flex-1",
+                tab === id
+                  ? "bg-gradient-to-r from-cyan-600/30 via-violet-600/35 to-fuchsia-600/25 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                  : "text-white/50 hover:bg-white/5 hover:text-white/85",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
+              <span className="min-w-0 sm:hidden">{short}</span>
+              <span className="hidden min-w-0 sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
 
       {tab === "convite" ? (
+        <div
+          className="flex gap-1 rounded-xl border border-white/10 bg-black/25 p-1"
+          role="tablist"
+          aria-label="Conteúdo da divulgação"
+        >
+          {(
+            [
+              { id: "painel" as const, label: "Painel" },
+              { id: "guia" as const, label: "Regras e material" },
+            ] as const
+          ).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={invitePanel === id}
+              onClick={() => setInvitePanel(id)}
+              className={cn(
+                "flex-1 rounded-lg px-3 py-2.5 text-center text-xs font-bold transition sm:text-sm",
+                invitePanel === id
+                  ? "bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  : "text-white/45 hover:bg-white/5 hover:text-white/75",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {tab === "convite" && invitePanel === "painel" ? (
+        <section className="space-y-4">
+          <section className="overflow-hidden rounded-[1.85rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_60px_-24px_rgba(34,211,238,0.25)]">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:justify-between">
+              <div className="max-w-2xl flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-200/75">
+                  Motor de crescimento
+                </p>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">
+                  Convide, compartilhe e transforme isso em marketing
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-white/60">
+                  {campaignDescription}
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-white/75">
+                    {campaignTitle}
+                  </span>
+                  <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-bold text-cyan-200">
+                    Você recebe {formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)}
+                  </span>
+                  {invitedRewardEnabled ? (
+                    <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-200">
+                      Convidado recebe {formatRewardLabel(invitedRewardAmount, invitedRewardCurrency)}
+                    </span>
+                  ) : (
+                    <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-amber-200">
+                      Recompensa liberada apos o desafio
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <Button size="lg" onClick={() => void shareInvite()} disabled={!profile}>
+                    <Share2 className="h-4 w-4" />
+                    Compartilhar agora
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    onClick={() => void copyValue(inviteLink, "link")}
+                    disabled={!profile}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copiar link
+                  </Button>
+                </div>
+
+                <Button
+                  variant="ghost"
+                  className="mt-2 min-h-[44px] w-full border border-white/10 bg-white/5 text-white/85 hover:bg-white/10 sm:w-auto"
+                  onClick={() => void copyValue(promoMessage, "message")}
+                  disabled={!profile || !promoMessage}
+                >
+                  <Copy className="h-4 w-4" />
+                  {copied === "message" ? "Texto copiado" : "Copiar texto pronto para divulgar"}
+                </Button>
+              </div>
+
+              <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-black/20 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                <div className="flex items-center gap-3">
+                  <div
+                    aria-label={profile?.nome || "Convite"}
+                    className="h-12 w-12 shrink-0 rounded-2xl border border-white/10 bg-cover bg-center"
+                    style={{
+                      backgroundImage: `url(${resolveAvatarUrl({
+                        photoUrl: profile?.foto,
+                        name: profile?.nome,
+                        username: profile?.username,
+                        uid: profile?.uid,
+                      })})`,
+                    }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
+                      Seu convite ao vivo
+                    </p>
+                    <p className="truncate text-sm font-semibold text-white">
+                      {profile?.nome || profile?.username || "Sua campanha"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-[1.35rem] border border-violet-400/20 bg-violet-500/10 px-4 py-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-100/70">
+                    Código principal
+                  </p>
+                  <p className="mt-2 text-3xl font-black tracking-[0.18em] text-white">
+                    {inviteCode}
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-white/55">
+                    Use esse código em bio, story, grupo, anúncio ou mensagem direta para acelerar a
+                    conversão.
+                  </p>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <HeroInviteMiniStat
+                    label="Válidas"
+                    value={String(validCount)}
+                    tone="emerald"
+                  />
+                  <HeroInviteMiniStat
+                    label="Ganhos"
+                    value={`${totalEarned} ${rewardCurrencyLabel(inviterRewardCurrency)}`}
+                    tone="cyan"
+                  />
+                </div>
+
+                <Button
+                  variant="secondary"
+                  className="mt-3 w-full border-white/10"
+                  onClick={() => void copyValue(inviteCode, "code")}
+                  disabled={!profile}
+                >
+                  <Copy className="h-4 w-4" />
+                  Copiar código
+                </Button>
+              </div>
+            </div>
+          </section>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <InviteOverviewCard
+              label="Convidados"
+              value={String(invitedCount)}
+              hint="Base total de convites"
+              icon={<Users className="h-4 w-4 text-white/80" />}
+            />
+            <InviteOverviewCard
+              label="Válidas"
+              value={String(validCount)}
+              hint="Já converteram"
+              icon={<CheckCircle2 className="h-4 w-4 text-emerald-200" />}
+              tone="success"
+            />
+            <InviteOverviewCard
+              label="Pendentes"
+              value={String(pendingCount)}
+              hint="Ainda em qualificação"
+              icon={<UserPlus2 className="h-4 w-4 text-amber-200" />}
+              tone="warning"
+            />
+            <InviteOverviewCard
+              label="Ganhos"
+              value={`${totalEarned} ${rewardCurrencyLabel(inviterRewardCurrency)}`}
+              hint="Retorno acumulado"
+              icon={<Gift className="h-4 w-4 text-cyan-200" />}
+              tone="info"
+            />
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "convite" && invitePanel === "guia" ? (
         <section className="space-y-4">
           <div className="rounded-[1.7rem] border border-violet-400/20 bg-gradient-to-br from-violet-950/30 via-slate-950/95 to-slate-950 p-5 shadow-[0_0_40px_-16px_rgba(139,92,246,0.35)]">
             <div className="flex items-start justify-between gap-3">
@@ -525,7 +583,7 @@ export default function ConvidarPage() {
                 disabled={!profile || !promoMessage}
               >
                 <Share2 className="h-4 w-4" />
-                Copiar texto
+                {copied === "message" ? "Texto copiado" : "Copiar texto"}
               </Button>
             </div>
           </div>
@@ -733,12 +791,22 @@ export default function ConvidarPage() {
             <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/70">Sua posição</p>
               <p className="mt-1 text-xl font-black text-white">
-                {rankingPosition ? `#${rankingPosition}` : "Em crescimento"}
+                {rankingPosition != null
+                  ? `#${rankingPosition} no top ${ranking.length}`
+                  : ranking.length > 0
+                    ? `Fora do top ${ranking.length}`
+                    : "—"}
               </p>
               <p className="mt-1 text-sm text-white/60">
                 {myRanking.validReferrals} indicações válidas · {myRanking.totalRewards}{" "}
                 {rankingCurrencySummary}
               </p>
+              {rankingPosition == null && ranking.length > 0 ? (
+                <p className="mt-2 text-xs text-cyan-100/65">
+                  A lista mostra os {ranking.length} primeiros colocados neste período. Continue indicando para entrar no
+                  ranking exibido.
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -764,41 +832,46 @@ export default function ConvidarPage() {
             </div>
           ) : null}
 
-          {podiumEntries.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-3">
-              {podiumEntries.map((entry, index) => (
-                <div
-                  key={`podium-${entry.userId}`}
-                  className={cn(
-                    "flex h-full flex-col rounded-[24px] border bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.96))] p-4",
-                    index === 0 && "border-amber-300/35 shadow-[0_18px_50px_-35px_rgba(251,191,36,0.35)]",
-                    index === 1 && "border-slate-300/20 shadow-[0_18px_50px_-35px_rgba(148,163,184,0.2)]",
-                    index === 2 && "border-orange-300/20 shadow-[0_18px_50px_-35px_rgba(251,146,60,0.2)]",
-                    entry.userId === profile?.uid && "ring-1 ring-cyan-400/60",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p
-                      className={cn(
-                        "text-[10px] font-black uppercase tracking-[0.22em]",
-                        index === 0 ? "text-amber-200/90" : "text-white/60",
-                      )}
-                    >
-                      {index === 0 ? "1º lugar" : index === 1 ? "2º lugar" : "3º lugar"}
-                    </p>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Classificação</p>
+            {ranking.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-10 text-center text-sm text-white/55">
+                {period === "all"
+                  ? "Nenhum dado no ranking geral ainda, ou os pontos ainda não foram sincronizados. Se você já tinha indicações, os dados podem estar em outra chave de período — o app tenta carregar automaticamente."
+                  : "Ainda sem ranking para este período."}
+              </div>
+            ) : (
+              ranking.map((entry, index) => {
+                const rank = index + 1;
+                const isYou = entry.userId === profile?.uid;
+                const topStyle =
+                  rank === 1
+                    ? "border-amber-400/25 bg-gradient-to-r from-amber-500/10 via-white/[0.04] to-transparent"
+                    : rank === 2
+                      ? "border-slate-300/20 bg-gradient-to-r from-slate-400/10 via-white/[0.04] to-transparent"
+                      : rank === 3
+                        ? "border-orange-400/20 bg-gradient-to-r from-orange-500/10 via-white/[0.04] to-transparent"
+                        : "border-white/10 bg-white/[0.05]";
+                return (
+                  <div
+                    key={entry.userId}
+                    className={cn(
+                      "flex items-center gap-3 rounded-2xl border px-3 py-3 sm:px-4",
+                      topStyle,
+                      isYou && "ring-1 ring-cyan-400/45",
+                    )}
+                  >
                     <div
                       className={cn(
-                        "rounded-full border p-2",
-                        index === 0 && "border-amber-300/30 bg-amber-300/10 text-amber-200",
-                        index === 1 && "border-slate-300/20 bg-slate-200/10 text-slate-200",
-                        index === 2 && "border-orange-300/20 bg-orange-300/10 text-orange-200",
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-sm font-black",
+                        rank === 1 && "border-amber-300/35 bg-amber-500/15 text-amber-100",
+                        rank === 2 && "border-slate-300/25 bg-slate-500/15 text-slate-100",
+                        rank === 3 && "border-orange-300/30 bg-orange-500/15 text-orange-100",
+                        rank > 3 && "border-white/10 bg-black/25 text-white/70",
                       )}
                     >
-                      <Medal className="h-4 w-4" />
+                      {rank <= 3 ? <Medal className="h-4 w-4" /> : rank}
                     </div>
-                  </div>
-                  <div className="mt-4 flex flex-col items-center text-center">
-                    {/* Avatares podem vir de data URL ou URL dinâmica do Firebase Storage. */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={resolveAvatarUrl({
@@ -806,55 +879,38 @@ export default function ConvidarPage() {
                         name: entry.userName,
                         uid: entry.userId,
                       })}
-                      alt={entry.userName}
-                      className="h-16 w-16 rounded-[20px] border border-white/10 object-cover"
+                      alt=""
+                      className="h-11 w-11 shrink-0 rounded-2xl border border-white/10 object-cover"
                     />
-                    <div className="mt-3 min-w-0 w-full">
-                      <p className="truncate text-xl font-black tracking-tight text-white">{entry.userName}</p>
-                    </div>
-                  </div>
-                  <div className="mt-auto pt-5">
-                    <div className="border-t border-white/10 pt-4">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/35">
-                      Indicações
-                    </p>
-                    <p className="mt-2 text-4xl font-black leading-none text-white">
-                      {entry.validReferrals}
-                    </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="space-y-2">
-            {ranking.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-10 text-center text-sm text-white/55">
-                Ainda sem ranking para este período.
-              </div>
-            ) : (
-              remainingRanking.map((entry, index) => (
-                <div
-                  key={entry.userId}
-                  className={cn(
-                    "rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3",
-                    entry.userId === profile?.uid && "ring-1 ring-cyan-400/50",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-white">{entry.userName}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-white">
+                        {entry.userName}
+                        {isYou ? (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-cyan-200/90">
+                            Você
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-xs text-white/50">
-                        {entry.validReferrals} válidas · {entry.totalRewards} {rankingCurrencySummary}
+                        <span className="font-semibold text-white/65">{entry.validReferrals}</span> válidas
+                        {entry.pendingReferrals > 0 ? (
+                          <>
+                            {" "}
+                            · <span>{entry.pendingReferrals}</span> pendentes
+                          </>
+                        ) : null}
+                        {" · "}
+                        <span className="text-white/45">
+                          {entry.totalRewards} {rankingCurrencySummary}
+                        </span>
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 text-sm font-bold text-amber-200">
-                      #{index + 4}
+                    <div className="shrink-0 text-right">
+                      <p className="text-lg font-black tabular-nums text-amber-200">#{rank}</p>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>

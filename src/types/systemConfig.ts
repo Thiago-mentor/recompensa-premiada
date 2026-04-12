@@ -100,6 +100,7 @@ export interface RankingPrizeGameConfig extends Partial<RankingPrizePeriodConfig
 export interface RankingPrizeConfig extends Partial<RankingPrizePeriodConfig> {
   global?: Partial<RankingPrizePeriodConfig>;
   byGame?: Partial<Record<GameId | string, RankingPrizeGameConfig>>;
+  clans?: Partial<RankingPrizePeriodConfig>;
 }
 
 /** `system_configs/economy` (documento único ou id fixo) */

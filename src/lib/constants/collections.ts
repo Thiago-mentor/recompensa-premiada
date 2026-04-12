@@ -1,6 +1,10 @@
 /** Nomes das coleções Firestore (modelo de domínio) */
 export const COLLECTIONS = {
   users: "users",
+  clans: "clans",
+  clanRankingsWeekly: "clan_rankings_weekly",
+  clanMemberships: "clan_memberships",
+  clanJoinRequests: "clan_join_requests",
   referralCampaigns: "referral_campaigns",
   referralRankingsDaily: "referral_rankings_daily",
   referralRankingsWeekly: "referral_rankings_weekly",
@@ -35,6 +39,9 @@ export const COLLECTIONS = {
 
 /** Subcoleções */
 export const SUBCOLLECTIONS = {
+  clanMembers: "members",
+  clanMessages: "messages",
+  clanContributors: "contributors",
   userMissionsDaily: "daily",
   userMissionsWeekly: "weekly",
   chestItems: "items",

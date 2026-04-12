@@ -150,6 +150,15 @@
         { "fieldPath": "raffleId", "order": "ASCENDING" },
         { "fieldPath": "numbers", "arrayConfig": "CONTAINS" }
       ]
+    },
+    {
+      "collectionGroup": "clan_join_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clanId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "requestedAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

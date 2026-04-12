@@ -21,7 +21,7 @@ import {
   type NormalizedRankingPrizeConfig,
 } from "@/lib/ranking/prizes";
 import { fetchRankingPrizeConfig } from "@/services/ranking/rankingConfigService";
-import { Coins, Gamepad2, Save, Sparkles, Trophy } from "lucide-react";
+import { Coins, Crown, Gamepad2, Save, Sparkles, Trophy } from "lucide-react";
 
 const ECONOMY_ID = "economy";
 
@@ -78,11 +78,12 @@ export default function AdminRankingsPage() {
             mensal: prizes.global.mensal,
             global: prizes.global,
             byGame: prizes.byGame,
+            clans: prizes.clans,
           },
         },
         { merge: true },
       );
-      setMsg("Premiações globais e por jogo salvas com sucesso.");
+      setMsg("Premiações globais, por jogo e de clãs salvas com sucesso.");
     } catch (error) {
       setMsg(formatFirebaseError(error));
     } finally {
@@ -91,7 +92,7 @@ export default function AdminRankingsPage() {
   }
 
   function updateTier(
-    area: "global" | "game",
+    area: "global" | "game" | "clans",
     period: RankingPeriod,
     index: number,
     key: keyof RankingPrizeTier,
@@ -103,6 +104,17 @@ export default function AdminRankingsPage() {
         ? Math.max(1, Math.floor(Number(value) || 0))
         : Math.max(0, Math.floor(Number(value) || 0));
     setPrizes((current) => {
+      if (area === "clans") {
+        return {
+          ...current,
+          clans: {
+            ...current.clans,
+            [period]: current.clans[period].map((tier, tierIndex) =>
+              tierIndex === index ? { ...tier, [key]: nextValue } : tier,
+            ),
+          },
+        };
+      }
       if (area === "game" && gameId) {
         const gameConfig = current.byGame[gameId] ?? createEmptyRankingPrizePeriodConfig();
         return {
@@ -130,8 +142,17 @@ export default function AdminRankingsPage() {
     });
   }
 
-  function addTier(area: "global" | "game", period: RankingPeriod, gameId?: string) {
+  function addTier(area: "global" | "game" | "clans", period: RankingPeriod, gameId?: string) {
     setPrizes((current) => {
+      if (area === "clans") {
+        return {
+          ...current,
+          clans: {
+            ...current.clans,
+            [period]: [...current.clans[period], createEmptyRankingPrizeTier()],
+          },
+        };
+      }
       if (area === "game" && gameId) {
         const gameConfig = current.byGame[gameId] ?? createEmptyRankingPrizePeriodConfig();
         return {
@@ -155,8 +176,22 @@ export default function AdminRankingsPage() {
     });
   }
 
-  function removeTier(area: "global" | "game", period: RankingPeriod, index: number, gameId?: string) {
+  function removeTier(
+    area: "global" | "game" | "clans",
+    period: RankingPeriod,
+    index: number,
+    gameId?: string,
+  ) {
     setPrizes((current) => {
+      if (area === "clans") {
+        return {
+          ...current,
+          clans: {
+            ...current.clans,
+            [period]: current.clans[period].filter((_, tierIndex) => tierIndex !== index),
+          },
+        };
+      }
       if (area === "game" && gameId) {
         const gameConfig = current.byGame[gameId] ?? createEmptyRankingPrizePeriodConfig();
         return {
@@ -211,7 +246,11 @@ export default function AdminRankingsPage() {
     setClosingPeriod(period);
     try {
       await callFunction<{ period: RankingPeriod }, { ok: boolean }>("adminCloseRanking", { period });
-      setMsg(`Fechamento do ranking ${labelForPeriod(period)} executado com sucesso.`);
+      setMsg(
+        period === "semanal"
+          ? "Fechamento do ranking semanal executado com sucesso, incluindo o rateio dos clãs por contribuição."
+          : `Fechamento do ranking ${labelForPeriod(period)} executado com sucesso.`,
+      );
     } catch (error) {
       setMsg(formatFirebaseError(error));
     } finally {
@@ -250,7 +289,7 @@ export default function AdminRankingsPage() {
           </Button>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
           <SummaryCard
             icon={<Trophy className="h-4 w-4" />}
             label="Ranking geral"
@@ -270,6 +309,12 @@ export default function AdminRankingsPage() {
             label="Top 1 atual"
             value={formatRankingPrize(getRankingPrizeForPosition(prizes.global.diario, 1))}
             note="configuração global de destaque"
+          />
+          <SummaryCard
+            icon={<Crown className="h-4 w-4" />}
+            label="Clã semanal"
+            value={formatRankingPrize(getRankingPrizeForPosition(prizes.clans.semanal, 1))}
+            note="faixa do top 1 antes do rateio"
           />
         </div>
       </div>
@@ -296,6 +341,24 @@ export default function AdminRankingsPage() {
             />
           ))}
         </div>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Premiação semanal de clãs</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            A faixa do clã é rateada proporcionalmente entre os membros que pontuaram na semana.
+            Você pode ajustar as faixas abaixo a qualquer momento.
+          </p>
+        </div>
+
+        <PrizeCard
+          title="Semanal"
+          rows={prizes.clans.semanal}
+          onChange={(index, key, value) => updateTier("clans", "semanal", index, key, value)}
+          onAdd={() => addTier("clans", "semanal")}
+          onRemove={(index) => removeTier("clans", "semanal", index)}
+        />
       </section>
 
       <section className="space-y-4">

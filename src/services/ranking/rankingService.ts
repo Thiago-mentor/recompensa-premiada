@@ -19,6 +19,8 @@ export type RankingQueryOptions = {
   gameId?: GameId | string | null;
 };
 
+const VICTORY_RANKED_GAME_IDS = new Set<GameId | string>(["ppt", "quiz", "reaction_tap"]);
+
 function collectionForPeriod(tipo: RankingPeriod): string {
   switch (tipo) {
     case "diario":
@@ -71,6 +73,30 @@ function normalizeEntry(
   };
 }
 
+function isVictoryRankedGame(options?: RankingQueryOptions): boolean {
+  return options?.scope === "game" && VICTORY_RANKED_GAME_IDS.has(String(options?.gameId || "").trim());
+}
+
+function timestampToMs(value: unknown): number {
+  if (value && typeof value === "object" && "toMillis" in value) {
+    try {
+      return (value as { toMillis: () => number }).toMillis();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function compareVictoryRankedEntry(a: RankingEntry, b: RankingEntry): number {
+  if (b.vitorias !== a.vitorias) return b.vitorias - a.vitorias;
+  if (b.score !== a.score) return b.score - a.score;
+  if (b.partidas !== a.partidas) return b.partidas - a.partidas;
+  const updatedDiff = timestampToMs(b.atualizadoEm) - timestampToMs(a.atualizadoEm);
+  if (updatedDiff !== 0) return updatedDiff;
+  return a.uid.localeCompare(b.uid, "pt-BR");
+}
+
 /** Subcoleção `entries` em `rankings_* / {periodoChave} / entries / {uid}` */
 export async function fetchTopRanking(
   tipo: RankingPeriod,
@@ -80,6 +106,14 @@ export async function fetchTopRanking(
 ): Promise<RankingEntry[]> {
   const db = getFirebaseFirestore();
   const entriesRef = collection(db, entriesCollectionPath(tipo, periodoChave, options));
+  if (isVictoryRankedGame(options)) {
+    const snap = await getDocs(entriesRef);
+    return snap.docs
+      .map((d) => normalizeEntry(d.id, d.data(), options))
+      .sort(compareVictoryRankedEntry)
+      .slice(0, topN)
+      .map((entry, index) => ({ ...entry, posicao: index + 1 }));
+  }
   const q = query(entriesRef, orderBy("score", "desc"), limit(topN));
   const snap = await getDocs(q);
   return snap.docs.map((d, i) => ({ ...normalizeEntry(d.id, d.data(), options), posicao: i + 1 }));

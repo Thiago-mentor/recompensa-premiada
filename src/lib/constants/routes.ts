@@ -13,6 +13,10 @@ export const ROUTES = {
   perfil: "/perfil",
   loja: "/loja",
   convidar: "/convidar",
+  cla: "/cla",
+  claMembros: "/cla/membros",
+  claChat: "/cla/chat",
+  claConfiguracoes: "/cla/configuracoes",
   admin: {
     dashboard: "/admin/dashboard",
     indicacoes: "/admin/indicacoes",
@@ -32,4 +36,8 @@ export const ROUTES = {
 export function routeJogosFilaBuscar(gameId: string) {
   const q = new URLSearchParams({ gameId, buscar: "1" });
   return `${ROUTES.jogosFila}?${q.toString()}`;
+}
+
+export function routeClaPublico(clanId: string) {
+  return `/cla/publico/${encodeURIComponent(clanId)}`;
 }

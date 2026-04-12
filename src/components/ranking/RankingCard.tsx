@@ -17,9 +17,11 @@ export function RankingCard({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3",
-        highlightUid && entry.uid === highlightUid && "ring-1 ring-amber-400/60 bg-amber-500/10 shadow-[0_0_28px_-16px_rgba(251,191,36,0.45)]",
-        top && "bg-gradient-to-r from-amber-500/15 to-transparent",
+        "game-panel-soft flex items-center gap-3 rounded-[1.3rem] px-3.5 py-3.5",
+        highlightUid &&
+          entry.uid === highlightUid &&
+          "border-amber-400/28 ring-1 ring-amber-400/45 shadow-[0_0_30px_-16px_rgba(251,191,36,0.45)]",
+        top && "border-amber-400/20 bg-[linear-gradient(90deg,rgba(251,191,36,0.12),rgba(6,10,21,0.72))]",
       )}
     >
       <div className="flex w-8 justify-center">
@@ -42,7 +44,7 @@ export function RankingCard({
         }}
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-white">{entry.nome}</p>
+        <p className="truncate text-sm font-bold text-white">{entry.nome}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/55">
           <span>{entry.vitorias} vitórias</span>
           <span>{entry.partidas} partidas</span>
@@ -53,7 +55,8 @@ export function RankingCard({
         </div>
       </div>
       <div className="text-right">
-        <span className="text-sm font-bold tabular-nums text-amber-200">{entry.score}</span>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/58">PR</p>
+        <span className="text-sm font-black tabular-nums text-amber-200">{entry.score}</span>
         {highlightUid && entry.uid === highlightUid ? (
           <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-amber-100/90">
             <Sparkles className="h-3 w-3" />

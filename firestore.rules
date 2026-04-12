@@ -22,6 +22,47 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.admin == true;
     }
 
+    function isClanMember(clanId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/clan_memberships/$(request.auth.uid))
+        && get(/databases/$(database)/documents/clan_memberships/$(request.auth.uid)).data.clanId == clanId;
+    }
+
+    function isClanManager(clanId) {
+      return isClanMember(clanId)
+        && (
+          get(/databases/$(database)/documents/clan_memberships/$(request.auth.uid)).data.role == "owner"
+          || get(/databases/$(database)/documents/clan_memberships/$(request.auth.uid)).data.role == "leader"
+        );
+    }
+
+    match /clan_memberships/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /clan_join_requests/{userId} {
+      allow get: if isOwner(userId) || isAdmin() || isClanManager(resource.data.clanId);
+      allow list: if isAdmin() || isClanManager(resource.data.clanId);
+      allow create, update, delete: if false;
+    }
+
+    match /clans/{clanId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+
+      match /members/{memberUid} {
+        allow read: if isClanMember(clanId) || isAdmin();
+        allow create, update, delete: if false;
+      }
+
+      match /messages/{messageId} {
+        allow read: if isClanMember(clanId) || isAdmin();
+        allow create, update, delete: if false;
+      }
+    }
+
     // users: criado por initializeUserProfile (Admin); atualizado por Functions e admin.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
@@ -78,6 +119,26 @@ service cloud.firestore {
     match /rankings_monthly/{period}/entries/{uid} {
       allow read: if isSignedIn();
       allow create, update, delete: if false;
+    }
+
+    match /clan_rankings_weekly/{period} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+
+      match /entries/{clanId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
+
+      match /meta/{docId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
+
+      match /clans/{clanId}/contributors/{uid} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
     }
 
     match /ad_events/{id} {

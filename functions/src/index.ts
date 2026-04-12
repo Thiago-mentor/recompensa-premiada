@@ -32,6 +32,10 @@ const db =
 
 const COL = {
   users: "users",
+  clans: "clans",
+  clanRankingsWeekly: "clan_rankings_weekly",
+  clanMemberships: "clan_memberships",
+  clanJoinRequests: "clan_join_requests",
   userChests: "user_chests",
   referrals: "referrals",
   referralCampaigns: "referral_campaigns",
@@ -60,6 +64,7 @@ const COL = {
 
 const AUTO_QUEUE_GAMES = new Set<GameId>(["ppt", "quiz", "reaction_tap"]);
 const RANKING_GAME_IDS: GameId[] = ["ppt", "quiz", "reaction_tap", "roleta", "bau", "numero_secreto"];
+const VICTORY_RANKED_GAME_IDS = new Set<GameId>(["ppt", "quiz", "reaction_tap"]);
 const GAME_TITLES: Record<GameId, string> = {
   ppt: "Pedra, papel e tesoura",
   quiz: "Quiz rápido 1x1",
@@ -1394,7 +1399,9 @@ function normalizeChestSlotsAndQueue(
   return [...slotItems, ...queueItems];
 }
 
-function chestItemPatch(item: ChestDocState): Record<string, unknown> {
+function chestItemPatch(
+  item: ChestDocState,
+): admin.firestore.UpdateData<admin.firestore.DocumentData> {
   return {
     status: item.status,
     slotIndex: item.slotIndex,
@@ -1899,7 +1906,16 @@ type RankingPrizeTierResolved = { posicaoMax: number; rewards: RankingPrizeRewar
 type RankingPrizeConfigResolved = {
   global: Record<RankingPeriodMode, RankingPrizeTierResolved[]>;
   byGame: Partial<Record<GameId, Record<RankingPeriodMode, RankingPrizeTierResolved[]>>>;
+  clans: Record<RankingPeriodMode, RankingPrizeTierResolved[]>;
 };
+type ArenaOverallGameId = Extract<GameId, "ppt" | "quiz" | "reaction_tap">;
+type ArenaOverallStats = { score: number; partidas: number; vitorias: number };
+type ArenaOverallAccumulator = {
+  total: ArenaOverallStats;
+  byGame: Record<ArenaOverallGameId, ArenaOverallStats>;
+};
+
+const ARENA_OVERALL_GAME_IDS = ["ppt", "quiz", "reaction_tap"] as const satisfies readonly ArenaOverallGameId[];
 
 type ReferralConfig = {
   enabled: boolean;
@@ -2100,6 +2116,16 @@ const DEFAULT_GLOBAL_RANKING_PRIZES = {
   ],
 } satisfies Record<RankingPeriodMode, RankingPrizeTierResolved[]>;
 
+const DEFAULT_CLAN_RANKING_PRIZES = {
+  diario: [] as RankingPrizeTierResolved[],
+  semanal: [
+    { posicaoMax: 1, rewards: { coins: 1500, gems: 60, rewardBalance: 30 } },
+    { posicaoMax: 3, rewards: { coins: 800, gems: 30, rewardBalance: 15 } },
+    { posicaoMax: 10, rewards: { coins: 300, gems: 10, rewardBalance: 5 } },
+  ],
+  mensal: [] as RankingPrizeTierResolved[],
+} satisfies Record<RankingPeriodMode, RankingPrizeTierResolved[]>;
+
 function normalizeRankingPrizeTierList(raw: unknown): RankingPrizeTierResolved[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -2135,6 +2161,10 @@ function normalizeRankingPrizeConfig(raw: unknown): RankingPrizeConfigResolved {
     data.byGame && typeof data.byGame === "object"
       ? (data.byGame as Record<string, unknown>)
       : {};
+  const clanSource =
+    data.clans && typeof data.clans === "object"
+      ? (data.clans as Record<string, unknown>)
+      : {};
 
   const global = {
     diario: normalizeRankingPrizeTierList(globalSource.diario),
@@ -2144,6 +2174,15 @@ function normalizeRankingPrizeConfig(raw: unknown): RankingPrizeConfigResolved {
   if (global.diario.length === 0) global.diario = DEFAULT_GLOBAL_RANKING_PRIZES.diario;
   if (global.semanal.length === 0) global.semanal = DEFAULT_GLOBAL_RANKING_PRIZES.semanal;
   if (global.mensal.length === 0) global.mensal = DEFAULT_GLOBAL_RANKING_PRIZES.mensal;
+
+  const clans = {
+    diario: normalizeRankingPrizeTierList(clanSource.diario),
+    semanal: normalizeRankingPrizeTierList(clanSource.semanal),
+    mensal: normalizeRankingPrizeTierList(clanSource.mensal),
+  };
+  if (clans.diario.length === 0) clans.diario = DEFAULT_CLAN_RANKING_PRIZES.diario;
+  if (clans.semanal.length === 0) clans.semanal = DEFAULT_CLAN_RANKING_PRIZES.semanal;
+  if (clans.mensal.length === 0) clans.mensal = DEFAULT_CLAN_RANKING_PRIZES.mensal;
 
   const byGame = {} as Partial<Record<GameId, Record<RankingPeriodMode, RankingPrizeTierResolved[]>>>;
   for (const gameId of RANKING_GAME_IDS) {
@@ -2161,7 +2200,7 @@ function normalizeRankingPrizeConfig(raw: unknown): RankingPrizeConfigResolved {
     }
   }
 
-  return { global, byGame };
+  return { global, byGame, clans };
 }
 
 function rankingPrizeTiersForScope(
@@ -2171,6 +2210,13 @@ function rankingPrizeTiersForScope(
 ): RankingPrizeTierResolved[] {
   if (gameId) return config.byGame[gameId]?.[period] ?? [];
   return config.global[period];
+}
+
+function clanRankingPrizeTiersForPeriod(
+  config: RankingPrizeConfigResolved,
+  period: RankingPeriodMode,
+): RankingPrizeTierResolved[] {
+  return config.clans[period] ?? [];
 }
 
 function rankingPrizeTierForPosition(
@@ -2978,12 +3024,14 @@ async function grantRewardedAdPlacement(input: {
       throw new HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
     }
 
-    const userPatch: Record<string, unknown> = {
+    const userPatch: admin.firestore.UpdateData<admin.firestore.DocumentData> = {
       rewardedAdsDayKey: today,
       rewardedAdsCount: currentCount + 1,
       totalAdsAssistidos: FieldValue.increment(1),
       atualizadoEm: FieldValue.serverTimestamp(),
     };
+
+    await applyClanScoreCreditTx(tx, { uid: input.uid, ads: 1 });
 
     tx.set(adRef, {
       id: adRef.id,
@@ -3138,84 +3186,105 @@ async function upsertRanking(input: {
   win: boolean;
   gameId: GameId;
 }) {
-  const batch = db.batch();
   const userRef = db.doc(`${COL.users}/${input.uid}`);
-  batch.update(userRef, {
-    scoreRankingDiario: FieldValue.increment(input.deltaScore),
-    scoreRankingSemanal: FieldValue.increment(input.deltaScore),
-    scoreRankingMensal: FieldValue.increment(input.deltaScore),
-    atualizadoEm: FieldValue.serverTimestamp(),
-  });
-
   const periods: { period: RankingPeriodMode; col: string; key: string }[] = [
     { period: "diario", col: COL.rankingsDaily, key: dailyKey() },
     { period: "semanal", col: COL.rankingsWeekly, key: weeklyKey() },
     { period: "mensal", col: COL.rankingsMonthly, key: monthlyKey() },
   ];
-  for (const p of periods) {
-    batch.set(
-      db.doc(`${p.col}/${p.key}`),
+  await db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    const userData = (userSnap.data() || {}) as Record<string, unknown>;
+    const [dailyPeriod, weeklyPeriod, monthlyPeriod] = periods;
+
+    tx.set(
+      userRef,
       {
-        periodoChave: p.key,
-        tipo: p.period,
-        scope: "global",
-        atualizadoEm: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    const entryRef = db.doc(`${p.col}/${p.key}/entries/${input.uid}`);
-    batch.set(
-      entryRef,
-      {
-        uid: input.uid,
-        nome: input.nome,
-        username: input.username ?? null,
-        foto: input.foto,
-        score: FieldValue.increment(input.deltaScore),
-        partidas: FieldValue.increment(1),
-        vitorias: FieldValue.increment(input.win ? 1 : 0),
-        scope: "global",
+        scoreRankingDiarioKey: dailyPeriod.key,
+        scoreRankingDiario:
+          String(userData.scoreRankingDiarioKey || "") !== dailyPeriod.key
+            ? input.deltaScore
+            : FieldValue.increment(input.deltaScore),
+        scoreRankingSemanalKey: weeklyPeriod.key,
+        scoreRankingSemanal:
+          String(userData.scoreRankingSemanalKey || "") !== weeklyPeriod.key
+            ? input.deltaScore
+            : FieldValue.increment(input.deltaScore),
+        scoreRankingMensalKey: monthlyPeriod.key,
+        scoreRankingMensal:
+          String(userData.scoreRankingMensalKey || "") !== monthlyPeriod.key
+            ? input.deltaScore
+            : FieldValue.increment(input.deltaScore),
         atualizadoEm: FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
 
-    batch.set(
-      db.doc(`${p.col}/${p.key}/games/${input.gameId}`),
-      {
-        periodoChave: p.key,
-        tipo: p.period,
-        scope: "game",
-        gameId: input.gameId,
-        gameTitle: GAME_TITLES[input.gameId],
-        atualizadoEm: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    batch.set(
-      db.doc(`${p.col}/${p.key}/games/${input.gameId}/entries/${input.uid}`),
-      {
-        uid: input.uid,
-        nome: input.nome,
-        username: input.username ?? null,
-        foto: input.foto,
-        score: FieldValue.increment(input.deltaScore),
-        partidas: FieldValue.increment(1),
-        vitorias: FieldValue.increment(input.win ? 1 : 0),
-        scope: "game",
-        gameId: input.gameId,
-        gameTitle: GAME_TITLES[input.gameId],
-        atualizadoEm: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-  }
-  await batch.commit();
+    for (const p of periods) {
+      tx.set(
+        db.doc(`${p.col}/${p.key}`),
+        {
+          periodoChave: p.key,
+          tipo: p.period,
+          scope: "global",
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      const entryRef = db.doc(`${p.col}/${p.key}/entries/${input.uid}`);
+      tx.set(
+        entryRef,
+        {
+          uid: input.uid,
+          nome: input.nome,
+          username: input.username ?? null,
+          foto: input.foto,
+          score: FieldValue.increment(input.deltaScore),
+          partidas: FieldValue.increment(1),
+          vitorias: FieldValue.increment(input.win ? 1 : 0),
+          scope: "global",
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      tx.set(
+        db.doc(`${p.col}/${p.key}/games/${input.gameId}`),
+        {
+          periodoChave: p.key,
+          tipo: p.period,
+          scope: "game",
+          gameId: input.gameId,
+          gameTitle: GAME_TITLES[input.gameId],
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      tx.set(
+        db.doc(`${p.col}/${p.key}/games/${input.gameId}/entries/${input.uid}`),
+        {
+          uid: input.uid,
+          nome: input.nome,
+          username: input.username ?? null,
+          foto: input.foto,
+          score: FieldValue.increment(input.deltaScore),
+          partidas: FieldValue.increment(1),
+          vitorias: FieldValue.increment(input.win ? 1 : 0),
+          scope: "game",
+          gameId: input.gameId,
+          gameTitle: GAME_TITLES[input.gameId],
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+  });
 }
 
 async function syncUserPresentation(uid: string, nome: string, foto: string | null) {
   const userSnap = await db.doc(`${COL.users}/${uid}`).get();
-  const username = userSnap.exists ? String(userSnap.data()?.username || "") : "";
+  const userData = (userSnap.data() || null) as Record<string, unknown> | null;
+  const username = userSnap.exists ? String(userData?.username || "") : "";
   const batch = db.batch();
   const rankingTargets: Array<{
     ref: DocumentReference;
@@ -3271,6 +3340,25 @@ async function syncUserPresentation(uid: string, nome: string, foto: string | nu
         userId: uid,
         userName: nome,
         photoURL: foto,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
+
+  const membershipSnap = await db.doc(`${COL.clanMemberships}/${uid}`).get();
+  const clanId = membershipSnap.exists ? String(membershipSnap.data()?.clanId || "").trim() : "";
+  if (clanId) {
+    batch.set(
+      db.doc(`${COL.clans}/${clanId}/members/${uid}`),
+      {
+        uid,
+        clanId,
+        nome,
+        username: username || null,
+        foto,
+        role: String(membershipSnap.data()?.role || "member"),
+        joinedAt: membershipSnap.data()?.joinedAt ?? FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },
@@ -3618,6 +3706,14 @@ async function applyQuizMatchCompletionInTransaction(
   const mGuest = db.collection(COL.matches).doc();
   const wHost = db.collection(COL.wallet).doc();
   const wGuest = db.collection(COL.wallet).doc();
+  const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
+  const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
+    wins: hostRes === "vitoria" ? 1 : 0,
+  });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
+    wins: guestRes === "vitoria" ? 1 : 0,
+  });
 
   tx.set(mHost, {
     id: mHost.id,
@@ -3672,7 +3768,6 @@ async function applyQuizMatchCompletionInTransaction(
     xp: FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
     atualizadoEm: FieldValue.serverTimestamp(),
   });
-
   const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + boostedH.totalCoins;
   const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + boostedG.totalCoins;
 
@@ -3807,6 +3902,14 @@ async function applyQuizForfeitInTransaction(
   const mGuest = db.collection(COL.matches).doc();
   const wHost = db.collection(COL.wallet).doc();
   const wGuest = db.collection(COL.wallet).doc();
+  const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
+  const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
+    wins: hostRes === "vitoria" ? 1 : 0,
+  });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
+    wins: guestRes === "vitoria" ? 1 : 0,
+  });
 
   tx.set(mHost, {
     id: mHost.id,
@@ -3861,7 +3964,6 @@ async function applyQuizForfeitInTransaction(
     xp: FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
     atualizadoEm: FieldValue.serverTimestamp(),
   });
-
   const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + boostedH.totalCoins;
   const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + boostedG.totalCoins;
 
@@ -4039,6 +4141,14 @@ async function applyReactionMatchCompletionInTransaction(
   const mGuest = db.collection(COL.matches).doc();
   const wHost = db.collection(COL.wallet).doc();
   const wGuest = db.collection(COL.wallet).doc();
+  const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
+  const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
+    wins: hostRes === "vitoria" ? 1 : 0,
+  });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
+    wins: guestRes === "vitoria" ? 1 : 0,
+  });
 
   tx.set(mHost, {
     id: mHost.id,
@@ -4093,7 +4203,6 @@ async function applyReactionMatchCompletionInTransaction(
     xp: FieldValue.increment(guestRes === "vitoria" ? 15 : guestRes === "empate" ? 8 : 5),
     atualizadoEm: FieldValue.serverTimestamp(),
   });
-
   const hostCoinsAfter = Number(hUSnap.data()?.coins ?? 0) + boostedH.totalCoins;
   const guestCoinsAfter = Number(gUSnap.data()?.coins ?? 0) + boostedG.totalCoins;
 
@@ -4267,6 +4376,9 @@ async function applyPptForfeitInTransaction(
     throw new HttpsError("permission-denied", "Conta suspensa.");
   }
 
+  const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
+  const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
+
   if (hPSnap.exists) tx.delete(hPref);
   if (gPSnap.exists) tx.delete(gPref);
 
@@ -4295,6 +4407,12 @@ async function applyPptForfeitInTransaction(
   const mGuest = db.collection(COL.matches).doc();
   const wHost = db.collection(COL.wallet).doc();
   const wGuest = db.collection(COL.wallet).doc();
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
+    wins: hostRes === "vitoria" ? 1 : 0,
+  });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
+    wins: guestRes === "vitoria" ? 1 : 0,
+  });
 
   tx.set(mHost, {
     id: mHost.id,
@@ -4354,7 +4472,6 @@ async function applyPptForfeitInTransaction(
     xp: FieldValue.increment(gWin ? 15 : 5),
     atualizadoEm: FieldValue.serverTimestamp(),
   });
-
   const coinsH = Number(hu.coins ?? 0) + boostedH.totalCoins;
   const coinsG = Number(gu.coins ?? 0) + boostedG.totalCoins;
 
@@ -4644,6 +4761,14 @@ async function applyPptRoundResultInTransaction(
   const gu = gUSnap.data()!;
   const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu as Record<string, unknown>, economyConfig);
   const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu as Record<string, unknown>, economyConfig);
+  const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
+  const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
+    wins: hostRes === "vitoria" ? 1 : 0,
+  });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
+    wins: guestRes === "vitoria" ? 1 : 0,
+  });
   if (pickRefs) {
     tx.delete(pickRefs.hostRef);
     tx.delete(pickRefs.guestRef);
@@ -4708,7 +4833,6 @@ async function applyPptRoundResultInTransaction(
     xp: FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
     atualizadoEm: FieldValue.serverTimestamp(),
   });
-
   const coinsH = Number(hu.coins ?? 0) + boostedH.totalCoins;
   const coinsG = Number(gu.coins ?? 0) + boostedG.totalCoins;
   if (boostedH.totalCoins > 0) {
@@ -4892,11 +5016,15 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       scoreRankingDiario: 0,
       scoreRankingSemanal: 0,
       scoreRankingMensal: 0,
+      scoreRankingDiarioKey: dailyKey(),
+      scoreRankingSemanalKey: weeklyKey(),
+      scoreRankingMensalKey: monthlyKey(),
       banido: false,
       riscoFraude: "baixo",
       pptPvPDuelsRemaining: PPT_DEFAULT_DUEL_CHARGES,
       criadoEm: FieldValue.serverTimestamp(),
       atualizadoEm: FieldValue.serverTimestamp(),
+      lastActiveAt: FieldValue.serverTimestamp(),
     });
 
     if (convidadoPor && invitedByCode) {
@@ -5054,7 +5182,7 @@ export const processDailyLogin = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
     const newCoins = curCoins + boostedCoins.totalCoins;
     const newGems = curGems + reward.gems;
 
-    const patch: Record<string, unknown> = {
+    const patch: admin.firestore.UpdateData<admin.firestore.DocumentData> = {
       streakAtual: streak,
       melhorStreak: melhor,
       ultimaEntradaEm: Timestamp.fromDate(now),
@@ -5494,10 +5622,13 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   }
 
   const userRef = db.doc(`${COL.users}/${uid}`);
-  const uSnap = await userRef.get();
+  const [uSnap, membershipSnap] = await Promise.all([userRef.get(), clanMembershipRef(uid).get()]);
   if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
   const u = uSnap.data()!;
   if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
+  const clanIdAtEvent = membershipSnap.exists
+    ? String((membershipSnap.data() || {}).clanId || "").trim() || null
+    : null;
 
   const now = Date.now();
   const gcMap = (u.gameCooldownUntil as Record<string, unknown>) || {};
@@ -5559,6 +5690,7 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     gameType: gameId,
     userId: uid,
     opponentId,
+    clanIdAtEvent,
     resultado: effectiveResult,
     result: effectiveResult,
     score: economy.normalizedScore,
@@ -5585,6 +5717,7 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     [`gameCooldownUntil.${gameId}`]: cooldownUntil,
   });
   await batch.commit();
+  await applyClanScoreCreditByClanId(clanIdAtEvent, { uid, wins: win ? 1 : 0 });
 
   if (rewardCoins > 0) {
     await addWalletTx({
@@ -5872,6 +6005,7 @@ export const speedUpChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
 
     const rawItems = itemsSnap.docs.map((docSnap) => readChestItemState(docSnap));
     const normalizedItems = normalizeChestSlotsAndQueue(rawItems, config, nowMs);
+    await applyClanScoreCreditTx(tx, { uid, ads: 1 });
     applyNormalizedChestItemWrites(tx, itemsSnap.docs, rawItems, normalizedItems);
 
     const chest = normalizedItems.find((item) => item.id === chestId);
@@ -9289,7 +9423,10 @@ async function closeRankingScopePayout(
   const entriesPath = gameId
     ? `${rankingRootPath}/entries`
     : `${collectionName}/${periodKey}/entries`;
-  const entriesSnap = await db.collection(entriesPath).orderBy("score", "desc").limit(maxPos).get();
+  const victoryRankedGame = Boolean(gameId && VICTORY_RANKED_GAME_IDS.has(gameId));
+  const entriesSnap = victoryRankedGame
+    ? await db.collection(entriesPath).get()
+    : await db.collection(entriesPath).orderBy("score", "desc").limit(maxPos).get();
 
   if (entriesSnap.empty) {
     await payoutFlagRef.set({
@@ -9305,12 +9442,41 @@ async function closeRankingScopePayout(
     return;
   }
 
-  const winners = entriesSnap.docs.map((docSnap, index) => ({
-    pos: index + 1,
-    uid: docSnap.id,
-    entryRef: docSnap.ref,
-    tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
-  }));
+  const winners = (victoryRankedGame
+    ? entriesSnap.docs
+        .map((docSnap) => {
+          const raw = (docSnap.data() || {}) as Record<string, unknown>;
+          return {
+            uid: docSnap.id,
+            entryRef: docSnap.ref,
+            vitorias: normalizeCounter(raw.vitorias),
+            score: normalizeCounter(raw.score),
+            partidas: normalizeCounter(raw.partidas),
+            atualizadoEm: raw.atualizadoEm ?? null,
+          };
+        })
+        .sort((a, b) => {
+          if (b.vitorias !== a.vitorias) return b.vitorias - a.vitorias;
+          if (b.score !== a.score) return b.score - a.score;
+          if (b.partidas !== a.partidas) return b.partidas - a.partidas;
+          const updatedDiff =
+            millisFromFirestoreTime(b.atualizadoEm) - millisFromFirestoreTime(a.atualizadoEm);
+          if (updatedDiff !== 0) return updatedDiff;
+          return a.uid.localeCompare(b.uid, "pt-BR");
+        })
+        .slice(0, maxPos)
+        .map((entry, index) => ({
+          pos: index + 1,
+          uid: entry.uid,
+          entryRef: entry.entryRef,
+          tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
+        }))
+    : entriesSnap.docs.map((docSnap, index) => ({
+        pos: index + 1,
+        uid: docSnap.id,
+        entryRef: docSnap.ref,
+        tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
+      })));
   const rewardedWinners = winners.filter(
     (winner) => winner.tier != null && hasRankingPrizeRewards(winner.tier.rewards),
   );
@@ -9400,6 +9566,391 @@ async function closeRankingScopePayout(
   await batch.commit();
 }
 
+function normalizeClanWeeklySnapshot(
+  periodKey: string,
+  raw: Record<string, unknown>,
+): {
+  score: number;
+  wins: number;
+  ads: number;
+} {
+  if (String(raw.scoreWeeklyKey || "") !== periodKey) {
+    return { score: 0, wins: 0, ads: 0 };
+  }
+  return {
+    score: normalizeCounter(raw.scoreWeekly),
+    wins: normalizeCounter(raw.scoreWeeklyWins),
+    ads: normalizeCounter(raw.scoreWeeklyAds),
+  };
+}
+
+type ClanWeeklyContributorSnapshot = {
+  uid: string;
+  score: number;
+  wins: number;
+  ads: number;
+  updatedAt: unknown;
+};
+
+type ClanWeeklyRewardDistributionMode = "contributors_proportional" | "owner_fallback";
+
+function normalizeClanWeeklyContributorSnapshot(
+  uid: string,
+  raw: Record<string, unknown>,
+): ClanWeeklyContributorSnapshot {
+  return {
+    uid,
+    score: normalizeCounter(raw.score),
+    wins: normalizeCounter(raw.wins),
+    ads: normalizeCounter(raw.ads),
+    updatedAt: raw.updatedAt ?? null,
+  };
+}
+
+function compareClanContributor(a: ClanWeeklyContributorSnapshot, b: ClanWeeklyContributorSnapshot): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (b.wins !== a.wins) return b.wins - a.wins;
+  if (b.ads !== a.ads) return b.ads - a.ads;
+  const updatedDiff = millisFromFirestoreTime(b.updatedAt) - millisFromFirestoreTime(a.updatedAt);
+  if (updatedDiff !== 0) return updatedDiff;
+  return a.uid.localeCompare(b.uid, "pt-BR");
+}
+
+function distributeClanRewardsToContributors(
+  rewards: RankingPrizeRewards,
+  contributors: ClanWeeklyContributorSnapshot[],
+): Array<{ contributor: ClanWeeklyContributorSnapshot; rewards: RankingPrizeRewards }> {
+  const rankedContributors = [...contributors]
+    .filter((item) => item.score > 0)
+    .sort(compareClanContributor);
+  if (rankedContributors.length === 0) return [];
+
+  const totalScore = rankedContributors.reduce((sum, item) => sum + item.score, 0);
+  if (totalScore <= 0) return [];
+
+  const allocations = new Map<string, RankingPrizeRewards>(
+    rankedContributors.map((item) => [item.uid, emptyRankingPrizeRewards()]),
+  );
+
+  for (const currency of ["coins", "gems", "rewardBalance"] as const) {
+    const amount = Math.max(0, Math.floor(Number(rewards[currency]) || 0));
+    if (amount <= 0) continue;
+
+    let distributed = 0;
+    const remainderRows = rankedContributors.map((item, index) => {
+      const weightedAmount = amount * item.score;
+      const baseShare = Math.floor(weightedAmount / totalScore);
+      allocations.get(item.uid)![currency] = baseShare;
+      distributed += baseShare;
+      return {
+        index,
+        remainder: weightedAmount % totalScore,
+        contributor: item,
+      };
+    });
+
+    let remaining = amount - distributed;
+    if (remaining > 0) {
+      remainderRows.sort((a, b) => {
+        if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+        return compareClanContributor(a.contributor, b.contributor);
+      });
+
+      for (let i = 0; i < remaining; i += 1) {
+        const target = remainderRows[i % remainderRows.length];
+        allocations.get(target.contributor.uid)![currency] += 1;
+      }
+    }
+  }
+
+  return rankedContributors
+    .map((contributor) => ({
+      contributor,
+      rewards: allocations.get(contributor.uid)!,
+    }))
+    .filter((item) => hasRankingPrizeRewards(item.rewards));
+}
+
+async function closeClanWeeklyRankingPayout(
+  periodKey: string,
+  prizeTiers: RankingPrizeTierResolved[],
+) {
+  const rankingRootRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}`);
+  const payoutFlagRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}/meta/payout`);
+  const payoutFlagSnap = await payoutFlagRef.get();
+  if (payoutFlagSnap.exists) return;
+
+  const maxPos = prizeTiers[prizeTiers.length - 1]?.posicaoMax ?? 0;
+  if (maxPos < 1) return;
+
+  const clansSnap = await db.collection(COL.clans).where("scoreWeeklyKey", "==", periodKey).get();
+  if (clansSnap.empty) {
+    await payoutFlagRef.set({
+      period: "semanal",
+      periodKey,
+      processedAt: FieldValue.serverTimestamp(),
+      winners: 0,
+      note: "Sem clãs pontuados para premiar.",
+    });
+    return;
+  }
+
+  const entries = clansSnap.docs
+    .map((docSnap) => {
+      const raw = (docSnap.data() || {}) as Record<string, unknown>;
+      const weekly = normalizeClanWeeklySnapshot(periodKey, raw);
+      return {
+        clanId: docSnap.id,
+        ref: docSnap.ref,
+        raw,
+        ownerUid: String(raw.ownerUid || "").trim(),
+        name: String(raw.name || "Clã"),
+        tag: String(raw.tag || "TAG"),
+        avatarUrl: typeof raw.avatarUrl === "string" ? raw.avatarUrl : null,
+        coverUrl: typeof raw.coverUrl === "string" ? raw.coverUrl : null,
+        privacy: raw.privacy === "open" ? "open" : "code_only",
+        memberCount: normalizeCounter(raw.memberCount),
+        weeklyScore: weekly.score,
+        weeklyWins: weekly.wins,
+        weeklyAds: weekly.ads,
+        lastScoreAt: raw.lastScoreAt ?? null,
+        updatedAt: raw.updatedAt ?? null,
+      };
+    })
+    .filter((entry) => entry.weeklyScore > 0)
+    .sort((a, b) => {
+      if (b.weeklyScore !== a.weeklyScore) return b.weeklyScore - a.weeklyScore;
+      if (b.weeklyWins !== a.weeklyWins) return b.weeklyWins - a.weeklyWins;
+      if (b.weeklyAds !== a.weeklyAds) return b.weeklyAds - a.weeklyAds;
+      if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
+      const scoreActivityDiff =
+        millisFromFirestoreTime(b.lastScoreAt ?? b.updatedAt) -
+        millisFromFirestoreTime(a.lastScoreAt ?? a.updatedAt);
+      if (scoreActivityDiff !== 0) return scoreActivityDiff;
+      return a.name.localeCompare(b.name, "pt-BR");
+    })
+    .slice(0, maxPos)
+    .map((entry, index) => ({
+      ...entry,
+      pos: index + 1,
+      tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
+    }));
+  let rewardedClans = 0;
+  let rewardedContributors = 0;
+  let rewardedOwners = 0;
+  let ownerFallbackClans = 0;
+
+  for (const entry of entries) {
+    const entryRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}/entries/${entry.clanId}`);
+    const contributorsColl = db.collection(`${COL.clanRankingsWeekly}/${periodKey}/clans/${entry.clanId}/contributors`);
+    const clanRewards = entry.tier?.rewards ?? emptyRankingPrizeRewards();
+    const result = await db.runTransaction(async (tx) => {
+      const [entrySnap, contributorsSnap] = await Promise.all([tx.get(entryRef), tx.get(contributorsColl)]);
+      if (entrySnap.exists && entrySnap.get("premioProcessadoEm")) {
+        const alreadyRewardedContributors = normalizeCounter(entrySnap.get("rewardedContributors"));
+        const alreadyRewardedOwners = normalizeCounter(entrySnap.get("rewardedOwners"));
+        return {
+          rewardedContributors: alreadyRewardedContributors,
+          rewardedOwners: alreadyRewardedOwners,
+          usedOwnerFallback: String(entrySnap.get("rewardDistributionMode") || "") === "owner_fallback",
+        };
+      }
+
+      const rankedContributors = contributorsSnap.docs
+        .map((docSnap) =>
+          normalizeClanWeeklyContributorSnapshot(
+            docSnap.id,
+            (docSnap.data() || {}) as Record<string, unknown>,
+          ),
+        )
+        .filter((contributor) => contributor.score > 0)
+        .sort(compareClanContributor);
+
+      let rewardDistributionMode: ClanWeeklyRewardDistributionMode = "contributors_proportional";
+      let payoutCandidates = rankedContributors;
+      if (payoutCandidates.length === 0 && entry.ownerUid) {
+        rewardDistributionMode = "owner_fallback";
+        payoutCandidates = [
+          {
+            uid: entry.ownerUid,
+            score: 1,
+            wins: entry.weeklyWins,
+            ads: entry.weeklyAds,
+            updatedAt: entry.lastScoreAt ?? entry.updatedAt,
+          },
+        ];
+      }
+
+      const userRefs = payoutCandidates.map((contributor) => db.doc(`${COL.users}/${contributor.uid}`));
+      const userSnaps = userRefs.length > 0 ? await Promise.all(userRefs.map((ref) => tx.get(ref))) : [];
+      const payableContributors = payoutCandidates
+        .map((contributor, index) => {
+          const userSnap = userSnaps[index];
+          if (!userSnap?.exists) return null;
+          return {
+            contributor,
+            userRef: userRefs[index],
+            userData: userSnap.data() as Record<string, unknown>,
+          };
+        })
+        .filter(
+          (
+            row,
+          ): row is {
+            contributor: ClanWeeklyContributorSnapshot;
+            userRef: DocumentReference;
+            userData: Record<string, unknown>;
+          } => row != null,
+        );
+
+      const contributorRewardRows =
+        rewardDistributionMode === "owner_fallback"
+          ? payableContributors.length > 0 && hasRankingPrizeRewards(clanRewards)
+            ? [{ contributor: payableContributors[0].contributor, rewards: clanRewards }]
+            : []
+          : distributeClanRewardsToContributors(
+              clanRewards,
+              payableContributors.map((row) => row.contributor),
+            );
+      const rewardMap = new Map(
+        contributorRewardRows.map((row) => [row.contributor.uid, row.rewards]),
+      );
+      const payableContributorMap = new Map(
+        payableContributors.map((row) => [row.contributor.uid, row]),
+      );
+
+      for (const contributor of rankedContributors) {
+        tx.set(
+          contributorsColl.doc(contributor.uid),
+          {
+            clanPosition: entry.pos,
+            clanRewards,
+            payoutRewards: rewardMap.get(contributor.uid) ?? emptyRankingPrizeRewards(),
+            rewardDistributionMode,
+            payoutProcessedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      let rewardedContributorCount = 0;
+      for (const rewardRow of contributorRewardRows) {
+        const payableContributor = payableContributorMap.get(rewardRow.contributor.uid);
+        if (!payableContributor) continue;
+
+        const rewardPatch = applyMultiCurrencyRewardPatch(
+          payableContributor.userData,
+          rewardRow.rewards,
+        );
+        if (Object.keys(rewardPatch.patch).length === 0) continue;
+
+        tx.set(
+          payableContributor.userRef,
+          {
+            ...rewardPatch.patch,
+            atualizadoEm: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+
+        for (const currency of ["coins", "gems", "rewardBalance"] as const) {
+          const amount = rewardRow.rewards[currency];
+          if (amount <= 0) continue;
+          tx.set(
+            db.doc(
+              `${COL.wallet}/${hashId(
+                "clan_ranking_contributor",
+                periodKey,
+                entry.clanId,
+                rewardRow.contributor.uid,
+                currency,
+              )}`,
+            ),
+            {
+              userId: rewardRow.contributor.uid,
+              tipo: "ranking",
+              moeda: currency,
+              valor: amount,
+              saldoApos: rewardPatch.balancesAfter[currency],
+              descricao: `Premiação semanal do clã ${entry.name} · rateio por contribuição · ${rewardCurrencyLabel(currency)}`,
+              referenciaId: `cla:semanal:${periodKey}:${entry.clanId}:#${entry.pos}`,
+              criadoEm: FieldValue.serverTimestamp(),
+            },
+          );
+        }
+
+        rewardedContributorCount += 1;
+      }
+
+      const rewardedOwnerCount =
+        rewardDistributionMode === "owner_fallback" && rewardedContributorCount > 0 ? 1 : 0;
+      tx.set(
+        entryRef,
+        {
+          clanId: entry.clanId,
+          nome: entry.name,
+          tag: entry.tag,
+          ownerUid: entry.ownerUid || null,
+          avatarUrl: entry.avatarUrl,
+          coverUrl: entry.coverUrl,
+          privacy: entry.privacy,
+          memberCount: entry.memberCount,
+          score: entry.weeklyScore,
+          wins: entry.weeklyWins,
+          ads: entry.weeklyAds,
+          posicao: entry.pos,
+          rewards: clanRewards,
+          premioRecebido: clanRewards,
+          premioProcessadoEm: FieldValue.serverTimestamp(),
+          rewardDistributionMode,
+          contributorsConsidered: rankedContributors.length,
+          payableContributors: payableContributors.length,
+          rewardedContributors: rewardedContributorCount,
+          rewardedOwners: rewardedOwnerCount,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      return {
+        rewardedContributors: rewardedContributorCount,
+        rewardedOwners: rewardedOwnerCount,
+        usedOwnerFallback: rewardDistributionMode === "owner_fallback",
+      };
+    });
+
+    rewardedContributors += result.rewardedContributors;
+    rewardedOwners += result.rewardedOwners;
+    if (result.usedOwnerFallback) ownerFallbackClans += 1;
+    if (result.rewardedContributors > 0 || result.rewardedOwners > 0) {
+      rewardedClans += 1;
+    }
+  }
+
+  const batch = db.batch();
+  batch.set(payoutFlagRef, {
+    period: "semanal",
+    periodKey,
+    processedAt: FieldValue.serverTimestamp(),
+    winners: entries.length,
+    rewardedClans,
+    rewardedContributors,
+    rewardedOwners,
+    ownerFallbackClans,
+  });
+  batch.set(
+    rankingRootRef,
+    {
+      period: "semanal",
+      periodKey,
+      prizeProcessedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  await batch.commit();
+}
+
 async function closeRankingJob(period: RankingPeriodMode) {
   const economy = await getEconomy();
   const periodKey = rankingKeyForPeriod(period, rankingReferenceDateForClose(period));
@@ -9412,6 +9963,13 @@ async function closeRankingJob(period: RankingPeriodMode) {
     const gamePrizeTiers = rankingPrizeTiersForScope(economy.rankingPrizes, period, gameId);
     if (gamePrizeTiers.length === 0) continue;
     await closeRankingScopePayout(period, periodKey, gamePrizeTiers, gameId);
+  }
+
+  if (period === "semanal") {
+    const clanPrizeTiers = clanRankingPrizeTiersForPeriod(economy.rankingPrizes, period);
+    if (clanPrizeTiers.length > 0) {
+      await closeClanWeeklyRankingPayout(periodKey, clanPrizeTiers);
+    }
   }
 }
 
@@ -9638,6 +10196,78 @@ export const adminCloseRanking = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   return { ok: true };
 });
 
+export const getArenaOverallRanking = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const topN = Math.min(100, Math.max(5, Math.floor(Number(request.data?.topN) || 50)));
+  const matchesSnap = await db
+    .collection(COL.matches)
+    .where("gameId", "in", [...ARENA_OVERALL_GAME_IDS])
+    .get();
+
+  const statsByUser = new Map<string, ArenaOverallAccumulator>();
+  for (const docSnap of matchesSnap.docs) {
+    const raw = (docSnap.data() || {}) as Record<string, unknown>;
+    const userId = String(raw.userId || "").trim();
+    const gameId = String(raw.gameId || "").trim() as ArenaOverallGameId;
+    if (!userId || !ARENA_OVERALL_GAME_IDS.includes(gameId)) continue;
+
+    const score = normalizeCounter(raw.score);
+    const result = String(raw.resultado || raw.result || "").trim();
+    const accumulator = statsByUser.get(userId) ?? createArenaOverallAccumulator();
+    accumulator.total.score += score;
+    accumulator.total.partidas += 1;
+    accumulator.total.vitorias += result === "vitoria" ? 1 : 0;
+    accumulator.byGame[gameId].score += score;
+    accumulator.byGame[gameId].partidas += 1;
+    accumulator.byGame[gameId].vitorias += result === "vitoria" ? 1 : 0;
+    statsByUser.set(userId, accumulator);
+  }
+
+  const usersById = await readUserPresentationMap(Array.from(statsByUser.keys()));
+  const generalRows = buildArenaOverallRows(statsByUser, usersById);
+  const byGameRows = {
+    ppt: buildArenaOverallRows(statsByUser, usersById, "ppt"),
+    quiz: buildArenaOverallRows(statsByUser, usersById, "quiz"),
+    reaction_tap: buildArenaOverallRows(statsByUser, usersById, "reaction_tap"),
+  };
+  const packRows = <
+    T extends {
+      uid: string;
+      posicao: number;
+      nome: string;
+      username: string | null;
+      foto: string | null;
+      score: number;
+      partidas: number;
+      vitorias: number;
+      scope: "global" | "game";
+      gameId: ArenaOverallGameId | null;
+      gameTitle: string | null;
+    },
+  >(
+    rows: T[],
+  ) => {
+    const myEntry = rows.find((row) => row.uid === uid) ?? null;
+    return {
+      entries: rows.slice(0, topN),
+      myEntry,
+      myPosition: myEntry?.posicao ?? null,
+    };
+  };
+
+  return {
+    ok: true,
+    general: packRows(generalRows),
+    byGame: {
+      ppt: packRows(byGameRows.ppt),
+      quiz: packRows(byGameRows.quiz),
+      reaction_tap: packRows(byGameRows.reaction_tap),
+    },
+  };
+});
+
 export const closeReferralDailyRanking = onSchedule(
   { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" },
   async () => {
@@ -9673,4 +10303,1921 @@ export const adminCloseReferralRanking = onCall(DEFAULT_CALLABLE_OPTS, async (re
 
 export const tickRaffles = onSchedule({ ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" }, async () => {
   await runRaffleLifecycleTick(Date.now());
+});
+
+type ClanPrivacyMode = "open" | "code_only";
+type ClanRoleMode = "owner" | "leader" | "member";
+type ClanShowcaseGameId = Extract<GameId, "ppt" | "quiz" | "reaction_tap">;
+
+const CLAN_DEFAULT_MAX_MEMBERS = 30;
+const CLAN_DEFAULT_COVER_POSITION = 50;
+const CLAN_DEFAULT_COVER_SCALE = 100;
+const CLAN_INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const CLAN_SHOWCASE_GAME_IDS = ["ppt", "quiz", "reaction_tap"] as const satisfies readonly ClanShowcaseGameId[];
+
+function clanRef(clanId: string) {
+  return db.doc(`${COL.clans}/${clanId}`);
+}
+
+function clanMembershipRef(uid: string) {
+  return db.doc(`${COL.clanMemberships}/${uid}`);
+}
+
+function clanMemberRef(clanId: string, uid: string) {
+  return db.doc(`${COL.clans}/${clanId}/members/${uid}`);
+}
+
+function clanMessagesCollection(clanId: string) {
+  return db.collection(`${COL.clans}/${clanId}/messages`);
+}
+
+function clanJoinRequestRef(uid: string) {
+  return db.doc(`${COL.clanJoinRequests}/${uid}`);
+}
+
+function normalizeClanName(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 24);
+}
+
+function normalizeClanTag(value: unknown): string {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+}
+
+function normalizeClanDescription(value: unknown): string {
+  return String(value || "")
+    .replace(/\r/g, "")
+    .trim()
+    .slice(0, 160);
+}
+
+function normalizeClanPrivacy(value: unknown): ClanPrivacyMode {
+  return value === "open" ? "open" : "code_only";
+}
+
+function normalizeClanCoverPosition(value: unknown): number {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return CLAN_DEFAULT_COVER_POSITION;
+  return Math.min(100, Math.max(0, Math.round(num)));
+}
+
+function normalizeClanCoverScale(value: unknown): number {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return CLAN_DEFAULT_COVER_SCALE;
+  return Math.min(220, Math.max(100, Math.round(num)));
+}
+
+function normalizeClanManagedRole(value: unknown): Exclude<ClanRoleMode, "owner"> {
+  return value === "leader" ? "leader" : "member";
+}
+
+function normalizeClanInviteCode(value: unknown): string {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+}
+
+function normalizeClanMessageText(value: unknown): string {
+  return String(value || "")
+    .replace(/\r/g, "")
+    .trim()
+    .slice(0, 240);
+}
+
+function randomClanInviteCode(length = 6): string {
+  let output = "";
+  for (let i = 0; i < length; i += 1) {
+    output += CLAN_INVITE_CODE_CHARS[randomInt(0, CLAN_INVITE_CODE_CHARS.length)];
+  }
+  return output;
+}
+
+async function generateUniqueClanInviteCode(): Promise<string> {
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const code = randomClanInviteCode();
+    const existing = await db.collection(COL.clans).where("inviteCode", "==", code).limit(1).get();
+    if (existing.empty) return code;
+  }
+  throw new HttpsError("internal", "Não foi possível gerar um código de clã único.");
+}
+
+function extractClanAssetPathFromUrl(rawUrl: unknown): string | null {
+  const urlValue = normalizeHttpPhotoUrl(typeof rawUrl === "string" ? rawUrl : null);
+  if (!urlValue) return null;
+  try {
+    const url = new URL(urlValue);
+    const marker = "/o/";
+    const markerIndex = url.pathname.indexOf(marker);
+    if (markerIndex < 0) return null;
+    const encodedPath = url.pathname.slice(markerIndex + marker.length);
+    const objectPath = decodeURIComponent(encodedPath);
+    return objectPath.startsWith("clan_assets/") ? objectPath : null;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteClanAssetIfExists(rawUrl: unknown): Promise<void> {
+  const objectPath = extractClanAssetPathFromUrl(rawUrl);
+  if (!objectPath) return;
+  try {
+    const file = admin.storage().bucket().file(objectPath);
+    const [exists] = await file.exists();
+    if (exists) {
+      await file.delete();
+    }
+  } catch {
+    /* ignore cleanup failures to avoid blocking config updates */
+  }
+}
+
+async function getClanUserPresentation(uid: string): Promise<{
+  uid: string;
+  nome: string;
+  username: string | null;
+  foto: string | null;
+  banido: boolean;
+}> {
+  const userSnap = await db.doc(`${COL.users}/${uid}`).get();
+  if (!userSnap.exists) {
+    throw new HttpsError("failed-precondition", "Perfil do usuário não encontrado.");
+  }
+  const userData = (userSnap.data() || {}) as Record<string, unknown>;
+  const nome = String(userData.nome || "Jogador").trim() || "Jogador";
+  const username = typeof userData.username === "string" ? userData.username.trim() || null : null;
+  const foto =
+    typeof userData.foto === "string" && userData.foto.trim()
+      ? userData.foto.trim()
+      : buildDefaultAvatarDataUrl(username || uid, nome);
+
+  return {
+    uid,
+    nome,
+    username,
+    foto,
+    banido: userData.banido === true,
+  };
+}
+
+async function getClanActorProfile(uid: string): Promise<{
+  uid: string;
+  nome: string;
+  username: string | null;
+  foto: string | null;
+}> {
+  const user = await getClanUserPresentation(uid);
+  if (user.banido) {
+    throw new HttpsError("permission-denied", "Conta suspensa.");
+  }
+  return {
+    uid: user.uid,
+    nome: user.nome,
+    username: user.username,
+    foto: user.foto,
+  };
+}
+
+async function getClanMembershipOrThrow(uid: string) {
+  const membershipSnap = await clanMembershipRef(uid).get();
+  if (!membershipSnap.exists) {
+    throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+  }
+  return membershipSnap;
+}
+
+function canModerateClanMember(
+  actorRole: ClanRoleMode,
+  targetRole: ClanRoleMode,
+  actorUid: string,
+  targetUid: string,
+): boolean {
+  if (actorUid === targetUid) return false;
+  if (targetRole === "owner") return false;
+  if (actorRole === "owner") return true;
+  return actorRole === "leader" && targetRole === "member";
+}
+
+function canReviewClanRequest(actorRole: ClanRoleMode): boolean {
+  return actorRole === "owner" || actorRole === "leader";
+}
+
+type ClanScoreCreditTarget = {
+  uid: string;
+  clanId: string;
+  dailyPeriodKey: string;
+  weeklyPeriodKey: string;
+  monthlyPeriodKey: string;
+  shouldResetDaily: boolean;
+  shouldResetWeekly: boolean;
+  shouldResetMonthly: boolean;
+};
+
+async function readClanScoreCreditTargetForClanIdTx(
+  tx: Transaction,
+  clanId: string,
+  uid: string,
+): Promise<ClanScoreCreditTarget | null> {
+  const targetClanRef = clanRef(clanId);
+  const clanSnap = await tx.get(targetClanRef);
+  if (!clanSnap.exists) return null;
+
+  const clanData = (clanSnap.data() || {}) as Record<string, unknown>;
+  const currentDayKey = dailyKey();
+  const currentWeekKey = weeklyKey();
+  const currentMonthKey = monthlyKey();
+  return {
+    uid,
+    clanId,
+    dailyPeriodKey: currentDayKey,
+    weeklyPeriodKey: currentWeekKey,
+    monthlyPeriodKey: currentMonthKey,
+    shouldResetDaily: String(clanData.scoreDailyKey || "") !== currentDayKey,
+    shouldResetWeekly: String(clanData.scoreWeeklyKey || "") !== currentWeekKey,
+    shouldResetMonthly: String(clanData.scoreMonthlyKey || "") !== currentMonthKey,
+  };
+}
+
+async function readClanScoreCreditTargetTx(
+  tx: Transaction,
+  uid: string,
+): Promise<ClanScoreCreditTarget | null> {
+  const membershipSnap = await tx.get(clanMembershipRef(uid));
+  if (!membershipSnap.exists) return null;
+
+  const membershipData = (membershipSnap.data() || {}) as Record<string, unknown>;
+  const clanId = String(membershipData.clanId || "").trim();
+  if (!clanId) return null;
+
+  return readClanScoreCreditTargetForClanIdTx(tx, clanId, uid);
+}
+
+function writeClanScoreCreditForTargetTx(
+  tx: Transaction,
+  target: ClanScoreCreditTarget | null,
+  input: {
+    wins?: number;
+    ads?: number;
+  },
+) {
+  const wins = normalizeCounter(input.wins);
+  const ads = normalizeCounter(input.ads);
+  const total = wins + ads;
+  if (total <= 0 || !target) return;
+
+  tx.set(
+    clanRef(target.clanId),
+    {
+      scoreTotal: FieldValue.increment(total),
+      scoreTotalWins: FieldValue.increment(wins),
+      scoreTotalAds: FieldValue.increment(ads),
+      scoreDailyKey: target.dailyPeriodKey,
+      scoreDaily: target.shouldResetDaily ? total : FieldValue.increment(total),
+      scoreDailyWins: target.shouldResetDaily ? wins : FieldValue.increment(wins),
+      scoreDailyAds: target.shouldResetDaily ? ads : FieldValue.increment(ads),
+      scoreWeeklyKey: target.weeklyPeriodKey,
+      scoreWeekly: target.shouldResetWeekly ? total : FieldValue.increment(total),
+      scoreWeeklyWins: target.shouldResetWeekly ? wins : FieldValue.increment(wins),
+      scoreWeeklyAds: target.shouldResetWeekly ? ads : FieldValue.increment(ads),
+      scoreMonthlyKey: target.monthlyPeriodKey,
+      scoreMonthly: target.shouldResetMonthly ? total : FieldValue.increment(total),
+      scoreMonthlyWins: target.shouldResetMonthly ? wins : FieldValue.increment(wins),
+      scoreMonthlyAds: target.shouldResetMonthly ? ads : FieldValue.increment(ads),
+      lastScoreAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  tx.set(
+    db.doc(
+      `${COL.clanRankingsWeekly}/${target.weeklyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`,
+    ),
+    {
+      uid: target.uid,
+      clanId: target.clanId,
+      periodKey: target.weeklyPeriodKey,
+      score: FieldValue.increment(total),
+      wins: FieldValue.increment(wins),
+      ads: FieldValue.increment(ads),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+async function applyClanScoreCreditForClanIdTx(
+  tx: Transaction,
+  clanId: string,
+  input: {
+    uid: string;
+    wins?: number;
+    ads?: number;
+  },
+): Promise<void> {
+  const target = await readClanScoreCreditTargetForClanIdTx(tx, clanId, input.uid);
+  writeClanScoreCreditForTargetTx(tx, target, input);
+}
+
+async function applyClanScoreCreditTx(
+  tx: Transaction,
+  input: {
+    uid: string;
+    wins?: number;
+    ads?: number;
+  },
+): Promise<void> {
+  const target = await readClanScoreCreditTargetTx(tx, input.uid);
+  writeClanScoreCreditForTargetTx(tx, target, input);
+}
+
+async function applyClanScoreCreditByClanId(
+  clanId: string | null | undefined,
+  input: {
+    uid: string;
+    wins?: number;
+    ads?: number;
+  },
+): Promise<void> {
+  const normalizedClanId = String(clanId || "").trim();
+  if (!normalizedClanId) return;
+  await db.runTransaction(async (tx) => {
+    await applyClanScoreCreditForClanIdTx(tx, normalizedClanId, input);
+  });
+}
+
+function weeklyRankingGameEntryRef(periodKey: string, gameId: ClanShowcaseGameId, uid: string) {
+  return db.doc(`${COL.rankingsWeekly}/${periodKey}/games/${gameId}/entries/${uid}`);
+}
+
+function weeklyPeriodStartTimestamp(d = new Date()) {
+  const parts = appDateTimeParts(d);
+  const t = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() - day + 1);
+  return Timestamp.fromMillis(
+    appDateToUtcMs({
+      year: t.getUTCFullYear(),
+      month: t.getUTCMonth() + 1,
+      day: t.getUTCDate(),
+    }),
+  );
+}
+
+function normalizeCounter(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function createArenaOverallStats(): ArenaOverallStats {
+  return { score: 0, partidas: 0, vitorias: 0 };
+}
+
+function createArenaOverallAccumulator(): ArenaOverallAccumulator {
+  return {
+    total: createArenaOverallStats(),
+    byGame: {
+      ppt: createArenaOverallStats(),
+      quiz: createArenaOverallStats(),
+      reaction_tap: createArenaOverallStats(),
+    },
+  };
+}
+
+async function readUserPresentationMap(
+  uids: string[],
+): Promise<Map<string, Record<string, unknown>>> {
+  const userMap = new Map<string, Record<string, unknown>>();
+  const refs = uids.map((uid) => db.doc(`${COL.users}/${uid}`));
+  for (let index = 0; index < refs.length; index += 200) {
+    const chunk = refs.slice(index, index + 200);
+    if (chunk.length === 0) continue;
+    const snaps = await db.getAll(...chunk);
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      userMap.set(snap.id, (snap.data() || {}) as Record<string, unknown>);
+    }
+  }
+  return userMap;
+}
+
+function compareArenaOverallEntry(
+  a: {
+    uid: string;
+    nome: string;
+    username?: string | null;
+    score: number;
+    partidas: number;
+    vitorias: number;
+  },
+  b: {
+    uid: string;
+    nome: string;
+    username?: string | null;
+    score: number;
+    partidas: number;
+    vitorias: number;
+  },
+): number {
+  if (b.vitorias !== a.vitorias) return b.vitorias - a.vitorias;
+  if (b.score !== a.score) return b.score - a.score;
+  if (b.partidas !== a.partidas) return b.partidas - a.partidas;
+  const aName = String(a.nome || a.username || a.uid || "Jogador");
+  const bName = String(b.nome || b.username || b.uid || "Jogador");
+  return aName.localeCompare(bName, "pt-BR");
+}
+
+function buildArenaOverallRows(
+  statsByUser: Map<string, ArenaOverallAccumulator>,
+  usersById: Map<string, Record<string, unknown>>,
+  gameId?: ArenaOverallGameId,
+) {
+  return Array.from(statsByUser.entries())
+    .map(([uid, accumulator]) => {
+      const stats = gameId ? accumulator.byGame[gameId] : accumulator.total;
+      if (stats.partidas <= 0 && stats.score <= 0 && stats.vitorias <= 0) {
+        return null;
+      }
+      const userData = usersById.get(uid) ?? {};
+      return {
+        uid,
+        nome: String(userData.nome || "Jogador"),
+        username: typeof userData.username === "string" ? userData.username : null,
+        foto: typeof userData.foto === "string" ? userData.foto : null,
+        score: normalizeCounter(stats.score),
+        partidas: normalizeCounter(stats.partidas),
+        vitorias: normalizeCounter(stats.vitorias),
+        scope: gameId ? ("game" as const) : ("global" as const),
+        gameId: gameId ?? null,
+        gameTitle: gameId ? GAME_TITLES[gameId] : null,
+      };
+    })
+    .filter(
+      (
+        row,
+      ): row is {
+        uid: string;
+        nome: string;
+        username: string | null;
+        foto: string | null;
+        score: number;
+        partidas: number;
+        vitorias: number;
+        scope: "global" | "game";
+        gameId: ArenaOverallGameId | null;
+        gameTitle: string | null;
+      } => row != null,
+    )
+    .sort(compareArenaOverallEntry)
+    .map((row, index) => ({ ...row, posicao: index + 1 }));
+}
+
+async function countUserVictoriesByGame(uid: string, gameId: ClanShowcaseGameId): Promise<number> {
+  const snapshot = await db
+    .collection(COL.matches)
+    .where("userId", "==", uid)
+    .where("gameId", "==", gameId)
+    .where("resultado", "==", "vitoria")
+    .count()
+    .get();
+  return normalizeCounter(snapshot.data().count);
+}
+
+async function countUserWeeklyRewardedAds(uid: string, from: Timestamp): Promise<number> {
+  const snapshot = await db
+    .collection(COL.adEvents)
+    .where("userId", "==", uid)
+    .where("status", "==", "recompensado")
+    .where("criadoEm", ">=", from)
+    .count()
+    .get();
+  return normalizeCounter(snapshot.data().count);
+}
+
+function buildClanJoinRequestPayload(input: {
+  userId: string;
+  clanId: string;
+  clanName: string;
+  clanTag: string;
+  requestedByCode: string | null;
+  userName: string;
+  username: string | null;
+  photoURL: string | null;
+  status?: "pending" | "approved" | "rejected" | "cancelled";
+  reviewedByUid?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: admin.firestore.FieldValue | null;
+}) {
+  return {
+    userId: input.userId,
+    clanId: input.clanId,
+    clanName: input.clanName,
+    clanTag: input.clanTag,
+    requestedByCode: input.requestedByCode,
+    status: input.status ?? "pending",
+    userName: input.userName,
+    username: input.username,
+    photoURL: input.photoURL,
+    requestedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    reviewedAt: input.reviewedAt ?? null,
+    reviewedByUid: input.reviewedByUid ?? null,
+    reviewedByName: input.reviewedByName ?? null,
+  };
+}
+
+function buildClanMessagePayload(input: {
+  clanId: string;
+  authorUid: string | null;
+  authorName: string;
+  authorUsername: string | null;
+  authorPhoto: string | null;
+  text: string;
+  kind: "text" | "system";
+  systemType?: string | null;
+}) {
+  return {
+    clanId: input.clanId,
+    authorUid: input.authorUid,
+    authorName: input.authorName,
+    authorUsername: input.authorUsername,
+    authorPhoto: input.authorPhoto,
+    text: input.text,
+    kind: input.kind,
+    systemType: input.systemType ?? null,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+export const createClan = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const name = normalizeClanName(request.data?.name);
+  const tag = normalizeClanTag(request.data?.tag);
+  const description = normalizeClanDescription(request.data?.description);
+  const privacy = normalizeClanPrivacy(request.data?.privacy);
+
+  if (name.length < 3) {
+    throw new HttpsError("invalid-argument", "O nome do clã precisa ter pelo menos 3 caracteres.");
+  }
+  if (tag.length < 2) {
+    throw new HttpsError("invalid-argument", "A TAG do clã precisa ter entre 2 e 6 caracteres.");
+  }
+
+  const [actor, duplicatedTagSnap, existingJoinRequestSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    db.collection(COL.clans).where("tag", "==", tag).limit(1).get(),
+    clanJoinRequestRef(uid).get(),
+  ]);
+  if (!duplicatedTagSnap.empty) {
+    throw new HttpsError("already-exists", "Essa TAG já está em uso.");
+  }
+
+  const membershipRef = clanMembershipRef(uid);
+  const currentMembership = await membershipRef.get();
+  if (currentMembership.exists) {
+    throw new HttpsError("failed-precondition", "Você já faz parte de um clã.");
+  }
+
+  const inviteCode = await generateUniqueClanInviteCode();
+  const newClanRef = db.collection(COL.clans).doc();
+  const firstMessageRef = clanMessagesCollection(newClanRef.id).doc();
+
+  await db.runTransaction(async (tx) => {
+    const membershipSnap = await tx.get(membershipRef);
+    if (membershipSnap.exists) {
+      throw new HttpsError("failed-precondition", "Você já faz parte de um clã.");
+    }
+
+    tx.set(newClanRef, {
+      name,
+      tag,
+      description,
+      avatarUrl: null,
+      coverUrl: null,
+      coverPositionX: CLAN_DEFAULT_COVER_POSITION,
+      coverPositionY: CLAN_DEFAULT_COVER_POSITION,
+      coverScale: CLAN_DEFAULT_COVER_SCALE,
+      ownerUid: uid,
+      inviteCode,
+      privacy,
+      memberCount: 1,
+      maxMembers: CLAN_DEFAULT_MAX_MEMBERS,
+      scoreTotal: 0,
+      scoreDaily: 0,
+      scoreWeekly: 0,
+      scoreMonthly: 0,
+      scoreTotalWins: 0,
+      scoreDailyWins: 0,
+      scoreWeeklyWins: 0,
+      scoreMonthlyWins: 0,
+      scoreTotalAds: 0,
+      scoreDailyAds: 0,
+      scoreWeeklyAds: 0,
+      scoreMonthlyAds: 0,
+      scoreDailyKey: dailyKey(),
+      scoreWeeklyKey: weeklyKey(),
+      scoreMonthlyKey: monthlyKey(),
+      lastScoreAt: null,
+      joinRequestsReceivedCount: 0,
+      joinRequestsApprovedCount: 0,
+      joinRequestsRejectedCount: 0,
+      lastMessageAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(membershipRef, {
+      uid,
+      clanId: newClanRef.id,
+      role: "owner" as ClanRoleMode,
+      joinedAt: FieldValue.serverTimestamp(),
+      lastReadAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(clanMemberRef(newClanRef.id, uid), {
+      uid,
+      clanId: newClanRef.id,
+      role: "owner" as ClanRoleMode,
+      nome: actor.nome,
+      username: actor.username,
+      foto: actor.foto,
+      joinedAt: FieldValue.serverTimestamp(),
+      lastActiveAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      firstMessageRef,
+      buildClanMessagePayload({
+        clanId: newClanRef.id,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} fundou o clã.`,
+        kind: "system",
+        systemType: "clan_created",
+      }),
+    );
+    if (existingJoinRequestSnap.exists) {
+      tx.delete(clanJoinRequestRef(uid));
+    }
+  });
+
+  return { ok: true, clanId: newClanRef.id };
+});
+
+export const joinClanByCode = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const code = normalizeClanInviteCode(request.data?.code);
+  if (code.length < 4) {
+    throw new HttpsError("invalid-argument", "Informe um código de clã válido.");
+  }
+
+  const [actor, clanQuerySnap, currentMembership, existingRequestSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    db.collection(COL.clans).where("inviteCode", "==", code).limit(1).get(),
+    clanMembershipRef(uid).get(),
+    clanJoinRequestRef(uid).get(),
+  ]);
+  if (currentMembership.exists) {
+    throw new HttpsError("failed-precondition", "Você já faz parte de um clã.");
+  }
+  if (clanQuerySnap.empty) {
+    throw new HttpsError("not-found", "Código de clã não encontrado.");
+  }
+
+  const targetClanRef = clanQuerySnap.docs[0].ref;
+  const membershipRef = clanMembershipRef(uid);
+  const joinRequestRef = clanJoinRequestRef(uid);
+  const joinMessageRef = clanMessagesCollection(targetClanRef.id).doc();
+  const targetClanData = (clanQuerySnap.docs[0].data() || {}) as Record<string, unknown>;
+  const privacy = normalizeClanPrivacy(targetClanData.privacy);
+
+  if (privacy === "code_only") {
+    let shouldIncrementReceived = true;
+    if (existingRequestSnap.exists) {
+      const existingData = (existingRequestSnap.data() || {}) as Record<string, unknown>;
+      const existingStatus = String(existingData.status || "pending");
+      const existingClanId = String(existingData.clanId || "");
+      if (existingStatus === "pending" && existingClanId && existingClanId !== targetClanRef.id) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Você já tem uma solicitação pendente. Cancele-a antes de pedir entrada em outro clã.",
+        );
+      }
+      shouldIncrementReceived = !(existingStatus === "pending" && existingClanId === targetClanRef.id);
+    }
+
+    const batch = db.batch();
+    batch.set(
+      joinRequestRef,
+      buildClanJoinRequestPayload({
+        userId: uid,
+        clanId: targetClanRef.id,
+        clanName: String(targetClanData.name || "Clã"),
+        clanTag: String(targetClanData.tag || "TAG"),
+        requestedByCode: code,
+        userName: actor.nome,
+        username: actor.username,
+        photoURL: actor.foto,
+      }),
+      { merge: true },
+    );
+    if (shouldIncrementReceived) {
+      batch.set(
+        targetClanRef,
+        {
+          joinRequestsReceivedCount: FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+
+    return { ok: true, clanId: targetClanRef.id, status: "pending" as const };
+  }
+
+  await db.runTransaction(async (tx) => {
+    const [membershipSnap, clanSnap, existingMemberSnap] = await Promise.all([
+      tx.get(membershipRef),
+      tx.get(targetClanRef),
+      tx.get(clanMemberRef(targetClanRef.id, uid)),
+    ]);
+
+    if (membershipSnap.exists || existingMemberSnap.exists) {
+      throw new HttpsError("failed-precondition", "Você já faz parte de um clã.");
+    }
+    if (!clanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+
+    const clanData = (clanSnap.data() || {}) as Record<string, unknown>;
+    const memberCount = Math.max(0, Math.floor(Number(clanData.memberCount) || 0));
+    const maxMembers = Math.max(1, Math.floor(Number(clanData.maxMembers) || CLAN_DEFAULT_MAX_MEMBERS));
+    if (memberCount >= maxMembers) {
+      throw new HttpsError("failed-precondition", "Esse clã já atingiu o limite de membros.");
+    }
+
+    tx.set(membershipRef, {
+      uid,
+      clanId: targetClanRef.id,
+      role: "member" as ClanRoleMode,
+      joinedAt: FieldValue.serverTimestamp(),
+      lastReadAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(clanMemberRef(targetClanRef.id, uid), {
+      uid,
+      clanId: targetClanRef.id,
+      role: "member" as ClanRoleMode,
+      nome: actor.nome,
+      username: actor.username,
+      foto: actor.foto,
+      joinedAt: FieldValue.serverTimestamp(),
+      lastActiveAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(targetClanRef, {
+      memberCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    if (existingRequestSnap.exists) {
+      tx.delete(joinRequestRef);
+    }
+    tx.set(
+      joinMessageRef,
+      buildClanMessagePayload({
+        clanId: targetClanRef.id,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} entrou no clã.`,
+        kind: "system",
+        systemType: "member_joined",
+      }),
+    );
+  });
+
+  return { ok: true, clanId: targetClanRef.id, status: "joined" as const };
+});
+
+export const requestClanAccess = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  if (!clanId) {
+    throw new HttpsError("invalid-argument", "Clã inválido.");
+  }
+
+  const [actor, clanSnap, currentMembership, existingRequestSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    clanRef(clanId).get(),
+    clanMembershipRef(uid).get(),
+    clanJoinRequestRef(uid).get(),
+  ]);
+  if (currentMembership.exists) {
+    throw new HttpsError("failed-precondition", "Você já faz parte de um clã.");
+  }
+  if (!clanSnap.exists) {
+    throw new HttpsError("not-found", "Clã não encontrado.");
+  }
+
+  const targetClanRef = clanSnap.ref;
+  const membershipRef = clanMembershipRef(uid);
+  const joinRequestRef = clanJoinRequestRef(uid);
+  const joinMessageRef = clanMessagesCollection(targetClanRef.id).doc();
+  const targetClanData = (clanSnap.data() || {}) as Record<string, unknown>;
+  const privacy = normalizeClanPrivacy(targetClanData.privacy);
+
+  if (privacy === "code_only") {
+    let shouldIncrementReceived = true;
+    if (existingRequestSnap.exists) {
+      const existingData = (existingRequestSnap.data() || {}) as Record<string, unknown>;
+      const existingStatus = String(existingData.status || "pending");
+      const existingClanId = String(existingData.clanId || "");
+      if (existingStatus === "pending" && existingClanId && existingClanId !== targetClanRef.id) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Você já tem uma solicitação pendente. Cancele-a antes de pedir entrada em outro clã.",
+        );
+      }
+      shouldIncrementReceived = !(existingStatus === "pending" && existingClanId === targetClanRef.id);
+    }
+
+    const batch = db.batch();
+    batch.set(
+      joinRequestRef,
+      buildClanJoinRequestPayload({
+        userId: uid,
+        clanId: targetClanRef.id,
+        clanName: String(targetClanData.name || "Clã"),
+        clanTag: String(targetClanData.tag || "TAG"),
+        requestedByCode: null,
+        userName: actor.nome,
+        username: actor.username,
+        photoURL: actor.foto,
+      }),
+      { merge: true },
+    );
+    if (shouldIncrementReceived) {
+      batch.set(
+        targetClanRef,
+        {
+          joinRequestsReceivedCount: FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+
+    return { ok: true, clanId: targetClanRef.id, status: "pending" as const };
+  }
+
+  await db.runTransaction(async (tx) => {
+    const [membershipSnap, freshClanSnap, existingMemberSnap] = await Promise.all([
+      tx.get(membershipRef),
+      tx.get(targetClanRef),
+      tx.get(clanMemberRef(targetClanRef.id, uid)),
+    ]);
+
+    if (membershipSnap.exists || existingMemberSnap.exists) {
+      throw new HttpsError("failed-precondition", "Você já faz parte de um clã.");
+    }
+    if (!freshClanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+
+    const freshClanData = (freshClanSnap.data() || {}) as Record<string, unknown>;
+    const memberCount = Math.max(0, Math.floor(Number(freshClanData.memberCount) || 0));
+    const maxMembers = Math.max(1, Math.floor(Number(freshClanData.maxMembers) || CLAN_DEFAULT_MAX_MEMBERS));
+    if (memberCount >= maxMembers) {
+      throw new HttpsError("failed-precondition", "Esse clã já atingiu o limite de membros.");
+    }
+
+    tx.set(membershipRef, {
+      uid,
+      clanId: targetClanRef.id,
+      role: "member" as ClanRoleMode,
+      joinedAt: FieldValue.serverTimestamp(),
+      lastReadAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(clanMemberRef(targetClanRef.id, uid), {
+      uid,
+      clanId: targetClanRef.id,
+      role: "member" as ClanRoleMode,
+      nome: actor.nome,
+      username: actor.username,
+      foto: actor.foto,
+      joinedAt: FieldValue.serverTimestamp(),
+      lastActiveAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(targetClanRef, {
+      memberCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    if (existingRequestSnap.exists) {
+      tx.delete(joinRequestRef);
+    }
+    tx.set(
+      joinMessageRef,
+      buildClanMessagePayload({
+        clanId: targetClanRef.id,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} entrou no clã.`,
+        kind: "system",
+        systemType: "member_joined",
+      }),
+    );
+  });
+
+  return { ok: true, clanId: targetClanRef.id, status: "joined" as const };
+});
+
+export const leaveClan = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const [actor, membershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    clanMembershipRef(uid).get(),
+  ]);
+  if (!membershipSnap.exists) {
+    throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+  }
+
+  const membershipData = (membershipSnap.data() || {}) as Record<string, unknown>;
+  const clanId = String(membershipData.clanId || "").trim();
+  const role = String(membershipData.role || "member") as ClanRoleMode;
+  if (!clanId) {
+    throw new HttpsError("failed-precondition", "Sua associação com o clã está inválida.");
+  }
+  if (role === "owner") {
+    throw new HttpsError(
+      "failed-precondition",
+      "O fundador ainda não pode sair do clã sem transferir a liderança.",
+    );
+  }
+
+  const leaveMessageRef = clanMessagesCollection(clanId).doc();
+
+  await db.runTransaction(async (tx) => {
+    const currentMembershipSnap = await tx.get(clanMembershipRef(uid));
+    if (!currentMembershipSnap.exists) {
+      throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+    }
+
+    const currentMembershipData = (currentMembershipSnap.data() || {}) as Record<string, unknown>;
+    if (String(currentMembershipData.role || "member") === "owner") {
+      throw new HttpsError(
+        "failed-precondition",
+        "O fundador ainda não pode sair do clã sem transferir a liderança.",
+      );
+    }
+
+    const currentClanId = String(currentMembershipData.clanId || "").trim();
+    const currentClanRef = clanRef(currentClanId);
+    const currentClanSnap = await tx.get(currentClanRef);
+    if (!currentClanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+
+    tx.delete(clanMembershipRef(uid));
+    tx.delete(clanMemberRef(currentClanId, uid));
+    tx.update(currentClanRef, {
+      memberCount: FieldValue.increment(-1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      leaveMessageRef,
+      buildClanMessagePayload({
+        clanId: currentClanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} saiu do clã.`,
+        kind: "system",
+        systemType: "member_left",
+      }),
+    );
+  });
+
+  return { ok: true };
+});
+
+export const sendClanMessage = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const text = normalizeClanMessageText(request.data?.text);
+  if (!clanId) {
+    throw new HttpsError("invalid-argument", "Clã inválido.");
+  }
+  if (text.length < 1) {
+    throw new HttpsError("invalid-argument", "Digite uma mensagem antes de enviar.");
+  }
+
+  const [actor, membershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    clanMembershipRef(uid).get(),
+  ]);
+  if (!membershipSnap.exists || String(membershipSnap.data()?.clanId || "") !== clanId) {
+    throw new HttpsError("permission-denied", "Você precisa fazer parte desse clã para enviar mensagens.");
+  }
+
+  const clanDoc = await clanRef(clanId).get();
+  if (!clanDoc.exists) {
+    throw new HttpsError("not-found", "Clã não encontrado.");
+  }
+
+  const messageRef = clanMessagesCollection(clanId).doc();
+  const batch = db.batch();
+  batch.set(
+    messageRef,
+    buildClanMessagePayload({
+      clanId,
+      authorUid: uid,
+      authorName: actor.nome,
+      authorUsername: actor.username,
+      authorPhoto: actor.foto,
+      text,
+      kind: "text",
+    }),
+  );
+  batch.set(
+    clanRef(clanId),
+    {
+      lastMessageAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  await batch.commit();
+
+  return { ok: true, messageId: messageRef.id };
+});
+
+export const markClanChatRead = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  if (!clanId) {
+    throw new HttpsError("invalid-argument", "Clã inválido.");
+  }
+
+  const membershipSnap = await clanMembershipRef(uid).get();
+  if (!membershipSnap.exists || String(membershipSnap.data()?.clanId || "") !== clanId) {
+    throw new HttpsError("permission-denied", "Você não faz parte desse clã.");
+  }
+
+  await clanMembershipRef(uid).set(
+    {
+      lastReadAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  return { ok: true };
+});
+
+export const updateClanSettings = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const rawName = typeof request.data?.name === "string" ? request.data.name : undefined;
+  const rawTag = typeof request.data?.tag === "string" ? request.data.tag : undefined;
+  const rawInviteCode =
+    typeof request.data?.inviteCode === "string" ? request.data.inviteCode : undefined;
+  const description = normalizeClanDescription(request.data?.description);
+  const privacy = normalizeClanPrivacy(request.data?.privacy);
+  const rawAvatarUrl = request.data?.avatarUrl;
+  const rawCoverUrl = request.data?.coverUrl;
+  const rawCoverPositionX = request.data?.coverPositionX;
+  const rawCoverPositionY = request.data?.coverPositionY;
+  const rawCoverScale = request.data?.coverScale;
+  if (!clanId) {
+    throw new HttpsError("invalid-argument", "Clã inválido.");
+  }
+
+  const [actor, membershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    clanMembershipRef(uid).get(),
+  ]);
+  if (!membershipSnap.exists) {
+    throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+  }
+  const membershipData = (membershipSnap.data() || {}) as Record<string, unknown>;
+  if (String(membershipData.clanId || "") !== clanId) {
+    throw new HttpsError("permission-denied", "Você não pode editar esse clã.");
+  }
+  const role = String(membershipData.role || "member");
+  if (!["owner", "leader"].includes(role)) {
+    throw new HttpsError("permission-denied", "Somente líderes podem editar o clã.");
+  }
+
+  const targetClanRef = clanRef(clanId);
+  const clanSnap = await targetClanRef.get();
+  if (!clanSnap.exists) {
+    throw new HttpsError("not-found", "Clã não encontrado.");
+  }
+  const currentClanData = (clanSnap.data() || {}) as Record<string, unknown>;
+  const nextName = rawName !== undefined ? normalizeClanName(rawName) : undefined;
+  const nextTag = rawTag !== undefined ? normalizeClanTag(rawTag) : undefined;
+  const nextInviteCode =
+    rawInviteCode !== undefined ? normalizeClanInviteCode(rawInviteCode) : undefined;
+  if (nextName !== undefined && nextName.length < 3) {
+    throw new HttpsError("invalid-argument", "O nome do clã precisa ter pelo menos 3 caracteres.");
+  }
+  if (nextTag !== undefined && nextTag.length < 2) {
+    throw new HttpsError("invalid-argument", "A TAG do clã precisa ter entre 2 e 6 caracteres.");
+  }
+  if (nextInviteCode !== undefined && nextInviteCode.length < 4) {
+    throw new HttpsError("invalid-argument", "O código do clã precisa ter pelo menos 4 caracteres.");
+  }
+  if (nextTag !== undefined && nextTag !== String(currentClanData.tag || "")) {
+    const duplicatedTagSnap = await db.collection(COL.clans).where("tag", "==", nextTag).limit(1).get();
+    if (!duplicatedTagSnap.empty && duplicatedTagSnap.docs[0]?.id !== clanId) {
+      throw new HttpsError("already-exists", "Essa TAG já está em uso.");
+    }
+  }
+  if (
+    nextInviteCode !== undefined &&
+    nextInviteCode !== String(currentClanData.inviteCode || "")
+  ) {
+    const duplicatedCodeSnap = await db
+      .collection(COL.clans)
+      .where("inviteCode", "==", nextInviteCode)
+      .limit(1)
+      .get();
+    if (!duplicatedCodeSnap.empty && duplicatedCodeSnap.docs[0]?.id !== clanId) {
+      throw new HttpsError("already-exists", "Esse código de convite já está em uso.");
+    }
+  }
+
+  const patch: Record<string, unknown> = {
+    description,
+    privacy,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (nextName !== undefined) {
+    patch.name = nextName;
+  }
+  if (nextTag !== undefined) {
+    patch.tag = nextTag;
+  }
+  if (nextInviteCode !== undefined) {
+    patch.inviteCode = nextInviteCode;
+  }
+  if (rawAvatarUrl === null) {
+    patch.avatarUrl = null;
+  } else if (typeof rawAvatarUrl === "string") {
+    const avatarUrl = normalizeHttpPhotoUrl(rawAvatarUrl);
+    if (!avatarUrl) {
+      throw new HttpsError("invalid-argument", "URL de avatar do clã inválida.");
+    }
+    patch.avatarUrl = avatarUrl;
+  }
+  if (rawCoverUrl === null) {
+    patch.coverUrl = null;
+  } else if (typeof rawCoverUrl === "string") {
+    const coverUrl = normalizeHttpPhotoUrl(rawCoverUrl);
+    if (!coverUrl) {
+      throw new HttpsError("invalid-argument", "URL de capa do clã inválida.");
+    }
+    patch.coverUrl = coverUrl;
+  }
+  if (rawCoverPositionX !== undefined) {
+    patch.coverPositionX = normalizeClanCoverPosition(rawCoverPositionX);
+  }
+  if (rawCoverPositionY !== undefined) {
+    patch.coverPositionY = normalizeClanCoverPosition(rawCoverPositionY);
+  }
+  if (rawCoverScale !== undefined) {
+    patch.coverScale = normalizeClanCoverScale(rawCoverScale);
+  }
+
+  const previousAvatarUrl = currentClanData.avatarUrl;
+  const previousCoverUrl = currentClanData.coverUrl;
+  const nextAvatarUrl = patch.avatarUrl !== undefined ? patch.avatarUrl : previousAvatarUrl;
+  const nextCoverUrl = patch.coverUrl !== undefined ? patch.coverUrl : previousCoverUrl;
+  const currentName = String(currentClanData.name || "");
+  const currentTag = String(currentClanData.tag || "");
+  const currentInviteCode = String(currentClanData.inviteCode || "");
+  const currentPrivacy = normalizeClanPrivacy(currentClanData.privacy);
+  const currentDescription = normalizeClanDescription(currentClanData.description);
+  const currentCoverPositionX = normalizeClanCoverPosition(currentClanData.coverPositionX);
+  const currentCoverPositionY = normalizeClanCoverPosition(currentClanData.coverPositionY);
+  const currentCoverScale = normalizeClanCoverScale(currentClanData.coverScale);
+
+  const historyFields: string[] = [];
+  if (nextName !== undefined && nextName !== currentName) historyFields.push("nome");
+  if (nextTag !== undefined && nextTag !== currentTag) historyFields.push("TAG");
+  if (nextInviteCode !== undefined && nextInviteCode !== currentInviteCode) historyFields.push("código");
+  if (privacy !== currentPrivacy) historyFields.push("privacidade");
+  if (description !== currentDescription) historyFields.push("descrição");
+  if (patch.avatarUrl !== undefined && nextAvatarUrl !== previousAvatarUrl) historyFields.push("avatar");
+  if (patch.coverUrl !== undefined && nextCoverUrl !== previousCoverUrl) historyFields.push("capa");
+  if (
+    (rawCoverPositionX !== undefined && normalizeClanCoverPosition(rawCoverPositionX) !== currentCoverPositionX) ||
+    (rawCoverPositionY !== undefined && normalizeClanCoverPosition(rawCoverPositionY) !== currentCoverPositionY) ||
+    (rawCoverScale !== undefined && normalizeClanCoverScale(rawCoverScale) !== currentCoverScale)
+  ) {
+    historyFields.push("enquadramento");
+  }
+
+  const batch = db.batch();
+  batch.set(targetClanRef, patch, { merge: true });
+  if (historyFields.length > 0) {
+    batch.set(
+      clanMessagesCollection(clanId).doc(),
+      buildClanMessagePayload({
+        clanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} atualizou ${historyFields.join(", ")} do clã.`,
+        kind: "system",
+        systemType: "settings_updated",
+      }),
+    );
+  }
+  await batch.commit();
+
+  if (previousAvatarUrl && previousAvatarUrl !== nextAvatarUrl) {
+    await deleteClanAssetIfExists(previousAvatarUrl);
+  }
+  if (previousCoverUrl && previousCoverUrl !== nextCoverUrl) {
+    await deleteClanAssetIfExists(previousCoverUrl);
+  }
+
+  return { ok: true };
+});
+
+export const changeClanMemberRole = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const targetUid = String(request.data?.targetUid || "").trim();
+  const nextRole = normalizeClanManagedRole(request.data?.role);
+  if (!clanId || !targetUid) {
+    throw new HttpsError("invalid-argument", "Clã ou membro inválido.");
+  }
+  if (targetUid === uid) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Você não pode alterar o próprio papel por aqui.",
+    );
+  }
+
+  const [actor, targetUser, ownerMembershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    getClanUserPresentation(targetUid),
+    clanMembershipRef(uid).get(),
+  ]);
+  if (!ownerMembershipSnap.exists) {
+    throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+  }
+  const ownerMembershipData = (ownerMembershipSnap.data() || {}) as Record<string, unknown>;
+  if (String(ownerMembershipData.clanId || "") !== clanId || String(ownerMembershipData.role || "") !== "owner") {
+    throw new HttpsError("permission-denied", "Somente o fundador pode alterar cargos.");
+  }
+
+  const roleMessageRef = clanMessagesCollection(clanId).doc();
+
+  await db.runTransaction(async (tx) => {
+    const [clanSnap, ownerMembershipTx, targetMembershipSnap] = await Promise.all([
+      tx.get(clanRef(clanId)),
+      tx.get(clanMembershipRef(uid)),
+      tx.get(clanMembershipRef(targetUid)),
+    ]);
+
+    if (!clanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+
+    const currentOwnerMembership = (ownerMembershipTx.data() || {}) as Record<string, unknown>;
+    if (
+      !ownerMembershipTx.exists ||
+      String(currentOwnerMembership.clanId || "") !== clanId ||
+      String(currentOwnerMembership.role || "") !== "owner"
+    ) {
+      throw new HttpsError("permission-denied", "Somente o fundador pode alterar cargos.");
+    }
+
+    if (!targetMembershipSnap.exists) {
+      throw new HttpsError("not-found", "Membro alvo não encontrado.");
+    }
+    const targetMembershipData = (targetMembershipSnap.data() || {}) as Record<string, unknown>;
+    if (String(targetMembershipData.clanId || "") !== clanId) {
+      throw new HttpsError("permission-denied", "Esse membro não faz parte do seu clã.");
+    }
+
+    const currentRole = String(targetMembershipData.role || "member") as ClanRoleMode;
+    if (currentRole === "owner") {
+      throw new HttpsError("failed-precondition", "O fundador não pode ser alterado por esta ação.");
+    }
+    if (currentRole === nextRole) {
+      return;
+    }
+
+    tx.set(
+      clanMembershipRef(targetUid),
+      {
+        role: nextRole,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanMemberRef(clanId, targetUid),
+      {
+        role: nextRole,
+        nome: targetUser.nome,
+        username: targetUser.username,
+        foto: targetUser.foto,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      roleMessageRef,
+      buildClanMessagePayload({
+        clanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text:
+          nextRole === "leader"
+            ? `${actor.nome} promoveu ${targetUser.nome} para líder.`
+            : `${actor.nome} rebaixou ${targetUser.nome} para membro.`,
+        kind: "system",
+        systemType: "role_changed",
+      }),
+    );
+  });
+
+  return { ok: true };
+});
+
+export const transferClanOwnership = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const targetUid = String(request.data?.targetUid || "").trim();
+  if (!clanId || !targetUid) {
+    throw new HttpsError("invalid-argument", "Clã ou membro inválido.");
+  }
+  if (targetUid === uid) {
+    throw new HttpsError("failed-precondition", "Escolha outro membro para receber a liderança.");
+  }
+
+  const [actor, targetUser, ownerMembershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    getClanUserPresentation(targetUid),
+    clanMembershipRef(uid).get(),
+  ]);
+  if (!ownerMembershipSnap.exists) {
+    throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+  }
+  const ownerMembershipData = (ownerMembershipSnap.data() || {}) as Record<string, unknown>;
+  if (String(ownerMembershipData.clanId || "") !== clanId || String(ownerMembershipData.role || "") !== "owner") {
+    throw new HttpsError("permission-denied", "Somente o fundador pode transferir a liderança.");
+  }
+
+  const transferMessageRef = clanMessagesCollection(clanId).doc();
+
+  await db.runTransaction(async (tx) => {
+    const [clanSnap, currentOwnerMembershipSnap, targetMembershipSnap] = await Promise.all([
+      tx.get(clanRef(clanId)),
+      tx.get(clanMembershipRef(uid)),
+      tx.get(clanMembershipRef(targetUid)),
+    ]);
+
+    if (!clanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+    if (!currentOwnerMembershipSnap.exists) {
+      throw new HttpsError("failed-precondition", "Seu vínculo com o clã não foi encontrado.");
+    }
+
+    const currentOwnerMembership = (currentOwnerMembershipSnap.data() || {}) as Record<string, unknown>;
+    if (
+      String(currentOwnerMembership.clanId || "") !== clanId ||
+      String(currentOwnerMembership.role || "") !== "owner"
+    ) {
+      throw new HttpsError("permission-denied", "Somente o fundador pode transferir a liderança.");
+    }
+
+    if (!targetMembershipSnap.exists) {
+      throw new HttpsError("not-found", "Membro alvo não encontrado.");
+    }
+    const targetMembershipData = (targetMembershipSnap.data() || {}) as Record<string, unknown>;
+    if (String(targetMembershipData.clanId || "") !== clanId) {
+      throw new HttpsError("permission-denied", "Esse membro não faz parte do seu clã.");
+    }
+    if (String(targetMembershipData.role || "") === "owner") {
+      throw new HttpsError("failed-precondition", "Esse membro já é o fundador do clã.");
+    }
+
+    tx.set(
+      clanRef(clanId),
+      {
+        ownerUid: targetUid,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanMembershipRef(uid),
+      {
+        role: "leader" as ClanRoleMode,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanMembershipRef(targetUid),
+      {
+        role: "owner" as ClanRoleMode,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanMemberRef(clanId, uid),
+      {
+        role: "leader" as ClanRoleMode,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanMemberRef(clanId, targetUid),
+      {
+        role: "owner" as ClanRoleMode,
+        nome: targetUser.nome,
+        username: targetUser.username,
+        foto: targetUser.foto,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      transferMessageRef,
+      buildClanMessagePayload({
+        clanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} transferiu a liderança para ${targetUser.nome}.`,
+        kind: "system",
+        systemType: "ownership_transferred",
+      }),
+    );
+  });
+
+  return { ok: true };
+});
+
+export const approveClanJoinRequest = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const targetUid = String(request.data?.targetUid || "").trim();
+  if (!clanId || !targetUid) {
+    throw new HttpsError("invalid-argument", "Clã ou solicitação inválida.");
+  }
+
+  const [actor, actorMembershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    getClanMembershipOrThrow(uid),
+  ]);
+  const actorMembershipData = (actorMembershipSnap.data() || {}) as Record<string, unknown>;
+  const actorRole = String(actorMembershipData.role || "member") as ClanRoleMode;
+  if (String(actorMembershipData.clanId || "") !== clanId || !canReviewClanRequest(actorRole)) {
+    throw new HttpsError("permission-denied", "Somente a liderança pode aprovar entradas.");
+  }
+
+  const targetUser = await getClanUserPresentation(targetUid);
+  if (targetUser.banido) {
+    throw new HttpsError("permission-denied", "Esse usuário está suspenso e não pode entrar no clã.");
+  }
+
+  const joinMessageRef = clanMessagesCollection(clanId).doc();
+
+  await db.runTransaction(async (tx) => {
+    const [clanSnap, requestSnap, targetMembershipSnap] = await Promise.all([
+      tx.get(clanRef(clanId)),
+      tx.get(clanJoinRequestRef(targetUid)),
+      tx.get(clanMembershipRef(targetUid)),
+    ]);
+
+    if (!clanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+    if (!requestSnap.exists) {
+      throw new HttpsError("not-found", "Solicitação não encontrada.");
+    }
+    if (targetMembershipSnap.exists) {
+      tx.delete(clanJoinRequestRef(targetUid));
+      return;
+    }
+
+    const requestData = (requestSnap.data() || {}) as Record<string, unknown>;
+    if (
+      String(requestData.clanId || "") !== clanId ||
+      String(requestData.status || "pending") !== "pending"
+    ) {
+      throw new HttpsError("failed-precondition", "A solicitação não está mais pendente.");
+    }
+
+    const clanData = (clanSnap.data() || {}) as Record<string, unknown>;
+    const memberCount = Math.max(0, Math.floor(Number(clanData.memberCount) || 0));
+    const maxMembers = Math.max(1, Math.floor(Number(clanData.maxMembers) || CLAN_DEFAULT_MAX_MEMBERS));
+    if (memberCount >= maxMembers) {
+      throw new HttpsError("failed-precondition", "Esse clã já atingiu o limite de membros.");
+    }
+
+    tx.set(
+      clanMembershipRef(targetUid),
+      {
+        uid: targetUid,
+        clanId,
+        role: "member" as ClanRoleMode,
+        joinedAt: FieldValue.serverTimestamp(),
+        lastReadAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanMemberRef(clanId, targetUid),
+      {
+        uid: targetUid,
+        clanId,
+        role: "member" as ClanRoleMode,
+        nome: targetUser.nome,
+        username: targetUser.username,
+        foto: targetUser.foto,
+        joinedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.update(clanRef(clanId), {
+      memberCount: FieldValue.increment(1),
+      joinRequestsApprovedCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.delete(clanJoinRequestRef(targetUid));
+    tx.set(
+      joinMessageRef,
+      buildClanMessagePayload({
+        clanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} aprovou a entrada de ${targetUser.nome}.`,
+        kind: "system",
+        systemType: "request_approved",
+      }),
+    );
+  });
+
+  return { ok: true, clanId };
+});
+
+export const rejectClanJoinRequest = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const targetUid = String(request.data?.targetUid || "").trim();
+  if (!clanId || !targetUid) {
+    throw new HttpsError("invalid-argument", "Clã ou solicitação inválida.");
+  }
+
+  const [actor, actorMembershipSnap] = await Promise.all([
+    getClanActorProfile(uid),
+    getClanMembershipOrThrow(uid),
+  ]);
+  const actorMembershipData = (actorMembershipSnap.data() || {}) as Record<string, unknown>;
+  const actorRole = String(actorMembershipData.role || "member") as ClanRoleMode;
+  if (String(actorMembershipData.clanId || "") !== clanId || !canReviewClanRequest(actorRole)) {
+    throw new HttpsError("permission-denied", "Somente a liderança pode recusar entradas.");
+  }
+
+  const rejectMessageRef = clanMessagesCollection(clanId).doc();
+
+  await db.runTransaction(async (tx) => {
+    const [requestSnap, clanSnap] = await Promise.all([
+      tx.get(clanJoinRequestRef(targetUid)),
+      tx.get(clanRef(clanId)),
+    ]);
+
+    if (!clanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+    if (!requestSnap.exists) {
+      throw new HttpsError("not-found", "Solicitação não encontrada.");
+    }
+
+    const requestData = (requestSnap.data() || {}) as Record<string, unknown>;
+    if (
+      String(requestData.clanId || "") !== clanId ||
+      String(requestData.status || "pending") !== "pending"
+    ) {
+      throw new HttpsError("failed-precondition", "A solicitação não está mais pendente.");
+    }
+
+    tx.set(
+      clanRef(clanId),
+      {
+        joinRequestsRejectedCount: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      clanJoinRequestRef(targetUid),
+      {
+        status: "rejected",
+        reviewedByUid: uid,
+        reviewedByName: actor.nome,
+        reviewedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.set(
+      rejectMessageRef,
+      buildClanMessagePayload({
+        clanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} recusou uma solicitação de entrada.`,
+        kind: "system",
+        systemType: "request_rejected",
+      }),
+    );
+  });
+
+  return { ok: true };
+});
+
+export const cancelClanJoinRequest = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const requestRef = clanJoinRequestRef(uid);
+  const requestSnap = await requestRef.get();
+  if (!requestSnap.exists) {
+    throw new HttpsError("not-found", "Nenhuma solicitação pendente foi encontrada.");
+  }
+
+  const requestData = (requestSnap.data() || {}) as Record<string, unknown>;
+  if (String(requestData.status || "pending") !== "pending") {
+    throw new HttpsError("failed-precondition", "Essa solicitação já foi encerrada.");
+  }
+
+  await requestRef.delete();
+  return { ok: true };
+});
+
+export const kickClanMember = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  const targetUid = String(request.data?.targetUid || "").trim();
+  if (!clanId || !targetUid) {
+    throw new HttpsError("invalid-argument", "Clã ou membro inválido.");
+  }
+
+  const [actor, actorMembershipSnap, targetUser] = await Promise.all([
+    getClanActorProfile(uid),
+    getClanMembershipOrThrow(uid),
+    getClanUserPresentation(targetUid),
+  ]);
+  const actorMembershipData = (actorMembershipSnap.data() || {}) as Record<string, unknown>;
+  const actorRole = String(actorMembershipData.role || "member") as ClanRoleMode;
+  if (String(actorMembershipData.clanId || "") !== clanId) {
+    throw new HttpsError("permission-denied", "Você não pode moderar esse clã.");
+  }
+
+  const kickMessageRef = clanMessagesCollection(clanId).doc();
+
+  await db.runTransaction(async (tx) => {
+    const [clanSnap, targetMembershipSnap] = await Promise.all([
+      tx.get(clanRef(clanId)),
+      tx.get(clanMembershipRef(targetUid)),
+    ]);
+
+    if (!clanSnap.exists) {
+      throw new HttpsError("not-found", "Clã não encontrado.");
+    }
+    if (!targetMembershipSnap.exists) {
+      throw new HttpsError("not-found", "Membro não encontrado.");
+    }
+
+    const targetMembershipData = (targetMembershipSnap.data() || {}) as Record<string, unknown>;
+    if (String(targetMembershipData.clanId || "") !== clanId) {
+      throw new HttpsError("permission-denied", "Esse membro não faz parte do seu clã.");
+    }
+
+    const targetRole = String(targetMembershipData.role || "member") as ClanRoleMode;
+    if (!canModerateClanMember(actorRole, targetRole, uid, targetUid)) {
+      throw new HttpsError("permission-denied", "Você não tem permissão para remover esse membro.");
+    }
+
+    tx.delete(clanMembershipRef(targetUid));
+    tx.delete(clanMemberRef(clanId, targetUid));
+    tx.update(clanRef(clanId), {
+      memberCount: FieldValue.increment(-1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      kickMessageRef,
+      buildClanMessagePayload({
+        clanId,
+        authorUid: uid,
+        authorName: actor.nome,
+        authorUsername: actor.username,
+        authorPhoto: actor.foto,
+        text: `${actor.nome} removeu ${targetUser.nome} do clã.`,
+        kind: "system",
+        systemType: "member_removed",
+      }),
+    );
+  });
+
+  return { ok: true };
+});
+
+export const getClanMemberShowcase = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const clanId = String(request.data?.clanId || "").trim();
+  if (!clanId) {
+    throw new HttpsError("invalid-argument", "Clã inválido.");
+  }
+
+  const membershipSnap = await getClanMembershipOrThrow(uid);
+  const membershipData = (membershipSnap.data() || {}) as Record<string, unknown>;
+  if (String(membershipData.clanId || "") !== clanId) {
+    throw new HttpsError("permission-denied", "Você não pode consultar esse clã.");
+  }
+
+  const memberSnaps = await db.collection(`${COL.clans}/${clanId}/members`).get();
+  const memberIds = memberSnaps.docs.map((docSnap) => docSnap.id);
+  if (memberIds.length === 0) {
+    return { ok: true, rows: [] };
+  }
+
+  const weekKey = weeklyKey();
+  const weekStartTs = weeklyPeriodStartTimestamp();
+  const userRefs = memberIds.map((memberUid) => db.doc(`${COL.users}/${memberUid}`));
+  const rankingPlans = memberIds.flatMap((memberUid) =>
+    CLAN_SHOWCASE_GAME_IDS.map((gameId) => ({
+      uid: memberUid,
+      gameId,
+      ref: weeklyRankingGameEntryRef(weekKey, gameId, memberUid),
+    })),
+  );
+
+  const [userSnaps, weeklyRankingSnaps, totalVictoryRows, weeklyAdRows] = await Promise.all([
+    db.getAll(...userRefs),
+    db.getAll(...rankingPlans.map((item) => item.ref)),
+    Promise.all(
+      memberIds.flatMap((memberUid) =>
+        CLAN_SHOWCASE_GAME_IDS.map(async (gameId) => ({
+          uid: memberUid,
+          gameId,
+          total: await countUserVictoriesByGame(memberUid, gameId),
+        })),
+      ),
+    ),
+    Promise.all(
+      memberIds.map(async (memberUid) => ({
+        uid: memberUid,
+        weekly: await countUserWeeklyRewardedAds(memberUid, weekStartTs),
+      })),
+    ),
+  ]);
+
+  const totalVictoriesByMember = new Map<string, Partial<Record<ClanShowcaseGameId, number>>>();
+  for (const row of totalVictoryRows) {
+    const current = totalVictoriesByMember.get(row.uid) ?? {};
+    current[row.gameId] = row.total;
+    totalVictoriesByMember.set(row.uid, current);
+  }
+
+  const weeklyVictoriesByMember = new Map<string, Partial<Record<ClanShowcaseGameId, number>>>();
+  rankingPlans.forEach((plan, index) => {
+    const snap = weeklyRankingSnaps[index];
+    const raw = snap.exists ? ((snap.data() || {}) as Record<string, unknown>) : {};
+    const current = weeklyVictoriesByMember.get(plan.uid) ?? {};
+    current[plan.gameId] = normalizeCounter(raw.vitorias);
+    weeklyVictoriesByMember.set(plan.uid, current);
+  });
+
+  const userStatsByMember = new Map<string, { totalAds: number }>();
+  userSnaps.forEach((snap, index) => {
+    const memberUid = memberIds[index]!;
+    const raw = snap.exists ? ((snap.data() || {}) as Record<string, unknown>) : {};
+    userStatsByMember.set(memberUid, {
+      totalAds: normalizeCounter(raw.totalAdsAssistidos),
+    });
+  });
+
+  const weeklyAdsByMember = new Map<string, number>();
+  weeklyAdRows.forEach((row) => {
+    weeklyAdsByMember.set(row.uid, row.weekly);
+  });
+
+  return {
+    ok: true,
+    rows: memberIds.map((memberUid) => {
+      const totalVictories = totalVictoriesByMember.get(memberUid) ?? {};
+      const weeklyVictories = weeklyVictoriesByMember.get(memberUid) ?? {};
+      const userStats = userStatsByMember.get(memberUid) ?? { totalAds: 0 };
+      return {
+        uid: memberUid,
+        ppt: {
+          total: normalizeCounter(totalVictories.ppt),
+          weekly: normalizeCounter(weeklyVictories.ppt),
+        },
+        quiz: {
+          total: normalizeCounter(totalVictories.quiz),
+          weekly: normalizeCounter(weeklyVictories.quiz),
+        },
+        reaction: {
+          total: normalizeCounter(totalVictories.reaction_tap),
+          weekly: normalizeCounter(weeklyVictories.reaction_tap),
+        },
+        ads: {
+          total: normalizeCounter(userStats.totalAds),
+          weekly: normalizeCounter(weeklyAdsByMember.get(memberUid)),
+        },
+      };
+    }),
+  };
+});
+
+export const touchUserPresence = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  const userRef = db.doc(`${COL.users}/${uid}`);
+  const [userSnap, membershipSnap] = await Promise.all([userRef.get(), clanMembershipRef(uid).get()]);
+  if (!userSnap.exists) {
+    return { ok: true };
+  }
+
+  const clanId = membershipSnap.exists
+    ? String((membershipSnap.data() || {}).clanId || "").trim()
+    : "";
+
+  const batch = db.batch();
+  batch.set(userRef, { lastActiveAt: FieldValue.serverTimestamp() }, { merge: true });
+
+  if (clanId) {
+    const memberRef = clanMemberRef(clanId, uid);
+    const memberSnap = await memberRef.get();
+    if (memberSnap.exists) {
+      batch.set(memberRef, { lastActiveAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
+  }
+
+  await batch.commit();
+  return { ok: true };
 });

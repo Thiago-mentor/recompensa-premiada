@@ -81,6 +81,48 @@ function referralRankingPeriodKey(period: ReferralRankingPeriod): string {
   return getWeeklyPeriodKey();
 }
 
+/** Chaves legadas / alternativas para o ranking acumulado (compatível com dados antigos). */
+const REFERRAL_RANKING_ALLTIME_PERIOD_KEYS = ["global", "all"] as const;
+
+function normalizeReferralRankingDoc(docId: string, raw: Record<string, unknown>): ReferralRankingEntry {
+  return {
+    userId: typeof raw.userId === "string" && raw.userId ? raw.userId : docId,
+    userName: typeof raw.userName === "string" && raw.userName.trim() ? raw.userName : "Participante",
+    photoURL: raw.photoURL != null && raw.photoURL !== "" ? (raw.photoURL as string | null) : null,
+    validReferrals: Math.max(0, Math.floor(Number(raw.validReferrals) || 0)),
+    pendingReferrals: Math.max(0, Math.floor(Number(raw.pendingReferrals) || 0)),
+    rewardedReferrals: Math.max(0, Math.floor(Number(raw.rewardedReferrals) || 0)),
+    blockedReferrals: Math.max(0, Math.floor(Number(raw.blockedReferrals) || 0)),
+    totalRewards: Math.max(0, Math.floor(Number(raw.totalRewards) || 0)),
+    updatedAt: raw.updatedAt as ReferralRankingEntry["updatedAt"],
+  };
+}
+
+function sortRankingEntries(rows: ReferralRankingEntry[]): ReferralRankingEntry[] {
+  return [...rows].sort((a, b) => {
+    if (b.validReferrals !== a.validReferrals) return b.validReferrals - a.validReferrals;
+    if (b.totalRewards !== a.totalRewards) return b.totalRewards - a.totalRewards;
+    return String(a.userId).localeCompare(String(b.userId));
+  });
+}
+
+async function loadReferralRankingForPeriodKey(
+  collName: string,
+  periodKey: string,
+  topN: number,
+): Promise<ReferralRankingEntry[]> {
+  const db = getFirebaseFirestore();
+  const snap = await getDocs(
+    query(
+      collection(doc(db, collName, periodKey), "entries"),
+      orderBy("validReferrals", "desc"),
+      limit(topN),
+    ),
+  );
+  const rows = snap.docs.map((item) => normalizeReferralRankingDoc(item.id, item.data() as Record<string, unknown>));
+  return sortRankingEntries(rows);
+}
+
 export async function fetchReferralSystemConfig(): Promise<ReferralSystemConfig | null> {
   const db = getFirebaseFirestore();
   const snap = await getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system"));
@@ -174,16 +216,24 @@ export async function fetchReferralRankingTop(
   period: ReferralRankingPeriod,
   topN = 20,
 ): Promise<ReferralRankingEntry[]> {
-  const db = getFirebaseFirestore();
-  const periodKey = referralRankingPeriodKey(period);
-  const snap = await getDocs(
-    query(
-      collection(doc(db, referralRankingCollection(period), periodKey), "entries"),
-      orderBy("validReferrals", "desc"),
-      limit(topN),
-    ),
-  );
-  return snap.docs.map((item) => ({ userId: item.id, ...item.data() }) as ReferralRankingEntry);
+  const collName = referralRankingCollection(period);
+  try {
+    if (period === "all") {
+      for (const key of REFERRAL_RANKING_ALLTIME_PERIOD_KEYS) {
+        try {
+          const rows = await loadReferralRankingForPeriodKey(collName, key, topN);
+          if (rows.length > 0) return rows;
+        } catch {
+          /* tenta próxima chave */
+        }
+      }
+      return [];
+    }
+    return await loadReferralRankingForPeriodKey(collName, referralRankingPeriodKey(period), topN);
+  } catch (e) {
+    console.warn("[referralService] fetchReferralRankingTop", period, e);
+    return [];
+  }
 }
 
 export async function fetchMyReferralRankingEntry(
@@ -191,10 +241,21 @@ export async function fetchMyReferralRankingEntry(
   userId: string,
 ): Promise<ReferralRankingEntry | null> {
   const db = getFirebaseFirestore();
-  const periodKey = referralRankingPeriodKey(period);
-  const snap = await getDoc(doc(db, referralRankingCollection(period), periodKey, "entries", userId));
-  if (!snap.exists()) return null;
-  return { userId: snap.id, ...snap.data() } as ReferralRankingEntry;
+  const collName = referralRankingCollection(period);
+  const keys =
+    period === "all" ? [...REFERRAL_RANKING_ALLTIME_PERIOD_KEYS] : [referralRankingPeriodKey(period)];
+
+  for (const periodKey of keys) {
+    try {
+      const snap = await getDoc(doc(db, collName, periodKey, "entries", userId));
+      if (snap.exists()) {
+        return normalizeReferralRankingDoc(snap.id, snap.data() as Record<string, unknown>);
+      }
+    } catch {
+      /* próxima chave */
+    }
+  }
+  return null;
 }
 
 export async function fetchAdminReferralRows(status?: string): Promise<ReferralRecord[]> {

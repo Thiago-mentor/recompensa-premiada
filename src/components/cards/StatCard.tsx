@@ -15,17 +15,17 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-4 shadow-inner backdrop-blur-sm",
+        "game-panel-soft rounded-[1.35rem] p-4",
         className,
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-white/60">
+        <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-100/68">
           {label}
         </span>
-        {Icon ? <Icon className="h-4 w-4 text-amber-300" aria-hidden /> : null}
+        {Icon ? <Icon className="h-4 w-4 text-cyan-200" aria-hidden /> : null}
       </div>
-      <p className="mt-1 text-2xl font-bold tabular-nums text-white">{value}</p>
+      <p className="mt-2 text-2xl font-black tracking-tight text-white">{value}</p>
     </div>
   );
 }

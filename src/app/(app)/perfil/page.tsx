@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
+import { resolveUserRankingDailyScore } from "@/lib/users/ranking";
+import { useClanDashboard } from "@/hooks/useClanDashboard";
 import { logout } from "@/services/auth/authService";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { ClanAccessBadge } from "@/components/cla/ClanAccessBadge";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/lib/constants/routes";
 import { COLLECTIONS } from "@/lib/constants/collections";
@@ -17,7 +20,7 @@ import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { resetUserAvatar, uploadUserAvatar } from "@/services/users/avatarService";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
-import { Banknote, Coins, Flame, ShieldAlert, Sparkles, Ticket, Trophy } from "lucide-react";
+import { Banknote, Coins, Crown, Flame, ShieldAlert, Sparkles, Ticket, Trophy, Wallet } from "lucide-react";
 
 const PROFILE_SECTIONS = [
   { id: "conta", label: "Conta", hint: "Identidade e foto" },
@@ -43,6 +46,7 @@ function boostStatusLabel(value: unknown): string {
 
 export default function PerfilPage() {
   const { user, profile, isAdmin, refreshProfile } = useAuth();
+  const { clanAccessBadge } = useClanDashboard();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -115,8 +119,8 @@ export default function PerfilPage() {
   }
 
   return (
-    <div className="space-y-6 pb-4">
-      <section className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.18),transparent_35%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_56px_-26px_rgba(34,211,238,0.28)]">
+    <div className="space-y-5 pb-6">
+      <section className="game-panel overflow-hidden p-5 shadow-[0_0_56px_-26px_rgba(34,211,238,0.28)]">
         <div className="flex items-start gap-4">
           <div
             aria-label={profile?.nome || user?.displayName || "Perfil"}
@@ -132,22 +136,22 @@ export default function PerfilPage() {
             }}
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200/70">
-              Conta premium
+            <p className="game-kicker">
+              Perfil tático
             </p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight text-white">
+            <h1 className="mt-1 bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-2xl font-black tracking-tight text-transparent">
               {profile?.nome || user?.displayName || "Perfil"}
             </h1>
-            <p className="mt-1 text-sm text-white/55">
-              {profile?.username ? `@${profile.username}` : "complete seu perfil para fortalecer sua conta"}
+            <p className="mt-1 text-sm text-white/58">
+              {profile?.username ? `@${profile.username}` : "defina seu @ e fortaleça sua presença na arena"}
             </p>
-            <p className="mt-1 text-sm text-white/45">{profile?.email || user?.email}</p>
+            <p className="mt-1 text-sm text-white/48">{profile?.email || user?.email}</p>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-white/70">
+              <span className="game-chip">
                 nível {profile?.level ?? "—"}
               </span>
-              <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-100/85">
+              <span className="game-chip border-amber-400/20 bg-amber-500/10 text-amber-100/85">
                 {profile?.xp ?? "—"} XP
               </span>
             </div>
@@ -170,8 +174,19 @@ export default function PerfilPage() {
         <ProfileMetric label="Vitórias" value={profile ? String(profile.totalVitorias ?? 0) : "—"} icon={<Trophy className="h-4 w-4 text-amber-200" />} />
       </section>
 
+      <Link
+        href={ROUTES.carteira}
+        className="game-panel-soft flex items-center justify-between gap-3 rounded-[1.35rem] border-emerald-400/18 px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-emerald-400/30"
+      >
+        <span className="flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-emerald-200" aria-hidden />
+          Abrir carteira
+        </span>
+        <span className="text-xs font-medium text-white/45">extrato e saldos</span>
+      </Link>
+
       <section className="space-y-4">
-        <div className="rounded-[1.45rem] border border-white/10 bg-white/[0.03] p-2">
+        <div className="game-panel p-2">
           <div className="grid grid-cols-3 gap-2">
             {PROFILE_SECTIONS.map((section) => (
               <button
@@ -181,8 +196,8 @@ export default function PerfilPage() {
                 className={cn(
                   "rounded-[1rem] border px-3 py-3 text-left transition",
                   activeSection === section.id
-                    ? "border-cyan-400/30 bg-cyan-500/10 text-white shadow-[0_0_24px_-12px_rgba(34,211,238,0.45)]"
-                    : "border-white/10 bg-black/20 text-white/65 hover:bg-white/[0.04] hover:text-white/85",
+                      ? "border-cyan-400/30 bg-cyan-500/10 text-white shadow-[0_0_24px_-12px_rgba(34,211,238,0.45)]"
+                      : "border-white/10 bg-black/20 text-white/65 hover:bg-white/[0.04] hover:text-white/85",
                 )}
               >
                 <p className="text-xs font-semibold">{section.label}</p>
@@ -202,7 +217,7 @@ export default function PerfilPage() {
           <ProfileSectionCard
             eyebrow="Conta"
             title="Identidade e preferências"
-            description="Aqui ficam os dados principais da conta e os controles rápidos do avatar."
+            description="Dados centrais da conta e controles rápidos do avatar."
           >
             <div className="grid gap-3 sm:grid-cols-2">
               <Button
@@ -237,11 +252,11 @@ export default function PerfilPage() {
             <ProfileSectionCard
               eyebrow="Status"
               title="Progresso e atividade"
-              description="Resumo dos números mais úteis do seu perfil sem duplicar tudo em uma única lista."
+              description="Seu painel de progresso e atividade em leitura rápida."
             >
               <div className="grid gap-2 sm:grid-cols-2">
                 <AccountRow label="Nível / XP" value={`${profile?.level ?? "—"} · ${profile?.xp ?? "—"} XP`} />
-                <AccountRow label="Ranking diário" value={String(profile?.scoreRankingDiario ?? 0)} />
+                <AccountRow label="Ranking diário" value={String(resolveUserRankingDailyScore(profile))} />
                 <AccountRow label="Partidas / vitórias" value={`${profile?.totalPartidas ?? 0} / ${profile?.totalVitorias ?? 0}`} />
                 <AccountRow label="Derrotas" value={String(profile?.totalDerrotas ?? 0)} />
                 <AccountRow label="Anúncios assistidos" value={String(profile?.totalAdsAssistidos ?? 0)} />
@@ -257,8 +272,8 @@ export default function PerfilPage() {
               title="Recursos guardados no perfil"
               description={
                 boostSystemEnabled
-                  ? "Fragmentos, boost armazenado e entradas especiais ficam organizados aqui."
-                  : "As entradas especiais continuam disponíveis aqui enquanto o boost estiver desligado."
+                  ? "Fragmentos, boost e entradas especiais em um só painel."
+                  : "Entradas especiais e reservas do perfil."
               }
               tone="highlight"
             >
@@ -285,7 +300,7 @@ export default function PerfilPage() {
                   icon={<Trophy className="h-4 w-4 text-amber-200" />}
                 />
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white/65">
+              <div className="game-panel-soft rounded-xl px-3 py-3 text-sm text-white/65">
                 {boostSystemEnabled ? (
                   <p>
                     <strong className="text-white">Fragmentos</strong> servem para fabricar boost na
@@ -302,7 +317,7 @@ export default function PerfilPage() {
                 )}
               </div>
               {boostSystemEnabled ? (
-                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white/65">
+                <div className="game-panel-soft rounded-xl px-3 py-3 text-sm text-white/65">
                   {boostStatusLabel(profile?.activeBoostUntil)}
                 </div>
               ) : null}
@@ -314,18 +329,46 @@ export default function PerfilPage() {
           <ProfileSectionCard
             eyebrow="Acessos"
             title="Atalhos importantes"
-            description="Links rápidos para áreas que você costuma usar a partir do perfil."
+            description="Rotas rápidas para as áreas mais usadas a partir do perfil."
           >
             <div className="grid gap-3">
+              <Link
+                href={ROUTES.cla}
+                className="game-panel-soft flex items-center justify-between rounded-[1.4rem] border-fuchsia-500/24 px-4 py-4 text-fuchsia-100 transition hover:border-fuchsia-400/35"
+              >
+                <div>
+                  <p className="text-sm font-semibold">Clã</p>
+                  <p className="mt-1 text-xs text-fuchsia-100/70">Time, chat e gestão do esquadrão.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {clanAccessBadge ? (
+                    <ClanAccessBadge
+                      label={clanAccessBadge.label}
+                      tone={clanAccessBadge.tone}
+                    />
+                  ) : null}
+                  <Crown className="h-5 w-5" />
+                </div>
+              </Link>
+              <Link
+                href={ROUTES.carteira}
+                className="game-panel-soft flex items-center justify-between rounded-[1.4rem] border-emerald-500/24 px-4 py-4 text-emerald-100 transition hover:border-emerald-400/35"
+              >
+                <div>
+                  <p className="text-sm font-semibold">Carteira</p>
+                  <p className="mt-1 text-xs text-emerald-100/70">Saldos, extrato e conversão.</p>
+                </div>
+                <Wallet className="h-5 w-5" />
+              </Link>
               {isAdmin ? (
                 <Link
                   href={ROUTES.admin.dashboard}
-                  className="flex items-center justify-between rounded-[1.4rem] border border-violet-500/40 bg-violet-950/40 px-4 py-4 text-violet-200 transition hover:bg-violet-950/50"
+                  className="game-panel-soft flex items-center justify-between rounded-[1.4rem] border-violet-500/24 px-4 py-4 text-violet-200 transition hover:border-violet-400/35"
                 >
                   <div>
                     <p className="text-sm font-semibold">Painel admin</p>
                     <p className="mt-1 text-xs text-violet-200/70">
-                      Gerencie economia, jogos e rankings.
+                      Controle economia, jogos e placares.
                     </p>
                   </div>
                   <ShieldAlert className="h-5 w-5" />
@@ -352,9 +395,9 @@ function ProfileMetric({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3">
+    <div className="game-panel-soft rounded-2xl px-3 py-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">{label}</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/58">{label}</p>
         {icon}
       </div>
       <p className="mt-2 text-lg font-semibold text-white">{value}</p>
@@ -380,14 +423,14 @@ function ProfileSectionCard({
       className={cn(
         "space-y-4 rounded-[1.6rem] border p-4",
         tone === "highlight"
-          ? "border-white/10 bg-gradient-to-br from-slate-950/95 via-amber-950/10 to-slate-950 shadow-[0_0_42px_-18px_rgba(251,191,36,0.2)]"
-          : "border-white/10 bg-white/[0.03]",
+          ? "game-panel border-amber-400/18 shadow-[0_0_42px_-18px_rgba(251,191,36,0.2)]"
+          : "game-panel",
       )}
     >
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">{eyebrow}</p>
+        <p className="game-kicker">{eyebrow}</p>
         <h2 className="mt-1 text-lg font-black tracking-tight text-white">{title}</h2>
-        <p className="mt-1 text-sm text-white/55">{description}</p>
+        <p className="mt-1 text-sm text-white/58">{description}</p>
       </div>
       {children}
     </section>
@@ -396,8 +439,8 @@ function ProfileSectionCard({
 
 function AccountRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">{label}</p>
+    <div className="game-panel-soft rounded-xl px-3 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/58">{label}</p>
       <p className="mt-1 text-sm text-white">{value}</p>
     </div>
   );

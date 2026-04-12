@@ -9,6 +9,7 @@ import type {
 export type NormalizedRankingPrizeConfig = {
   global: RankingPrizePeriodConfig;
   byGame: Record<string, RankingPrizePeriodConfig>;
+  clans: RankingPrizePeriodConfig;
 };
 
 export const RANKING_PERIODS: RankingPeriod[] = ["diario", "semanal", "mensal"];
@@ -29,6 +30,16 @@ const DEFAULT_GLOBAL_PRIZES: RankingPrizePeriodConfig = {
     { posicaoMax: 3, coins: 2500, gems: 70, rewardBalance: 70 },
     { posicaoMax: 10, coins: 1000, gems: 25, rewardBalance: 20 },
   ],
+};
+
+const DEFAULT_CLAN_PRIZES: RankingPrizePeriodConfig = {
+  diario: [],
+  semanal: [
+    { posicaoMax: 1, coins: 1500, gems: 60, rewardBalance: 30 },
+    { posicaoMax: 3, coins: 800, gems: 30, rewardBalance: 15 },
+    { posicaoMax: 10, coins: 300, gems: 10, rewardBalance: 5 },
+  ],
+  mensal: [],
 };
 
 export const KNOWN_RANKING_GAME_IDS = Array.from(
@@ -112,6 +123,7 @@ export function buildDefaultRankingPrizeConfig(): NormalizedRankingPrizeConfig {
     byGame: Object.fromEntries(
       KNOWN_RANKING_GAME_IDS.map((gameId) => [gameId, createEmptyRankingPrizePeriodConfig()]),
     ),
+    clans: normalizePeriodConfig(DEFAULT_CLAN_PRIZES, DEFAULT_CLAN_PRIZES),
   };
 }
 
@@ -138,6 +150,7 @@ export function normalizeRankingPrizeConfig(raw: unknown): NormalizedRankingPriz
   return {
     global: normalizePeriodConfig(globalSource, fallback.global),
     byGame,
+    clans: normalizePeriodConfig(data.clans, fallback.clans),
   };
 }
 

@@ -23,17 +23,17 @@ export function RankingTable({
   if (entries.length === 0) return null;
 
   return (
-    <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950/65 shadow-[0_0_36px_-24px_rgba(139,92,246,0.5)]">
+    <div className="game-panel overflow-hidden rounded-[1.5rem] shadow-[0_0_36px_-24px_rgba(139,92,246,0.5)]">
       <table className="w-full text-left text-sm">
-        <thead className="bg-white/5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+        <thead className="bg-white/5 text-[10px] font-semibold uppercase tracking-wider text-cyan-100/52">
           <tr>
             <th className="px-4 py-3">#</th>
             <th className="px-4 py-3">Jogador</th>
             {showPrizeColumn ? (
               <th className="hidden px-4 py-3 text-left lg:table-cell">Prêmio</th>
             ) : null}
-            <th className="px-4 py-3 text-right">Score</th>
-            <th className="hidden px-4 py-3 text-right sm:table-cell">Vitórias</th>
+            <th className="px-4 py-3 text-right">Vitórias</th>
+            <th className="hidden px-4 py-3 text-right sm:table-cell">Partidas</th>
           </tr>
         </thead>
         <tbody>
@@ -79,10 +79,10 @@ export function RankingTable({
                   </td>
                 ) : null}
                 <td className="px-4 py-3 text-right font-semibold text-violet-200">
-                  {e.score}
+                  {e.vitorias}
                 </td>
                 <td className="hidden px-4 py-3 text-right text-white/60 sm:table-cell">
-                  {e.vitorias}
+                  {e.partidas}
                 </td>
               </tr>
             );

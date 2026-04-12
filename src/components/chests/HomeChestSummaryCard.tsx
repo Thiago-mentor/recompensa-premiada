@@ -91,20 +91,22 @@ export function HomeChestSummaryCard() {
   const SpotlightIcon = spotlight.icon;
 
   return (
-    <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4">
+    <section className="game-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Baús</p>
-          <h2 className="text-lg font-semibold text-white">Hub de recompensas</h2>
-          <p className="text-xs text-white/45">Resumo rápido do que já chegou e do que está no pipeline.</p>
+          <p className="game-kicker text-amber-200/75">Baús</p>
+          <h2 className="text-lg font-black tracking-tight text-white">Hub de recompensas</h2>
+          <p className="text-xs text-white/50">
+            Resumo rápido do que já chegou e do que está no pipeline.
+          </p>
         </div>
-        <Link href={chestHubHref} className="text-sm text-amber-300 hover:underline">
+        <Link href={chestHubHref} className="text-sm font-semibold text-amber-300 hover:underline">
           Abrir hub
         </Link>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,1fr)]">
-        <div className={cn("rounded-[1.45rem] border p-4", spotlight.tone)}>
+        <div className={cn("rounded-[1.45rem] border p-4 shadow-[0_0_34px_-18px_rgba(34,211,238,0.18)]", spotlight.tone)}>
           <div className="flex items-start gap-3">
             <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-white">
               <SpotlightIcon className="h-5 w-5" />
@@ -124,7 +126,7 @@ export function HomeChestSummaryCard() {
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
               href={chestHubHref}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-amber-300/25 bg-amber-400/10 px-4 py-2.5 text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-[1rem] border border-amber-300/25 bg-amber-400/10 px-4 py-2.5 text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
             >
               Gerenciar baús
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -180,7 +182,7 @@ function MetricCard({
   return (
     <div
       className={cn(
-        "rounded-[1.25rem] border p-3",
+                "rounded-[1.25rem] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
         tone === "warning"
           ? "border-rose-400/20 bg-rose-500/10"
           : "border-white/10 bg-slate-950/55",

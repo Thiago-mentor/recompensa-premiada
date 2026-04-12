@@ -106,8 +106,10 @@ export default function SorteiosPage() {
   useEffect(() => {
     if (!raffle?.maxPerPurchase) return;
     const max = raffle.maxPerPurchase;
-    const n = Math.floor(Number(quantity) || 0);
-    if (n > max) setQuantity(String(max));
+    setQuantity((current) => {
+      const n = Math.floor(Number(current) || 0);
+      return n > max ? String(max) : current;
+    });
   }, [raffle?.maxPerPurchase, raffle?.id]);
 
   useEffect(() => {
@@ -483,7 +485,7 @@ function ExpandedNumbers({
       total: totalR,
       hint: `amostra em ordem aleatória; faixa contínua ${formatRaffleRange(start, end)}.`,
     } as const;
-  }, [numbers, rangeStart, rangeEnd, expandKey]);
+  }, [numbers, rangeStart, rangeEnd]);
 
   return (
     <div className="mt-3 border-t border-white/10 pt-3">

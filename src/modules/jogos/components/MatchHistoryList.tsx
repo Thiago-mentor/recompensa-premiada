@@ -20,6 +20,24 @@ function formatGame(id: string) {
   return map[id] ?? id;
 }
 
+function formatResultLabel(result: MatchRecord["resultado"]) {
+  if (result === "vitoria") return "VITÓRIA";
+  if (result === "empate") return "EMPATE";
+  return "DERROTA";
+}
+
+function isArenaVictoryGame(id: string) {
+  return id === "ppt" || id === "quiz" || id === "reaction_tap";
+}
+
+function formatRankingDelta(match: MatchRecord) {
+  const gameId = match.gameType ?? match.gameId;
+  if (!isArenaVictoryGame(gameId)) {
+    return `score ${match.score}`;
+  }
+  return match.resultado === "vitoria" ? "vitória +1" : "vitória +0";
+}
+
 export function MatchHistoryList({ className }: { className?: string }) {
   const { user } = useAuth();
   const [rows, setRows] = useState<MatchRecord[]>([]);
@@ -69,21 +87,23 @@ export function MatchHistoryList({ className }: { className?: string }) {
             <motion.li
               key={m.id}
               variants={staggerItem}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-gradient-to-r from-white/[0.04] to-transparent px-3 py-2.5 text-white/85"
+              className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-r from-white/[0.04] to-transparent px-3 py-2.5 text-white/85"
             >
-              <span className="font-semibold text-white/90">{formatGame(m.gameType ?? m.gameId)}</span>
+              <span className="min-w-0 truncate font-semibold text-white/90">
+                {formatGame(m.gameType ?? m.gameId)}
+              </span>
               <span
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wide",
+                  "min-w-[88px] justify-self-center rounded-md px-2 py-0.5 text-center text-[10px] font-black uppercase tracking-wide",
                   m.resultado === "vitoria" && "bg-emerald-500/15 text-emerald-300",
                   m.resultado === "empate" && "bg-amber-500/15 text-amber-200",
                   m.resultado === "derrota" && "bg-rose-500/15 text-rose-300",
                 )}
               >
-                {m.resultado}
+                {formatResultLabel(m.resultado)}
               </span>
-              <span className="w-full text-[11px] text-white/45 sm:w-auto sm:text-right">
-                score {m.score}
+              <span className="min-w-0 justify-self-end text-right text-[11px] text-white/45">
+                {formatRankingDelta(m)}
                 {m.rewardCoins != null ? ` · +${m.rewardCoins} PR` : ""}
               </span>
             </motion.li>

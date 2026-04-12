@@ -17,6 +17,7 @@ import {
   subscribeUserProfile,
   fetchUserProfile,
 } from "@/services/users/userService";
+import { touchUserPresence } from "@/services/users/presenceService";
 import type { UserProfile } from "@/types/user";
 
 type AuthState = {
@@ -95,6 +96,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [firebaseReady]);
+
+  useEffect(() => {
+    if (!firebaseReady || !user || typeof window === "undefined") return;
+
+    const pingPresence = (force = false) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void touchUserPresence(force).catch(() => {
+        /* presença é best-effort; não deve interromper a sessão */
+      });
+    };
+
+    pingPresence(true);
+
+    const onFocus = () => pingPresence(true);
+    const onVisibilityChange = () => pingPresence(true);
+    const intervalId = window.setInterval(() => pingPresence(false), 60_000);
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [firebaseReady, user]);
 
   const value = useMemo<AuthState>(
     () => ({
