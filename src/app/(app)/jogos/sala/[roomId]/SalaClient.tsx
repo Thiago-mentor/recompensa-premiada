@@ -207,8 +207,8 @@ function RoundRevealOverlay({
     >
       <motion.div
         className={cn(
-          "absolute inset-0 bg-slate-950/85",
-          nativeAndroid ? "bg-slate-950/92" : "backdrop-blur-md",
+          "absolute inset-0",
+          nativeAndroid ? "bg-slate-950" : "bg-slate-950/85 backdrop-blur-md",
         )}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -358,7 +358,13 @@ function HandIcon({ hand, className }: { hand: PptHand; className?: string }) {
 }
 
 /** Verso da carta — oponente ainda não revelado (sem leitura de `ppt_picks` no cliente). */
-function CardBackFace({ className }: { className?: string }) {
+function CardBackFace({
+  className,
+  nativeAndroid = false,
+}: {
+  className?: string;
+  nativeAndroid?: boolean;
+}) {
   return (
     <div
       className={cn(
@@ -374,15 +380,25 @@ function CardBackFace({ className }: { className?: string }) {
         }}
       />
       <div className="pointer-events-none absolute inset-2 rounded-lg border border-white/10" />
-      <motion.span
-        className="relative font-black text-fuchsia-300/45"
-        style={{ fontSize: "clamp(2rem, 8vw, 3rem)" }}
-        animate={{ opacity: [0.35, 0.85, 0.35], scale: [0.96, 1.04, 0.96] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-        aria-hidden
-      >
-        ?
-      </motion.span>
+      {!nativeAndroid ? (
+        <motion.span
+          className="relative font-black text-fuchsia-300/45"
+          style={{ fontSize: "clamp(2rem, 8vw, 3rem)" }}
+          animate={{ opacity: [0.35, 0.85, 0.35], scale: [0.96, 1.04, 0.96] }}
+          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        >
+          ?
+        </motion.span>
+      ) : (
+        <span
+          className="relative font-black text-fuchsia-300/45"
+          style={{ fontSize: "clamp(2rem, 8vw, 3rem)" }}
+          aria-hidden
+        >
+          ?
+        </span>
+      )}
     </div>
   );
 }
@@ -1039,6 +1055,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   );
   const pvpChoiceSecRef = useRef(pvpChoiceSec);
   pvpChoiceSecRef.current = pvpChoiceSec;
+  const simplifiedAndroidPptFx = isNativeAndroid && room?.gameId === "ppt";
 
   useEffect(() => {
     setIsNativeAndroid(isNativeAndroidPlatform());
@@ -1895,16 +1912,25 @@ export function SalaClient({ roomId }: { roomId: string }) {
       />
       <div className="relative overflow-hidden rounded-[1.6rem] border border-cyan-500/20 bg-gradient-to-b from-slate-950/95 via-violet-950/25 to-slate-950 shadow-[0_0_60px_-14px_rgba(34,211,238,0.22)] sm:rounded-3xl">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(255,255,255,0.07),transparent_28%),radial-gradient(circle_at_18%_24%,rgba(34,211,238,0.12),transparent_24%),radial-gradient(circle_at_82%_24%,rgba(217,70,239,0.12),transparent_24%),radial-gradient(circle_at_50%_100%,rgba(251,191,36,0.08),transparent_28%)]" />
-        <motion.div
-          className="pointer-events-none absolute -left-12 top-16 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl"
-          animate={{ x: [0, 24, 0], y: [0, -10, 0], opacity: [0.35, 0.6, 0.35] }}
-          transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div
-          className="pointer-events-none absolute -right-12 top-20 h-40 w-40 rounded-full bg-fuchsia-400/10 blur-3xl"
-          animate={{ x: [0, -24, 0], y: [0, 10, 0], opacity: [0.35, 0.6, 0.35] }}
-          transition={{ duration: 7.4, repeat: Infinity, ease: "easeInOut" }}
-        />
+        {simplifiedAndroidPptFx ? (
+          <>
+            <div className="pointer-events-none absolute -left-12 top-16 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl" />
+            <div className="pointer-events-none absolute -right-12 top-20 h-40 w-40 rounded-full bg-fuchsia-400/10 blur-3xl" />
+          </>
+        ) : (
+          <>
+            <motion.div
+              className="pointer-events-none absolute -left-12 top-16 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl"
+              animate={{ x: [0, 24, 0], y: [0, -10, 0], opacity: [0.35, 0.6, 0.35] }}
+              transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <motion.div
+              className="pointer-events-none absolute -right-12 top-20 h-40 w-40 rounded-full bg-fuchsia-400/10 blur-3xl"
+              animate={{ x: [0, -24, 0], y: [0, 10, 0], opacity: [0.35, 0.6, 0.35] }}
+              transition={{ duration: 7.4, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </>
+        )}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[radial-gradient(ellipse_at_center,rgba(251,191,36,0.12),transparent_65%)]" />
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.04]"
@@ -1937,11 +1963,15 @@ export function SalaClient({ roomId }: { roomId: string }) {
             <div className="pointer-events-none absolute -left-10 top-0 h-32 w-32 rounded-full bg-cyan-500/15 blur-3xl" />
             <div className="pointer-events-none absolute -right-8 bottom-0 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
             <div className="pointer-events-none absolute inset-x-[20%] top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
-            <motion.div
-              className="pointer-events-none absolute inset-x-8 bottom-2 h-16 rounded-full bg-gradient-to-r from-cyan-500/10 via-amber-400/12 to-fuchsia-500/10 blur-2xl"
-              animate={{ opacity: [0.35, 0.7, 0.35], scaleX: [0.96, 1.04, 0.96] }}
-              transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
-            />
+            {simplifiedAndroidPptFx ? (
+              <div className="pointer-events-none absolute inset-x-8 bottom-2 h-16 rounded-full bg-gradient-to-r from-cyan-500/10 via-amber-400/12 to-fuchsia-500/10 blur-2xl" />
+            ) : (
+              <motion.div
+                className="pointer-events-none absolute inset-x-8 bottom-2 h-16 rounded-full bg-gradient-to-r from-cyan-500/10 via-amber-400/12 to-fuchsia-500/10 blur-2xl"
+                animate={{ opacity: [0.35, 0.7, 0.35], scaleX: [0.96, 1.04, 0.96] }}
+                transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
+              />
+            )}
             <div className="mb-1 text-center sm:mb-4">
               <p className="text-[9px] font-bold uppercase tracking-[0.28em] text-white/35 sm:text-[10px] sm:tracking-[0.35em]">
                 {battleCopy.title}
@@ -2242,7 +2272,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     aria-hidden
                   >
                     <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400/60 opacity-75" />
+                      {!isNativeAndroid ? (
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400/60 opacity-75" />
+                      ) : null}
                       <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-400" />
                     </span>
                     <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-cyan-200/85">
@@ -2330,7 +2362,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
                       }
                       style={isNativeAndroid ? undefined : { transformStyle: "preserve-3d" }}
                     >
-                      <CardBackFace className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]" />
+                      <CardBackFace
+                        className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]"
+                        nativeAndroid={isNativeAndroid}
+                      />
                       <p className="sr-only">Carta do oponente oculta até ambos jogarem</p>
                     </motion.div>
                   </PptPlayCardFrame>
