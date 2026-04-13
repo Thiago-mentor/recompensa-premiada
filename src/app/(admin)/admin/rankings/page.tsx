@@ -83,7 +83,7 @@ export default function AdminRankingsPage() {
         },
         { merge: true },
       );
-      setMsg("Premiações globais, por jogo e de clãs salvas com sucesso.");
+      setMsg("Premiações globais, por confronto e de clãs salvas com sucesso.");
     } catch (error) {
       setMsg(formatFirebaseError(error));
     } finally {
@@ -246,9 +246,10 @@ export default function AdminRankingsPage() {
     setClosingPeriod(period);
     try {
       await callFunction<{ period: RankingPeriod }, { ok: boolean }>("adminCloseRanking", { period });
+      const clanTiers = prizes.clans[period];
       setMsg(
-        period === "semanal"
-          ? "Fechamento do ranking semanal executado com sucesso, incluindo o rateio dos clãs por contribuição."
+        clanTiers.length > 0
+          ? `Fechamento do ranking ${labelForPeriod(period)} executado com sucesso, incluindo o rateio dos clãs por contribuição.`
           : `Fechamento do ranking ${labelForPeriod(period)} executado com sucesso.`,
       );
     } catch (error) {
@@ -321,51 +322,16 @@ export default function AdminRankingsPage() {
 
       {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
 
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Premiação global</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Faixas usadas no ranking geral, com fallback legado compatível com a estrutura atual.
-          </p>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-3">
-          {(["diario", "semanal", "mensal"] as RankingPeriod[]).map((period) => (
-            <PrizeCard
-              key={period}
-              title={labelForPeriod(period)}
-              rows={prizes.global[period]}
-              onChange={(index, key, value) => updateTier("global", period, index, key, value)}
-              onAdd={() => addTier("global", period)}
-              onRemove={(index) => removeTier("global", period, index)}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Premiação semanal de clãs</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            A faixa do clã é rateada proporcionalmente entre os membros que pontuaram na semana.
-            Você pode ajustar as faixas abaixo a qualquer momento.
-          </p>
-        </div>
-
-        <PrizeCard
-          title="Semanal"
-          rows={prizes.clans.semanal}
-          onChange={(index, key, value) => updateTier("clans", "semanal", index, key, value)}
-          onAdd={() => addTier("clans", "semanal")}
-          onRemove={(index) => removeTier("clans", "semanal", index)}
-        />
-      </section>
-
-      <section className="space-y-4">
+      <section className="space-y-5 rounded-[1.8rem] border border-cyan-400/20 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,0.16),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(2,6,23,0.94))] p-5 shadow-[0_0_56px_-26px_rgba(34,211,238,0.32)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">Premiação por confronto</h2>
-            <p className="mt-1 text-sm text-slate-400">
+            <span className="inline-flex items-center rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-100/85">
+              Bloco principal
+            </span>
+            <h2 className="mt-3 text-2xl font-black tracking-tight text-white">
+              Premiação por confronto
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-slate-300/80">
               Cada confronto competitivo pode ter suas próprias faixas por período. As experiências classificadas como recurso ficam fora desta categoria.
             </p>
           </div>
@@ -404,8 +370,8 @@ export default function AdminRankingsPage() {
                     className={cn(
                       "rounded-[1.5rem] border px-4 py-4 text-left transition",
                       active
-                        ? "border-cyan-400/30 bg-cyan-500/10 shadow-[0_0_32px_-18px_rgba(34,211,238,0.5)]"
-                        : "border-white/10 bg-white/[0.03] hover:bg-white/[0.05]",
+                        ? "border-cyan-300/35 bg-cyan-500/12 shadow-[0_0_36px_-18px_rgba(34,211,238,0.55)]"
+                        : "border-white/10 bg-black/20 hover:bg-white/[0.05]",
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -451,6 +417,51 @@ export default function AdminRankingsPage() {
             </div>
           </>
         )}
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Premiação global</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Faixas usadas no ranking geral, com fallback legado compatível com a estrutura atual.
+          </p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-3">
+          {(["diario", "semanal", "mensal"] as RankingPeriod[]).map((period) => (
+            <PrizeCard
+              key={period}
+              title={labelForPeriod(period)}
+              rows={prizes.global[period]}
+              onChange={(index, key, value) => updateTier("global", period, index, key, value)}
+              onAdd={() => addTier("global", period)}
+              onRemove={(index) => removeTier("global", period, index)}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-white">Premiação de clãs</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            As faixas do clã podem ser configuradas por período e são rateadas proporcionalmente entre
+            os membros que pontuaram no período fechado.
+          </p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-3">
+          {(["diario", "semanal", "mensal"] as RankingPeriod[]).map((period) => (
+            <PrizeCard
+              key={`clans-${period}`}
+              title={labelForPeriod(period)}
+              rows={prizes.clans[period]}
+              onChange={(index, key, value) => updateTier("clans", period, index, key, value)}
+              onAdd={() => addTier("clans", period)}
+              onRemove={(index) => removeTier("clans", period, index)}
+            />
+          ))}
+        </div>
       </section>
 
       <section className="rounded-[1.6rem] border border-white/10 bg-slate-950/70 p-4">

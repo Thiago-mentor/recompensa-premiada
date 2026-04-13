@@ -68,6 +68,7 @@ type RankingSelectionId =
   | "monthly_clan";
 type PrizeSelectionId =
   | ""
+  | "daily_clan"
   | "daily_ppt"
   | "daily_quiz"
   | "daily_reaction_tap"
@@ -75,6 +76,7 @@ type PrizeSelectionId =
   | "weekly_quiz"
   | "weekly_reaction_tap"
   | "weekly_clan"
+  | "monthly_clan"
   | "monthly_ppt"
   | "monthly_quiz"
   | "monthly_reaction_tap";
@@ -151,6 +153,7 @@ const PRIZE_SELECT_GROUPS: Array<{
   {
     label: "DIÁRIO",
     options: [
+      { id: "daily_clan", label: "CLÃ" },
       { id: "daily_ppt", label: "PPT" },
       { id: "daily_quiz", label: "QUIZ" },
       { id: "daily_reaction_tap", label: "REACTION" },
@@ -168,6 +171,7 @@ const PRIZE_SELECT_GROUPS: Array<{
   {
     label: "MENSAL",
     options: [
+      { id: "monthly_clan", label: "CLÃ" },
       { id: "monthly_ppt", label: "PPT" },
       { id: "monthly_quiz", label: "QUIZ" },
       { id: "monthly_reaction_tap", label: "REACTION" },
@@ -598,6 +602,7 @@ export default function RankingPage() {
                 highlightClanId={myClan?.id ?? null}
                 visibleTop={visibleTop}
                 mode="daily"
+                prizeTiers={prizeConfig.clans.diario}
               />
             </div>
           </section>
@@ -645,6 +650,7 @@ export default function RankingPage() {
                 highlightClanId={myClan?.id ?? null}
                 visibleTop={visibleTop}
                 mode="monthly"
+                prizeTiers={prizeConfig.clans.mensal}
               />
             </div>
           </section>
@@ -716,6 +722,23 @@ export default function RankingPage() {
             </div>
           </section>
         )
+      ) : activePrizeSelection === "daily_clan" ? (
+        <section className="space-y-4">
+          <SectionHeading
+            icon={<Users className="h-4 w-4" />}
+            eyebrow="Prêmio do clã"
+            title="CLÃ"
+            description="Faixa diária do clã com rateio por contribuição."
+          />
+
+          <div className="max-w-md">
+            <PrizePeriodCard
+              title="Diário"
+              subtitle="Clã · rateio por contribuição"
+              tiers={prizeConfig.clans.diario}
+            />
+          </div>
+        </section>
       ) : activePrizeSelection === "weekly_clan" ? (
         <section className="space-y-4">
           <SectionHeading
@@ -730,6 +753,23 @@ export default function RankingPage() {
               title="Semanal"
               subtitle="Clã · rateio por contribuição"
               tiers={prizeConfig.clans.semanal}
+            />
+          </div>
+        </section>
+      ) : activePrizeSelection === "monthly_clan" ? (
+        <section className="space-y-4">
+          <SectionHeading
+            icon={<Users className="h-4 w-4" />}
+            eyebrow="Prêmio do clã"
+            title="CLÃ"
+            description="Faixa mensal do clã com rateio por contribuição."
+          />
+
+          <div className="max-w-md">
+            <PrizePeriodCard
+              title="Mensal"
+              subtitle="Clã · rateio por contribuição"
+              tiers={prizeConfig.clans.mensal}
             />
           </div>
         </section>
@@ -842,6 +882,9 @@ function RankingSummaryCard({
                 {entry.username ? `@${entry.username}` : "continue jogando"}
               </p>
               <p className="mt-1 text-xs text-cyan-100/70">{subtitle}</p>
+              <p className="mt-1 inline-flex rounded-full border border-cyan-400/15 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-100/85">
+                PR {entry.score}
+              </p>
               {prizeLabel ? <p className="mt-1 text-[11px] text-amber-100/80">{prizeLabel}</p> : null}
             </div>
           </div>
@@ -886,6 +929,7 @@ function RankingTableCard({
         <div>
           <h3 className="text-base font-semibold text-white sm:text-lg">{title}</h3>
           <p className="mt-0.5 text-[11px] text-white/52 sm:text-xs">{subtitle}</p>
+          <p className="mt-1 text-[11px] text-white/38">Critério: mais vitórias, depois PR e partidas.</p>
         </div>
         {actualPosition != null && actualPosition > visibleTop ? (
           <div className="game-chip border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-100 sm:px-3 sm:text-xs">
@@ -996,8 +1040,11 @@ function ClanRankingPanel({
               highlight={Boolean(highlightClanId && entry.id === highlightClanId)}
               mode={mode}
               prizeLabel={
-                mode === "weekly"
-                  ? formatRankingPrize(getRankingPrizeForPosition(prizeTiers, entry.position))
+                mode !== "total"
+                  ? (() => {
+                      const prize = getRankingPrizeForPosition(prizeTiers, entry.position);
+                      return prize ? formatRankingPrize(prize) : null;
+                    })()
                   : null
               }
             />
@@ -1050,7 +1097,7 @@ function ClanRankingRow({
           </p>
           {prizeLabel ? (
             <p className="mt-1 text-[11px] font-semibold text-amber-100/80">
-              Faixa semanal: {prizeLabel}
+              Faixa {clanPrizePeriodLabel(mode)}: {prizeLabel}
             </p>
           ) : null}
         </div>
@@ -1217,6 +1264,10 @@ function formatClanStats(entry: RankedClanEntry, mode: ClanRankingMode) {
     return `${entry.monthlyScore} pts no mês · ${entry.monthlyWins} vitórias · ${entry.monthlyAds} anúncios`;
   }
   return `${entry.totalScore} pts totais · ${entry.totalWins} vitórias · ${entry.totalAds} anúncios`;
+}
+
+function clanPrizePeriodLabel(mode: ClanRankingMode) {
+  return mode === "daily" ? "diária" : mode === "weekly" ? "semanal" : "mensal";
 }
 
 function timestampToMs(value: unknown): number {

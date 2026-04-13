@@ -56,8 +56,7 @@ function parseInstantPrizeCurrency(raw: unknown): RaffleInstantPrizeTier["curren
 
 function parseInstantPrizeTiers(raw: unknown): RaffleInstantPrizeTier[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
+  const items = raw.map<RaffleInstantPrizeTier | null>((item) => {
       const value = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
       if (!value) return null;
       const quantity = Math.max(0, Math.floor(Number(value.quantity) || 0));
@@ -69,14 +68,13 @@ function parseInstantPrizeTiers(raw: unknown): RaffleInstantPrizeTier[] {
         currency: parseInstantPrizeCurrency(value.currency),
         awardedCount: Math.max(0, Math.floor(Number(value.awardedCount) || 0)),
       } satisfies RaffleInstantPrizeTier;
-    })
-    .filter((item): item is RaffleInstantPrizeTier => item != null);
+    });
+  return items.filter((item): item is RaffleInstantPrizeTier => item != null);
 }
 
 function parseInstantPrizeHits(raw: unknown): RaffleInstantPrizeHitView[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
+  const items = raw.map<RaffleInstantPrizeHitView | null>((item) => {
       const value = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
       if (!value) return null;
       const purchaseId = typeof value.purchaseId === "string" ? value.purchaseId : "";
@@ -94,8 +92,8 @@ function parseInstantPrizeHits(raw: unknown): RaffleInstantPrizeHitView[] {
         winnerUsername: typeof value.winnerUsername === "string" ? value.winnerUsername : null,
         awardedAtMs: tsToMs(value.awardedAt),
       } satisfies RaffleInstantPrizeHitView;
-    })
-    .filter((item): item is RaffleInstantPrizeHitView => item != null);
+    });
+  return items.filter((item): item is RaffleInstantPrizeHitView => item != null);
 }
 
 /** Converte snapshot Firestore do sorteio para o mesmo formato retornado pelas callables. */

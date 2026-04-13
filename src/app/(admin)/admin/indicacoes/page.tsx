@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
@@ -15,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
+import { ROUTES } from "@/lib/constants/routes";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
@@ -723,6 +725,28 @@ export default function AdminIndicacoesPage() {
             <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-right">
               <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Regra ativa</p>
               <p className="mt-1 text-sm font-semibold text-white">{activeCampaign ? "Campanha personalizada" : "Padrao do sistema"}</p>
+            </div>
+          </div>
+          <div className="rounded-[1.6rem] border border-cyan-400/20 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_30%),linear-gradient(180deg,rgba(8,18,36,0.94),rgba(15,23,42,0.9))] p-4 shadow-[0_0_42px_-24px_rgba(34,211,238,0.28)]">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200/75">
+                  Anti-fraude centralizado
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">
+                  A operação anti-fraude agora fica na aba <span className="text-cyan-200">Fraudes</span>.
+                </p>
+                <p className="mt-1 text-xs text-slate-300/75">
+                  Use esta tela para regras do programa de indicação. Para logs, fila manual, risco da
+                  conta e suspensão de usuário, abra a central dedicada.
+                </p>
+              </div>
+              <Link href={ROUTES.admin.fraudes}>
+                <Button variant="secondary">
+                  <ShieldCheck className="h-4 w-4" />
+                  Abrir central de fraudes
+                </Button>
+              </Link>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/20 p-2">

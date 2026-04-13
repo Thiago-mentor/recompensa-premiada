@@ -2,7 +2,9 @@
 export const COLLECTIONS = {
   users: "users",
   clans: "clans",
+  clanRankingsDaily: "clan_rankings_daily",
   clanRankingsWeekly: "clan_rankings_weekly",
+  clanRankingsMonthly: "clan_rankings_monthly",
   clanMemberships: "clan_memberships",
   clanJoinRequests: "clan_join_requests",
   referralCampaigns: "referral_campaigns",

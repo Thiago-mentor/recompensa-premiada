@@ -57,6 +57,7 @@ export const CALLABLES = {
   adminCloseRaffle: "adminCloseRaffle",
   adminDrawRaffle: "adminDrawRaffle",
   adminGrantEconomy: "adminGrantEconomy",
+  adminUpdateFraudUserState: "adminUpdateFraudUserState",
   adminCloseRanking: "adminCloseRanking",
   adminReviewReferral: "adminReviewReferral",
   adminReprocessReferral: "adminReprocessReferral",

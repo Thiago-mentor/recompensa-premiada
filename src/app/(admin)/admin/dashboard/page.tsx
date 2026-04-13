@@ -130,7 +130,7 @@ export default function AdminDashboardPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
-              href={ROUTES.admin.configuracoes}
+              href={ROUTES.admin.baus}
               className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-100 transition hover:bg-amber-500/15"
             >
               <Settings className="mr-2 h-4 w-4" />
@@ -285,7 +285,7 @@ export default function AdminDashboardPage() {
 
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
-              href={ROUTES.admin.configuracoes}
+              href={ROUTES.admin.baus}
               className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-4 py-2.5 text-sm font-bold text-cyan-100 transition hover:bg-cyan-500/15"
             >
               Abrir painel de baús

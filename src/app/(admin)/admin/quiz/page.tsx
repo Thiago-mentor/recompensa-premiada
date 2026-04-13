@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { CircleOff, LayoutList, Sparkles, TriangleAlert } from "lucide-react";
 import {
   addDoc,
   collection,
@@ -15,6 +16,8 @@ import {
 } from "firebase/firestore";
 import { getToken } from "firebase/app-check";
 import { GoogleAIBackend, Schema, VertexAIBackend, getAI, getGenerativeModel } from "firebase/ai";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
+import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { getFirebaseApp, getFirebaseFirestore, initFirebaseAppCheck } from "@/lib/firebase/client";
 import {
   appCheckSiteKey,
@@ -205,6 +208,11 @@ export default function AdminQuizPage() {
   const visibleInactiveIds = useMemo(
     () => filteredRows.filter((r) => !r.active).map((r) => r.id),
     [filteredRows],
+  );
+  const activeCount = useMemo(() => rows.filter((row) => row.active).length, [rows]);
+  const issueCount = useMemo(
+    () => rows.filter((row) => detectQuizQuestionIssues(row).length > 0).length,
+    [rows],
   );
 
   useEffect(() => {
@@ -565,12 +573,24 @@ export default function AdminQuizPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Perguntas do Quiz</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Crie, edite, ative ou desative perguntas sem precisar mexer no código.
-        </p>
-      </div>
+      <AdminPageHero
+        eyebrow="Quiz premium"
+        title="Perguntas do Quiz"
+        accent="violet"
+        description="Crie, edite, ative, desative e regenere perguntas sem precisar mexer no código. O painel combina curadoria manual, filtros e fluxo assistido por IA."
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setSelectedId(null);
+              setForm(EMPTY_FORM);
+              setMsg(null);
+            }}
+          >
+            Nova pergunta
+          </Button>
+        }
+      />
 
       {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
       {listLoadError ? (
@@ -580,6 +600,37 @@ export default function AdminQuizPage() {
           <strong className="text-white">produção</strong> (ou o contrário).
         </AlertBanner>
       ) : null}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <AdminMetricCard
+          title="Total"
+          value={String(rows.length)}
+          hint="Perguntas carregadas do Firestore"
+          tone="cyan"
+          icon={<LayoutList className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Ativas"
+          value={String(activeCount)}
+          hint="Disponíveis para o app"
+          tone="emerald"
+          icon={<Sparkles className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Inativas"
+          value={String(Math.max(0, rows.length - activeCount))}
+          hint="Fora da rotação atual"
+          tone="slate"
+          icon={<CircleOff className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Com alerta"
+          value={String(issueCount)}
+          hint="Perguntas com problemas detectados"
+          tone="amber"
+          icon={<TriangleAlert className="h-4 w-4" />}
+        />
+      </section>
 
       <section className="space-y-4 rounded-xl border border-violet-400/20 bg-violet-950/20 p-4">
         <div>

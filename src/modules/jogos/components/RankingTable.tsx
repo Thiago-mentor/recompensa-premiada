@@ -32,8 +32,9 @@ export function RankingTable({
             {showPrizeColumn ? (
               <th className="hidden px-4 py-3 text-left lg:table-cell">Prêmio</th>
             ) : null}
-            <th className="hidden w-20 px-3 py-3 text-right sm:table-cell sm:px-4">Vitórias</th>
-            <th className="hidden w-20 px-3 py-3 text-right md:table-cell sm:px-4">Partidas</th>
+            <th className="hidden w-20 px-3 py-3 text-right lg:table-cell sm:px-4">PR</th>
+            <th className="w-16 px-2 py-2.5 text-right sm:w-20 sm:px-4 sm:py-3">Vitórias</th>
+            <th className="w-16 px-2 py-2.5 text-right sm:w-20 sm:px-4 sm:py-3">Partidas</th>
           </tr>
         </thead>
         <tbody>
@@ -72,9 +73,6 @@ export function RankingTable({
                       <p className="mt-0.5 truncate text-[11px] leading-tight text-white/45 sm:text-xs">
                         {e.username ? `@${e.username}` : "sem @usuário"}
                       </p>
-                      <p className="mt-1 text-[10px] leading-tight text-violet-200 sm:hidden">
-                        {e.vitorias} vitórias · {e.partidas} partidas
-                      </p>
                     </div>
                   </div>
                 </td>
@@ -85,10 +83,13 @@ export function RankingTable({
                     </span>
                   </td>
                 ) : null}
-                <td className="hidden px-3 py-3 text-right font-semibold text-violet-200 sm:table-cell sm:px-4">
+                <td className="hidden px-3 py-3 text-right font-semibold text-cyan-100 lg:table-cell sm:px-4">
+                  {e.score}
+                </td>
+                <td className="px-2 py-2.5 text-right font-semibold text-violet-200 sm:px-4 sm:py-3">
                   {e.vitorias}
                 </td>
-                <td className="hidden px-3 py-3 text-right text-white/60 md:table-cell sm:px-4">
+                <td className="px-2 py-2.5 text-right text-white/60 sm:px-4 sm:py-3">
                   {e.partidas}
                 </td>
               </tr>

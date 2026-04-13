@@ -25,6 +25,7 @@ export const ROUTES = {
     rankings: "/admin/rankings",
     sorteios: "/admin/sorteios",
     quiz: "/admin/quiz",
+    baus: "/admin/baus",
     recompensas: "/admin/recompensas",
     missoes: "/admin/missoes",
     configuracoes: "/admin/configuracoes",

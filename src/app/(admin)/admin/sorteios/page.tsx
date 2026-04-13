@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
@@ -17,6 +18,7 @@ import {
 import { uploadRafflePrizeImage } from "@/services/raffle/prizeImageUpload";
 import type { RaffleScheduleMode, RaffleView } from "@/types/raffle";
 import type { RaffleSystemConfig } from "@/types/systemConfig";
+import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
 import {
   RAFFLE_DEFAULT_DRAW_TIME_ZONE,
   RAFFLE_DEFAULT_MAX_PER_PURCHASE,
@@ -31,7 +33,17 @@ import {
   getRaffleNumberDigits,
   getRaffleProgressPercent,
 } from "@/utils/raffle";
-import { Loader2, Save, Shuffle, StopCircle } from "lucide-react";
+import {
+  BarChart3,
+  CalendarClock,
+  Loader2,
+  PencilLine,
+  PlusCircle,
+  Save,
+  Shuffle,
+  Sparkles,
+  StopCircle,
+} from "lucide-react";
 
 const RAFFLE_SYSTEM_ID = "raffle_system";
 
@@ -52,6 +64,22 @@ function formatFederalResultWhen(ms: number | null | undefined): string {
     return new Date(ms).toLocaleString("pt-BR", {
       timeZone: RAFFLE_DEFAULT_DRAW_TIME_ZONE,
       weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function formatAdminDateTime(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  try {
+    return new Date(ms).toLocaleString("pt-BR", {
+      timeZone: RAFFLE_DEFAULT_DRAW_TIME_ZONE,
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -105,6 +133,7 @@ export default function AdminSorteiosPage() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [raffleCatalog, setRaffleCatalog] = useState<RaffleView[]>([]);
 
   const [systemEnabled, setSystemEnabled] = useState(true);
   const [defaultTicketPrice, setDefaultTicketPrice] = useState(String(RAFFLE_DEFAULT_TICKET_PRICE));
@@ -227,6 +256,18 @@ export default function AdminSorteiosPage() {
   }, []);
 
   useEffect(() => {
+    const db = getFirebaseFirestore();
+    const raffleQuery = query(collection(db, COLLECTIONS.raffles), orderBy("updatedAt", "desc"), limit(24));
+    const unsubscribe = onSnapshot(raffleQuery, (snapshot) => {
+      const next = snapshot.docs
+        .map((docSnap) => mapRaffleSnapshotToView(docSnap))
+        .filter((item): item is RaffleView => item != null);
+      setRaffleCatalog(next);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
     if (!pendingPrizeImage) {
       setPrizeImagePreviewUrl(null);
       return;
@@ -283,6 +324,14 @@ export default function AdminSorteiosPage() {
     setPendingPrizeImage(null);
     setClearPrizeImage(false);
     setWinningNumberInput("");
+  }
+
+  function editRaffle(raffle: RaffleView) {
+    populateEditableFormFromRaffle(raffle);
+    setWinningNumberInput(
+      raffle.winningNumber != null ? formatRaffleScopedNumber(raffle.winningNumber, raffle.releasedCount) : "",
+    );
+    setMsg(null);
   }
 
   async function saveSystemConfig() {
@@ -369,13 +418,14 @@ export default function AdminSorteiosPage() {
 
       const res = await adminCreateOrUpdateRaffleCallable(buildPayload({ ...imageExtra, raffleId: id || undefined }));
       if (res.raffle) {
-        setLiveRaffle(res.raffle);
         setWinningNumberInput(
           res.raffle.winningNumber != null
             ? formatRaffleScopedNumber(res.raffle.winningNumber, res.raffle.releasedCount)
             : "",
         );
         populateEditableFormFromRaffle(res.raffle);
+        const active = await getActiveRaffleCallable();
+        setLiveRaffle(active.raffle);
       }
       setClearPrizeImage(false);
       setMsg("Sorteio salvo.");
@@ -480,6 +530,8 @@ export default function AdminSorteiosPage() {
     0,
   );
   const liveInstantPrizeFoundCount = liveRaffle?.instantPrizeHits?.length ?? 0;
+  const editableRaffles = raffleCatalog.filter((raffle) => raffle.status === "draft" || raffle.status === "active");
+  const isCreatingNewRaffle = !raffleId.trim();
 
   return (
     <div className="space-y-6 pb-4">
@@ -506,6 +558,39 @@ export default function AdminSorteiosPage() {
         >
           {msg}
         </AlertBanner>
+      ) : null}
+
+      {!loading ? (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <AdminMetricCard
+            title="Catálogo"
+            value={String(raffleCatalog.length)}
+            hint="Sorteios carregados na listagem"
+            tone="violet"
+            icon={<BarChart3 className="h-4 w-4" />}
+          />
+          <AdminMetricCard
+            title="Ao vivo"
+            value={liveRaffle ? (liveRaffle.status === "active" ? "Ativo" : liveRaffle.status) : "Nenhum"}
+            hint="Situação atual lida do servidor"
+            tone={liveRaffle?.status === "active" ? "emerald" : "slate"}
+            icon={<CalendarClock className="h-4 w-4" />}
+          />
+          <AdminMetricCard
+            title="Progresso"
+            value={liveRaffle ? `${liveProgressPercent}%` : "0%"}
+            hint="Preenchimento do sorteio atual"
+            tone="cyan"
+            icon={<Shuffle className="h-4 w-4" />}
+          />
+          <AdminMetricCard
+            title="Instantâneos"
+            value={String(liveInstantPrizeFoundCount)}
+            hint="Números premiados já localizados"
+            tone="amber"
+            icon={<Sparkles className="h-4 w-4" />}
+          />
+        </section>
       ) : null}
 
       {loading ? (
@@ -592,6 +677,77 @@ export default function AdminSorteiosPage() {
                 Sem ganhador para o número lançado.
               </div>
             ) : null}
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white/60">Editor do sorteio</p>
+              <p className="mt-1 text-sm text-white/50">
+                {isCreatingNewRaffle
+                  ? "Criando um novo sorteio programado."
+                  : `Editando: ${title || raffleId}`}
+              </p>
+            </div>
+            <Button type="button" variant="secondary" onClick={() => resetFormForNewRaffle()}>
+              <PlusCircle className="h-4 w-4" />
+              Novo sorteio
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            {editableRaffles.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-4 text-sm text-white/50 xl:col-span-2">
+                Nenhum sorteio em rascunho ou ativo para editar no momento.
+              </div>
+            ) : (
+              editableRaffles.map((raffle) => (
+                <div
+                  key={`editor-${raffle.id}`}
+                  className={`rounded-xl border px-4 py-4 transition ${
+                    raffle.id === raffleId
+                      ? "border-cyan-300/35 bg-cyan-500/10"
+                      : "border-white/10 bg-black/20"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{raffle.title}</p>
+                      <p className="mt-1 text-xs text-white/45">
+                        {raffle.status === "active" ? "Ativo" : "Rascunho"} · Início {formatAdminDateTime(raffle.startsAtMs)}
+                      </p>
+                      <p className="mt-1 text-xs text-white/35">
+                        {resolveScheduleMode(raffle) === "date_range"
+                          ? `Fim ${formatAdminDateTime(raffle.endsAtMs)}`
+                          : "Até esgotar os números"}
+                      </p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={() => editRaffle(raffle)}>
+                      <PencilLine className="h-4 w-4" />
+                      Editar
+                    </Button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/55">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                      {raffle.releasedCount.toLocaleString("pt-BR")} números
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                      {raffle.soldCount.toLocaleString("pt-BR")} vendidos
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                      {scheduleModeLabel(resolveScheduleMode(raffle))}
+                    </span>
+                    {raffle.resultScheduledAtMs ? (
+                      <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-cyan-100/80">
+                        <CalendarClock className="mr-1 inline h-3.5 w-3.5" />
+                        {formatFederalResultWhen(raffle.resultScheduledAtMs)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

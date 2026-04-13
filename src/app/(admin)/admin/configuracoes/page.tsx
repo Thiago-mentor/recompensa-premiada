@@ -2,31 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { Coins, Gift, Sparkles, Wallet } from "lucide-react";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
+import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
-import { ChestSystemConfigPanel } from "@/components/admin/ChestSystemConfigPanel";
-import type { StreakRewardTier, SystemEconomyConfig } from "@/types/systemConfig";
-import {
-  DEFAULT_STREAK_DISPLAY_DAYS,
-  MAX_STREAK_DISPLAY_DAYS,
-  normalizeStreakDisplayDays,
-} from "@/services/economy/economyStreakConfig";
-import { normalizeStreakTable } from "@/utils/streakReward";
-import { clampPvpChoiceSeconds, parsePvpChoiceSeconds } from "@/lib/games/pvpTiming";
+import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { cashPointsToBrl, formatBrl } from "@/services/economy/cashEconomyConfig";
 
 const ECONOMY_ID = "economy";
-
-const emptyTier = (): StreakRewardTier => ({
-  dia: 7,
-  coins: 100,
-  gems: 0,
-  tipoBonus: "bau",
-});
 
 export default function AdminConfigPage() {
   const [rewardAd, setRewardAd] = useState("25");
@@ -35,18 +23,11 @@ export default function AdminConfigPage() {
   const [limiteCoins, setLimiteCoins] = useState("5000");
   const [refIndicador, setRefIndicador] = useState("100");
   const [refConvidado, setRefConvidado] = useState("50");
-  const [chestCooldown, setChestCooldown] = useState("3600");
   const [boostEnabled, setBoostEnabled] = useState(false);
   const [boostPercent, setBoostPercent] = useState("25");
   const [fragmentsPerBoostCraft, setFragmentsPerBoostCraft] = useState("10");
   const [boostMinutesPerCraft, setBoostMinutesPerCraft] = useState("15");
   const [boostActivationMinutes, setBoostActivationMinutes] = useState("15");
-  const [pptEntryCost, setPptEntryCost] = useState("0");
-  const [quizEntryCost, setQuizEntryCost] = useState("0");
-  const [reactionEntryCost, setReactionEntryCost] = useState("0");
-  const [pvpSecPpt, setPvpSecPpt] = useState("10");
-  const [pvpSecQuiz, setPvpSecQuiz] = useState("10");
-  const [pvpSecReaction, setPvpSecReaction] = useState("10");
   const [convBuy, setConvBuy] = useState("500");
   const [convSell, setConvSell] = useState("0");
   const [cashPointsPerReal, setCashPointsPerReal] = useState("100");
@@ -56,10 +37,6 @@ export default function AdminConfigPage() {
   const [grantAmount, setGrantAmount] = useState("");
   const [grantMsg, setGrantMsg] = useState<string | null>(null);
   const [grantLoading, setGrantLoading] = useState(false);
-  const [streakRows, setStreakRows] = useState<StreakRewardTier[]>([]);
-  const [streakDisplayDays, setStreakDisplayDays] = useState(
-    String(DEFAULT_STREAK_DISPLAY_DAYS),
-  );
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,7 +53,6 @@ export default function AdminConfigPage() {
         if (typeof d.limiteDiarioCoins === "number") setLimiteCoins(String(d.limiteDiarioCoins));
         if (typeof d.referralBonusIndicador === "number") setRefIndicador(String(d.referralBonusIndicador));
         if (typeof d.referralBonusConvidado === "number") setRefConvidado(String(d.referralBonusConvidado));
-        if (typeof d.chestCooldownSegundos === "number") setChestCooldown(String(d.chestCooldownSegundos));
         if (typeof d.boostEnabled === "boolean") setBoostEnabled(d.boostEnabled);
         if (typeof d.boostRewardPercent === "number") setBoostPercent(String(d.boostRewardPercent));
         if (typeof d.fragmentsPerBoostCraft === "number") {
@@ -88,22 +64,11 @@ export default function AdminConfigPage() {
         if (typeof d.boostActivationMinutes === "number") {
           setBoostActivationMinutes(String(d.boostActivationMinutes));
         }
-        if (typeof d.gameEntryCost?.ppt === "number") setPptEntryCost(String(d.gameEntryCost.ppt));
-        if (typeof d.gameEntryCost?.quiz === "number") setQuizEntryCost(String(d.gameEntryCost.quiz));
-        if (typeof d.gameEntryCost?.reaction_tap === "number") {
-          setReactionEntryCost(String(d.gameEntryCost.reaction_tap));
-        }
-        const pcs = parsePvpChoiceSeconds(d);
-        setPvpSecPpt(String(pcs.ppt));
-        setPvpSecQuiz(String(pcs.quiz));
-        setPvpSecReaction(String(pcs.reaction_tap));
         if (typeof d.conversionCoinsPerGemBuy === "number") setConvBuy(String(d.conversionCoinsPerGemBuy));
         if (typeof d.conversionCoinsPerGemSell === "number") setConvSell(String(d.conversionCoinsPerGemSell));
         if (typeof d.cashPointsPerReal === "number" && d.cashPointsPerReal >= 1) {
           setCashPointsPerReal(String(Math.floor(d.cashPointsPerReal)));
         }
-        setStreakDisplayDays(String(normalizeStreakDisplayDays(d.streakDisplayDays)));
-        setStreakRows(normalizeStreakTable(d.streakTable));
       } catch {
         /* ignore */
       }
@@ -127,34 +92,14 @@ export default function AdminConfigPage() {
           limiteDiarioCoins: Number(limiteCoins),
           referralBonusIndicador: Number(refIndicador),
           referralBonusConvidado: Number(refConvidado),
-          chestCooldownSegundos: Number(chestCooldown),
           boostEnabled,
           boostRewardPercent: Math.max(0, Math.floor(Number(boostPercent)) || 0),
           fragmentsPerBoostCraft: Math.max(1, Math.floor(Number(fragmentsPerBoostCraft)) || 10),
           boostMinutesPerCraft: Math.max(1, Math.floor(Number(boostMinutesPerCraft)) || 15),
           boostActivationMinutes: Math.max(1, Math.floor(Number(boostActivationMinutes)) || 15),
-          gameEntryCost: {
-            ppt: Number(pptEntryCost),
-            quiz: Number(quizEntryCost),
-            reaction_tap: Number(reactionEntryCost),
-          },
-          pvpChoiceSeconds: {
-            ppt: clampPvpChoiceSeconds(pvpSecPpt, 10),
-            quiz: clampPvpChoiceSeconds(pvpSecQuiz, 10),
-            reaction_tap: clampPvpChoiceSeconds(pvpSecReaction, 10),
-          },
           conversionCoinsPerGemBuy: Math.max(1, Math.floor(Number(convBuy)) || 500),
           conversionCoinsPerGemSell: Math.max(0, Math.floor(Number(convSell)) || 0),
           cashPointsPerReal: Math.max(1, Math.floor(Number(cashPointsPerReal)) || 100),
-          streakDisplayDays: normalizeStreakDisplayDays(streakDisplayDays),
-          streakTable: streakRows
-            .map((r) => ({
-              dia: Math.max(1, Math.floor(Number(r.dia)) || 1),
-              coins: Math.max(0, Math.floor(Number(r.coins)) || 0),
-              gems: Math.max(0, Math.floor(Number(r.gems)) || 0),
-              tipoBonus: r.tipoBonus,
-            }))
-            .sort((a, b) => a.dia - b.dia),
         },
         { merge: true },
       );
@@ -208,14 +153,45 @@ export default function AdminConfigPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Configurações da economia</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Ajuste recompensas básicas, limites diários, referral, mini-jogo Baú e custo de entrada
-          dos confrontos. O sistema novo de baús fica no painel dedicado logo abaixo.
-        </p>
-      </div>
+      <AdminPageHero
+        eyebrow="Economia premium"
+        title="Configurações da economia"
+        accent="violet"
+        description="Ajuste recompensas básicas, limites diários, referral, boost, conversões e operações manuais da economia. As regras de confronto agora ficam na aba Arena e as de baú na aba Baús."
+        actions={<Button onClick={save}>Salvar economia</Button>}
+      />
       {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <AdminMetricCard
+          title="PR por anúncio"
+          value={rewardAd}
+          hint="Recompensa base por ad"
+          tone="cyan"
+          icon={<Coins className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Login diário"
+          value={dailyBonus}
+          hint="Bônus fixo de entrada"
+          tone="amber"
+          icon={<Gift className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Boost"
+          value={boostEnabled ? "Ligado" : "Desligado"}
+          hint="Loja e multiplicador de PR"
+          tone={boostEnabled ? "emerald" : "slate"}
+          icon={<Sparkles className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="CASH por R$ 1"
+          value={cashPointsPerReal}
+          hint="Taxa atual de resgate"
+          tone="violet"
+          icon={<Wallet className="h-4 w-4" />}
+        />
+      </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
@@ -227,129 +203,10 @@ export default function AdminConfigPage() {
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-          <h2 className="text-lg font-semibold text-white">Referral e mini-jogo Baú</h2>
+          <h2 className="text-lg font-semibold text-white">Referral</h2>
           <Field label="Bônus do indicador" value={refIndicador} onChange={setRefIndicador} />
           <Field label="Bônus do convidado" value={refConvidado} onChange={setRefConvidado} />
-          <Field
-            label="Cooldown do mini-jogo Baú (segundos)"
-            value={chestCooldown}
-            onChange={setChestCooldown}
-          />
         </div>
-      </section>
-
-      <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Marcos da streak diária</h2>
-            <p className="mt-1 max-w-2xl text-xs text-slate-400">
-              A recompensa do dia usa o marco cujo <strong>dia</strong> coincide com a sequência atual
-              (ex.: no 7º dia seguido aplica a linha &quot;7&quot;). Nos outros dias vale o campo{" "}
-              <strong>Bônus login diário</strong> (só PR).
-            </p>
-            <p className="mt-2 max-w-2xl text-xs text-slate-500">
-              O modal de entrada pode mostrar entre <strong>1</strong> e{" "}
-              <strong>{MAX_STREAK_DISPLAY_DAYS}</strong> dias. Em contagens maiores, o layout entra em
-              modo compacto automaticamente.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-xs"
-              onClick={() => setStreakRows((prev) => [...prev, emptyTier()])}
-            >
-              + Marco
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-xs"
-              onClick={() => {
-                const base = Math.max(0, Math.floor(Number(dailyBonus)) || 50);
-                setStreakRows([
-                  { dia: 1, coins: base, gems: 0, tipoBonus: "nenhum" },
-                  { dia: 7, coins: base * 4, gems: 5, tipoBonus: "bau" },
-                  { dia: 30, coins: base * 12, gems: 25, tipoBonus: "especial" },
-                ]);
-              }}
-            >
-              Preencher 1 / 7 / 30
-            </Button>
-          </div>
-        </div>
-        <div className="max-w-xs">
-          <Field
-            label={`Dias visíveis no modal de entrada (1-${MAX_STREAK_DISPLAY_DAYS})`}
-            value={streakDisplayDays}
-            onChange={setStreakDisplayDays}
-          />
-        </div>
-        {streakRows.length === 0 ? (
-          <p className="text-sm text-slate-500">Nenhum marco — só o bônus fixo de login diário.</p>
-        ) : (
-          <div className="space-y-2">
-            {streakRows.map((row, i) => (
-              <div
-                key={i}
-                className="grid gap-2 rounded-lg border border-white/10 bg-black/20 p-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]"
-              >
-                <Field
-                  label="Dia da sequência"
-                  value={String(row.dia)}
-                  onChange={(v) => {
-                    const n = Math.max(1, Math.floor(Number(v)) || 1);
-                    setStreakRows((prev) => prev.map((r, j) => (j === i ? { ...r, dia: n } : r)));
-                  }}
-                />
-                <Field
-                  label="PR"
-                  value={String(row.coins)}
-                  onChange={(v) => {
-                    const n = Math.max(0, Math.floor(Number(v)) || 0);
-                    setStreakRows((prev) => prev.map((r, j) => (j === i ? { ...r, coins: n } : r)));
-                  }}
-                />
-                <Field
-                  label="TICKET (streak)"
-                  value={String(row.gems)}
-                  onChange={(v) => {
-                    const n = Math.max(0, Math.floor(Number(v)) || 0);
-                    setStreakRows((prev) => prev.map((r, j) => (j === i ? { ...r, gems: n } : r)));
-                  }}
-                />
-                <div>
-                  <label className="text-xs text-slate-400">Tipo</label>
-                  <select
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white"
-                    value={row.tipoBonus}
-                    onChange={(e) => {
-                      const tipoBonus = e.target.value as StreakRewardTier["tipoBonus"];
-                      setStreakRows((prev) =>
-                        prev.map((r, j) => (j === i ? { ...r, tipoBonus } : r)),
-                      );
-                    }}
-                  >
-                    <option value="nenhum">Nenhum</option>
-                    <option value="bau">Baú</option>
-                    <option value="especial">Especial</option>
-                  </select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-xs text-red-300"
-                    onClick={() => setStreakRows((prev) => prev.filter((_, j) => j !== i))}
-                  >
-                    Remover
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       <section className="space-y-3 rounded-xl border border-fuchsia-400/20 bg-fuchsia-950/15 p-4">
@@ -508,35 +365,6 @@ export default function AdminConfigPage() {
           {grantLoading ? "Aplicando…" : "Creditar na conta"}
         </Button>
       </section>
-
-      <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-        <h2 className="text-lg font-semibold text-white">Custo de entrada dos confrontos</h2>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="PPT" value={pptEntryCost} onChange={setPptEntryCost} />
-          <Field label="Quiz" value={quizEntryCost} onChange={setQuizEntryCost} />
-          <Field label="Reaction" value={reactionEntryCost} onChange={setReactionEntryCost} />
-        </div>
-      </section>
-
-      <section className="space-y-3 rounded-xl border border-amber-400/20 bg-amber-950/20 p-4">
-        <h2 className="text-lg font-semibold text-white">Tempo para responder (PvP)</h2>
-        <p className="text-xs text-slate-400">
-          Janela em segundos para cada jogador enviar jogada ou resposta. O servidor usa o mesmo valor no
-          prazo da rodada (entre <strong className="text-white">3</strong> e{" "}
-          <strong className="text-white">120</strong> s). Salve após alterar.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field
-            label="PPT (pedra/papel/tesoura)"
-            value={pvpSecPpt}
-            onChange={setPvpSecPpt}
-          />
-          <Field label="Quiz 1v1" value={pvpSecQuiz} onChange={setPvpSecQuiz} />
-          <Field label="Reaction tap" value={pvpSecReaction} onChange={setPvpSecReaction} />
-        </div>
-      </section>
-
-      <ChestSystemConfigPanel boostSystemEnabled={boostEnabled} />
 
       <div className="flex justify-end">
         <Button onClick={save}>Salvar economia</Button>

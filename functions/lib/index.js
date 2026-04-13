@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = void 0;
+exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
+exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -53,7 +53,9 @@ const db = firestoreDbId && firestoreDbId !== "(default)"
 const COL = {
     users: "users",
     clans: "clans",
+    clanRankingsDaily: "clan_rankings_daily",
     clanRankingsWeekly: "clan_rankings_weekly",
+    clanRankingsMonthly: "clan_rankings_monthly",
     clanMemberships: "clan_memberships",
     clanJoinRequests: "clan_join_requests",
     userChests: "user_chests",
@@ -5357,6 +5359,77 @@ exports.adminGrantEconomy = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
     });
     return { ok: true, targetUid, field, newBalance: after };
 });
+exports.adminUpdateFraudUserState = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const adminUid = request.auth?.uid;
+    assertAuthed(adminUid);
+    await assertAdmin(adminUid);
+    const lookup = String(request.data?.lookup || "username").toLowerCase();
+    const value = String(request.data?.value || "").trim();
+    const nextRisk = String(request.data?.risk || "baixo").trim();
+    const nextBanned = request.data?.banned === true;
+    const note = typeof request.data?.note === "string" ? request.data.note.trim().slice(0, 500) : "";
+    if (!["username", "uid"].includes(lookup)) {
+        throw new https_1.HttpsError("invalid-argument", "lookup deve ser username ou uid.");
+    }
+    if (!value) {
+        throw new https_1.HttpsError("invalid-argument", "Informe username ou UID.");
+    }
+    if (!["baixo", "medio", "alto"].includes(nextRisk)) {
+        throw new https_1.HttpsError("invalid-argument", "Risco inválido.");
+    }
+    let targetUid = "";
+    if (lookup === "uid") {
+        const ref = db.doc(`${COL.users}/${value}`);
+        const snap = await ref.get();
+        if (!snap.exists)
+            throw new https_1.HttpsError("not-found", "UID não encontrado em users.");
+        targetUid = value;
+    }
+    else {
+        const username = value.toLowerCase().replace(/^@/, "");
+        const usersSnap = await db.collection(COL.users).where("username", "==", username).limit(1).get();
+        if (usersSnap.empty)
+            throw new https_1.HttpsError("not-found", "Username não encontrado.");
+        targetUid = usersSnap.docs[0].id;
+    }
+    const userRef = db.doc(`${COL.users}/${targetUid}`);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+    }
+    const userData = userSnap.data();
+    const previousRisk = userData.riscoFraude === "alto" || userData.riscoFraude === "medio" ? userData.riscoFraude : "baixo";
+    const previousBanned = userData.banido === true;
+    await userRef.set({
+        riscoFraude: nextRisk,
+        banido: nextBanned,
+        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await db.collection(COL.fraudLogs).add({
+        uid: targetUid,
+        tipo: "conta_suspeita",
+        severidade: nextBanned || nextRisk === "alto" ? "alta" : nextRisk === "medio" ? "media" : "baixa",
+        detalhes: {
+            action: "admin_update_user_fraud_state",
+            actorUid: adminUid,
+            previousRisk,
+            nextRisk,
+            previousBanned,
+            nextBanned,
+            note: note || null,
+        },
+        origem: "admin",
+        timestamp: firestore_2.FieldValue.serverTimestamp(),
+    });
+    return {
+        ok: true,
+        targetUid,
+        previousRisk,
+        previousBanned,
+        risk: nextRisk,
+        banned: nextBanned,
+    };
+});
 exports.reviewRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
@@ -6063,11 +6136,15 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             ticketCost,
             rangeStart,
             rangeEnd,
-            numbers,
-            instantPrizeHits: instantPrizeHits.length > 0 ? instantPrizeHits : undefined,
             clientRequestId,
             createdAt: firestore_2.Timestamp.now(),
         };
+        if (numbers && numbers.length > 0) {
+            purchasePayload.numbers = numbers;
+        }
+        if (instantPrizeHits.length > 0) {
+            purchasePayload.instantPrizeHits = instantPrizeHits;
+        }
         tx.set(purchaseRef, {
             ...purchasePayload,
             createdAt: firestore_2.FieldValue.serverTimestamp(),
@@ -8023,7 +8100,34 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
     }, { merge: true });
     await batch.commit();
 }
-function normalizeClanWeeklySnapshot(periodKey, raw) {
+function clanRankingCollectionForPeriod(period) {
+    return period === "diario"
+        ? COL.clanRankingsDaily
+        : period === "semanal"
+            ? COL.clanRankingsWeekly
+            : COL.clanRankingsMonthly;
+}
+function normalizeClanRankingSnapshot(period, periodKey, raw) {
+    if (period === "diario") {
+        if (String(raw.scoreDailyKey || "") !== periodKey) {
+            return { score: 0, wins: 0, ads: 0 };
+        }
+        return {
+            score: normalizeCounter(raw.scoreDaily),
+            wins: normalizeCounter(raw.scoreDailyWins),
+            ads: normalizeCounter(raw.scoreDailyAds),
+        };
+    }
+    if (period === "mensal") {
+        if (String(raw.scoreMonthlyKey || "") !== periodKey) {
+            return { score: 0, wins: 0, ads: 0 };
+        }
+        return {
+            score: normalizeCounter(raw.scoreMonthly),
+            wins: normalizeCounter(raw.scoreMonthlyWins),
+            ads: normalizeCounter(raw.scoreMonthlyAds),
+        };
+    }
     if (String(raw.scoreWeeklyKey || "") !== periodKey) {
         return { score: 0, wins: 0, ads: 0 };
     }
@@ -8033,7 +8137,10 @@ function normalizeClanWeeklySnapshot(periodKey, raw) {
         ads: normalizeCounter(raw.scoreWeeklyAds),
     };
 }
-function normalizeClanWeeklyContributorSnapshot(uid, raw) {
+function clanRankingDisplayLabel(period) {
+    return period === "diario" ? "diária" : period === "semanal" ? "semanal" : "mensal";
+}
+function normalizeClanRankingContributorSnapshot(uid, raw) {
     return {
         uid,
         score: normalizeCounter(raw.score),
@@ -8100,19 +8207,25 @@ function distributeClanRewardsToContributors(rewards, contributors) {
     }))
         .filter((item) => hasRankingPrizeRewards(item.rewards));
 }
-async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
-    const rankingRootRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}`);
-    const payoutFlagRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}/meta/payout`);
+async function closeClanRankingPayout(period, periodKey, prizeTiers) {
+    const collectionName = clanRankingCollectionForPeriod(period);
+    const rankingRootRef = db.doc(`${collectionName}/${periodKey}`);
+    const payoutFlagRef = db.doc(`${collectionName}/${periodKey}/meta/payout`);
     const payoutFlagSnap = await payoutFlagRef.get();
     if (payoutFlagSnap.exists)
         return;
     const maxPos = prizeTiers[prizeTiers.length - 1]?.posicaoMax ?? 0;
     if (maxPos < 1)
         return;
-    const clansSnap = await db.collection(COL.clans).where("scoreWeeklyKey", "==", periodKey).get();
+    const scoreKeyField = period === "diario"
+        ? "scoreDailyKey"
+        : period === "semanal"
+            ? "scoreWeeklyKey"
+            : "scoreMonthlyKey";
+    const clansSnap = await db.collection(COL.clans).where(scoreKeyField, "==", periodKey).get();
     if (clansSnap.empty) {
         await payoutFlagRef.set({
-            period: "semanal",
+            period,
             periodKey,
             processedAt: firestore_2.FieldValue.serverTimestamp(),
             winners: 0,
@@ -8123,7 +8236,7 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
     const entries = clansSnap.docs
         .map((docSnap) => {
         const raw = (docSnap.data() || {});
-        const weekly = normalizeClanWeeklySnapshot(periodKey, raw);
+        const ranking = normalizeClanRankingSnapshot(period, periodKey, raw);
         return {
             clanId: docSnap.id,
             ref: docSnap.ref,
@@ -8135,21 +8248,21 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
             coverUrl: typeof raw.coverUrl === "string" ? raw.coverUrl : null,
             privacy: raw.privacy === "open" ? "open" : "code_only",
             memberCount: normalizeCounter(raw.memberCount),
-            weeklyScore: weekly.score,
-            weeklyWins: weekly.wins,
-            weeklyAds: weekly.ads,
+            score: ranking.score,
+            wins: ranking.wins,
+            ads: ranking.ads,
             lastScoreAt: raw.lastScoreAt ?? null,
             updatedAt: raw.updatedAt ?? null,
         };
     })
-        .filter((entry) => entry.weeklyScore > 0)
+        .filter((entry) => entry.score > 0)
         .sort((a, b) => {
-        if (b.weeklyScore !== a.weeklyScore)
-            return b.weeklyScore - a.weeklyScore;
-        if (b.weeklyWins !== a.weeklyWins)
-            return b.weeklyWins - a.weeklyWins;
-        if (b.weeklyAds !== a.weeklyAds)
-            return b.weeklyAds - a.weeklyAds;
+        if (b.score !== a.score)
+            return b.score - a.score;
+        if (b.wins !== a.wins)
+            return b.wins - a.wins;
+        if (b.ads !== a.ads)
+            return b.ads - a.ads;
         if (b.memberCount !== a.memberCount)
             return b.memberCount - a.memberCount;
         const scoreActivityDiff = millisFromFirestoreTime(b.lastScoreAt ?? b.updatedAt) -
@@ -8169,8 +8282,8 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
     let rewardedOwners = 0;
     let ownerFallbackClans = 0;
     for (const entry of entries) {
-        const entryRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}/entries/${entry.clanId}`);
-        const contributorsColl = db.collection(`${COL.clanRankingsWeekly}/${periodKey}/clans/${entry.clanId}/contributors`);
+        const entryRef = db.doc(`${collectionName}/${periodKey}/entries/${entry.clanId}`);
+        const contributorsColl = db.collection(`${collectionName}/${periodKey}/clans/${entry.clanId}/contributors`);
         const clanRewards = entry.tier?.rewards ?? emptyRankingPrizeRewards();
         const result = await db.runTransaction(async (tx) => {
             const [entrySnap, contributorsSnap] = await Promise.all([tx.get(entryRef), tx.get(contributorsColl)]);
@@ -8184,7 +8297,7 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
                 };
             }
             const rankedContributors = contributorsSnap.docs
-                .map((docSnap) => normalizeClanWeeklyContributorSnapshot(docSnap.id, (docSnap.data() || {})))
+                .map((docSnap) => normalizeClanRankingContributorSnapshot(docSnap.id, (docSnap.data() || {})))
                 .filter((contributor) => contributor.score > 0)
                 .sort(compareClanContributor);
             let rewardDistributionMode = "contributors_proportional";
@@ -8195,8 +8308,8 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
                     {
                         uid: entry.ownerUid,
                         score: 1,
-                        wins: entry.weeklyWins,
-                        ads: entry.weeklyAds,
+                        wins: entry.wins,
+                        ads: entry.ads,
                         updatedAt: entry.lastScoreAt ?? entry.updatedAt,
                     },
                 ];
@@ -8253,8 +8366,8 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
                         moeda: currency,
                         valor: amount,
                         saldoApos: rewardPatch.balancesAfter[currency],
-                        descricao: `Premiação semanal do clã ${entry.name} · rateio por contribuição · ${rewardCurrencyLabel(currency)}`,
-                        referenciaId: `cla:semanal:${periodKey}:${entry.clanId}:#${entry.pos}`,
+                        descricao: `Premiação ${clanRankingDisplayLabel(period)} do clã ${entry.name} · rateio por contribuição · ${rewardCurrencyLabel(currency)}`,
+                        referenciaId: `cla:${period}:${periodKey}:${entry.clanId}:#${entry.pos}`,
                         criadoEm: firestore_2.FieldValue.serverTimestamp(),
                     });
                 }
@@ -8270,9 +8383,9 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
                 coverUrl: entry.coverUrl,
                 privacy: entry.privacy,
                 memberCount: entry.memberCount,
-                score: entry.weeklyScore,
-                wins: entry.weeklyWins,
-                ads: entry.weeklyAds,
+                score: entry.score,
+                wins: entry.wins,
+                ads: entry.ads,
                 posicao: entry.pos,
                 rewards: clanRewards,
                 premioRecebido: clanRewards,
@@ -8300,7 +8413,7 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
     }
     const batch = db.batch();
     batch.set(payoutFlagRef, {
-        period: "semanal",
+        period,
         periodKey,
         processedAt: firestore_2.FieldValue.serverTimestamp(),
         winners: entries.length,
@@ -8310,7 +8423,7 @@ async function closeClanWeeklyRankingPayout(periodKey, prizeTiers) {
         ownerFallbackClans,
     });
     batch.set(rankingRootRef, {
-        period: "semanal",
+        period,
         periodKey,
         prizeProcessedAt: firestore_2.FieldValue.serverTimestamp(),
         updatedAt: firestore_2.FieldValue.serverTimestamp(),
@@ -8330,11 +8443,9 @@ async function closeRankingJob(period) {
             continue;
         await closeRankingScopePayout(period, periodKey, gamePrizeTiers, gameId);
     }
-    if (period === "semanal") {
-        const clanPrizeTiers = clanRankingPrizeTiersForPeriod(economy.rankingPrizes, period);
-        if (clanPrizeTiers.length > 0) {
-            await closeClanWeeklyRankingPayout(periodKey, clanPrizeTiers);
-        }
+    const clanPrizeTiers = clanRankingPrizeTiersForPeriod(economy.rankingPrizes, period);
+    if (clanPrizeTiers.length > 0) {
+        await closeClanRankingPayout(period, periodKey, clanPrizeTiers);
     }
 }
 function referralPrizeTiersForPeriod(configDoc, campaign, period) {
@@ -8827,10 +8938,28 @@ function writeClanScoreCreditForTargetTx(tx, target, input) {
         scoreMonthlyAds: target.shouldResetMonthly ? ads : firestore_2.FieldValue.increment(ads),
         lastScoreAt: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });
+    tx.set(db.doc(`${COL.clanRankingsDaily}/${target.dailyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`), {
+        uid: target.uid,
+        clanId: target.clanId,
+        periodKey: target.dailyPeriodKey,
+        score: firestore_2.FieldValue.increment(total),
+        wins: firestore_2.FieldValue.increment(wins),
+        ads: firestore_2.FieldValue.increment(ads),
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
     tx.set(db.doc(`${COL.clanRankingsWeekly}/${target.weeklyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`), {
         uid: target.uid,
         clanId: target.clanId,
         periodKey: target.weeklyPeriodKey,
+        score: firestore_2.FieldValue.increment(total),
+        wins: firestore_2.FieldValue.increment(wins),
+        ads: firestore_2.FieldValue.increment(ads),
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(db.doc(`${COL.clanRankingsMonthly}/${target.monthlyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`), {
+        uid: target.uid,
+        clanId: target.clanId,
+        periodKey: target.monthlyPeriodKey,
         score: firestore_2.FieldValue.increment(total),
         wins: firestore_2.FieldValue.increment(wins),
         ads: firestore_2.FieldValue.increment(ads),

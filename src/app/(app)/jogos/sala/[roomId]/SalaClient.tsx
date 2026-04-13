@@ -25,6 +25,7 @@ import type { GrantedChestSummary } from "@/types/chest";
 import type { GameId } from "@/types/game";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { formatFirebaseError } from "@/lib/firebase/errors";
+import { isNativeAndroidPlatform } from "@/lib/anuncios/admobConfig";
 import { cn } from "@/lib/utils/cn";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -178,13 +179,20 @@ function resolvePptRoundFlashDurationMs(room: GameRoomDocument, pptChoiceSeconds
   return Math.max(0, nextRoundStartMs - Date.now());
 }
 
-function RoundRevealOverlay({ flash }: { flash: RoundFlashPayload }) {
+function RoundRevealOverlay({
+  flash,
+  nativeAndroid = false,
+}: {
+  flash: RoundFlashPayload;
+  nativeAndroid?: boolean;
+}) {
   const glow =
     flash.verdict === "you"
       ? "shadow-[0_0_48px_-8px_rgba(52,211,153,0.55)]"
       : flash.verdict === "opp"
         ? "shadow-[0_0_48px_-8px_rgba(251,113,133,0.45)]"
         : "shadow-[0_0_48px_-8px_rgba(251,191,36,0.4)]";
+  const revealContainerStyle = nativeAndroid ? undefined : { perspective: 1200 };
 
   return (
     <motion.div
@@ -198,7 +206,10 @@ function RoundRevealOverlay({ flash }: { flash: RoundFlashPayload }) {
       transition={{ duration: 0.25 }}
     >
       <motion.div
-        className="absolute inset-0 bg-slate-950/85 backdrop-blur-md"
+        className={cn(
+          "absolute inset-0 bg-slate-950/85",
+          nativeAndroid ? "bg-slate-950/92" : "backdrop-blur-md",
+        )}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -219,7 +230,7 @@ function RoundRevealOverlay({ flash }: { flash: RoundFlashPayload }) {
         </p>
         <div
           className="relative mt-6 flex items-stretch justify-center gap-2 sm:gap-5"
-          style={{ perspective: 1200 }}
+          style={revealContainerStyle}
         >
           {[
             { hand: flash.hostHand, label: flash.hostLabel, side: "host" as const, delay: 0.1 },
@@ -228,15 +239,19 @@ function RoundRevealOverlay({ flash }: { flash: RoundFlashPayload }) {
             <motion.div
               key={side}
               className="flex flex-1 flex-col items-center gap-2"
-              initial={{ opacity: 0, rotateY: -88, z: -40 }}
-              animate={{ opacity: 1, rotateY: 0, z: 0 }}
+              initial={nativeAndroid ? { opacity: 0, y: 10 } : { opacity: 0, rotateY: -88, z: -40 }}
+              animate={nativeAndroid ? { opacity: 1, y: 0 } : { opacity: 1, rotateY: 0, z: 0 }}
               transition={{
                 delay,
-                type: "spring",
-                stiffness: 280,
-                damping: 22,
+                ...(nativeAndroid
+                  ? { duration: 0.18, ease: "easeOut" as const }
+                  : {
+                      type: "spring" as const,
+                      stiffness: 280,
+                      damping: 22,
+                    }),
               }}
-              style={{ transformStyle: "preserve-3d" }}
+              style={nativeAndroid ? undefined : { transformStyle: "preserve-3d" }}
             >
               <span className="text-[9px] font-bold uppercase tracking-widest text-white/40">{label}</span>
               <div
@@ -288,14 +303,18 @@ function RoundRevealOverlay({ flash }: { flash: RoundFlashPayload }) {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.75 }}
         >
-          {[0, 1, 2, 3, 4].map((i) => (
-            <motion.span
-              key={i}
-              className="h-1.5 w-1.5 rounded-full bg-cyan-400/80"
-              animate={{ opacity: [0.25, 1, 0.25], scale: [0.85, 1.15, 0.85] }}
-              transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.12 }}
-            />
-          ))}
+          {[0, 1, 2, 3, 4].map((i) =>
+            nativeAndroid ? (
+              <span key={i} className="h-1.5 w-1.5 rounded-full bg-cyan-400/80" />
+            ) : (
+              <motion.span
+                key={i}
+                className="h-1.5 w-1.5 rounded-full bg-cyan-400/80"
+                animate={{ opacity: [0.25, 1, 0.25], scale: [0.85, 1.15, 0.85] }}
+                transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.12 }}
+              />
+            ),
+          )}
         </motion.div>
       </motion.div>
     </motion.div>
@@ -1014,11 +1033,16 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const roundFlashTimeoutRef = useRef<number | null>(null);
   const [boostRewardPercent, setBoostRewardPercent] = useState(25);
   const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
+  const [isNativeAndroid, setIsNativeAndroid] = useState(false);
   const [pvpChoiceSec, setPvpChoiceSec] = useState<PvpChoiceSecondsConfig>(() =>
     parsePvpChoiceSeconds(undefined),
   );
   const pvpChoiceSecRef = useRef(pvpChoiceSec);
   pvpChoiceSecRef.current = pvpChoiceSec;
+
+  useEffect(() => {
+    setIsNativeAndroid(isNativeAndroidPlatform());
+  }, []);
 
   useEffect(() => {
     const db = getFirebaseFirestore();
@@ -2251,15 +2275,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
               {myPickDone ? (
                 <div
                   className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1"
-                  style={{ perspective: 1000 }}
+                  style={isNativeAndroid ? undefined : { perspective: 1000 }}
                 >
                   <PptPlayCardFrame tone="you" label="Você">
                     <motion.div
                       className="flex flex-col items-center gap-1 py-0.5 sm:gap-2 sm:py-1"
-                      initial={{ rotateY: -25, opacity: 0.5 }}
-                      animate={{ rotateY: 0, opacity: 1 }}
-                      transition={{ type: "spring", stiffness: 280, damping: 22 }}
-                      style={{ transformStyle: "preserve-3d" }}
+                      initial={isNativeAndroid ? { opacity: 0, y: 8 } : { rotateY: -25, opacity: 0.5 }}
+                      animate={isNativeAndroid ? { opacity: 1, y: 0 } : { rotateY: 0, opacity: 1 }}
+                      transition={
+                        isNativeAndroid
+                          ? { duration: 0.18, ease: "easeOut" }
+                          : { type: "spring", stiffness: 280, damping: 22 }
+                      }
+                      style={isNativeAndroid ? undefined : { transformStyle: "preserve-3d" }}
                     >
                       {myLockedHand ? (
                         <>
@@ -2293,10 +2321,14 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   <PptPlayCardFrame tone="opp" label="Oponente">
                     <motion.div
                       className="py-0.5 sm:py-1"
-                      initial={{ rotateY: 25, opacity: 0.35 }}
-                      animate={{ rotateY: 0, opacity: 1 }}
-                      transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.08 }}
-                      style={{ transformStyle: "preserve-3d" }}
+                      initial={isNativeAndroid ? { opacity: 0, y: 8 } : { rotateY: 25, opacity: 0.35 }}
+                      animate={isNativeAndroid ? { opacity: 1, y: 0 } : { rotateY: 0, opacity: 1 }}
+                      transition={
+                        isNativeAndroid
+                          ? { duration: 0.18, ease: "easeOut", delay: 0.04 }
+                          : { type: "spring", stiffness: 260, damping: 20, delay: 0.08 }
+                      }
+                      style={isNativeAndroid ? undefined : { transformStyle: "preserve-3d" }}
                     >
                       <CardBackFace className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]" />
                       <p className="sr-only">Carta do oponente oculta até ambos jogarem</p>
@@ -2722,7 +2754,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
       </div>
 
       <AnimatePresence>
-        {roundFlash ? <RoundRevealOverlay key={roundFlash.key} flash={roundFlash} /> : null}
+        {roundFlash ? (
+          <RoundRevealOverlay key={roundFlash.key} flash={roundFlash} nativeAndroid={isNativeAndroid} />
+        ) : null}
       </AnimatePresence>
     </div>
   );

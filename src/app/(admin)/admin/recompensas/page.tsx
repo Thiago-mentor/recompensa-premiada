@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BadgeCheck, Clock3, Filter, Wallet } from "lucide-react";
 import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
+import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
+import { AdminPageHero } from "@/components/admin/AdminPageHero";
+import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import type { RewardClaim, RewardClaimStatus } from "@/types/reward";
@@ -283,6 +288,19 @@ export default function AdminRecompensasPage() {
     return list;
   }, [rows, filtro, dataDe, dataAte]);
 
+  const pendingCount = useMemo(
+    () => rows.filter((claim) => claim.status === "pendente").length,
+    [rows],
+  );
+  const confirmedCount = useMemo(
+    () => rows.filter((claim) => claim.status === "confirmado").length,
+    [rows],
+  );
+  const filteredCashPoints = useMemo(
+    () => filtrados.reduce((sum, claim) => sum + Math.max(0, Number(claim.valor || 0)), 0),
+    [filtrados],
+  );
+
   async function review(id: string, status: "aprovado" | "recusado") {
     try {
       await callFunction("reviewRewardClaim", { claimId: id, status });
@@ -351,15 +369,51 @@ export default function AdminRecompensasPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Recompensas · Pedidos</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Dados completos dos pedidos de resgate (PIX e outros) para análise e pagamento manual. Valor em R$ usa a
-            taxa de <code className="text-slate-300">{cashPointsPerReal}</code> pts CASH por R$ 1,00 (
-            <code className="text-slate-300">system_configs/economy</code>).
-          </p>
-        </div>
+      <AdminPageHero
+        eyebrow="Saques premium"
+        title="Recompensas · Pedidos"
+        accent="emerald"
+        description={
+          <>
+            Dados completos dos pedidos de resgate para análise e pagamento manual. O valor em reais usa
+            a taxa de <code>{cashPointsPerReal}</code> pts CASH por R$ 1,00 em{" "}
+            <code>system_configs/economy</code>.
+          </>
+        }
+      />
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <AdminMetricCard
+          title="Pedidos"
+          value={String(rows.length)}
+          hint="Total carregado no painel"
+          tone="cyan"
+          icon={<Wallet className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Pendentes"
+          value={String(pendingCount)}
+          hint="Aguardando revisão do admin"
+          tone="amber"
+          icon={<Clock3 className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Confirmados"
+          value={String(confirmedCount)}
+          hint="PIX já finalizados"
+          tone="emerald"
+          icon={<BadgeCheck className="h-4 w-4" />}
+        />
+        <AdminMetricCard
+          title="Seleção atual"
+          value={formatBrl(cashPointsToBrl(filteredCashPoints, cashPointsPerReal))}
+          hint="Estimativa total em reais dos filtros"
+          tone="violet"
+          icon={<Filter className="h-4 w-4" />}
+        />
+      </section>
+
+      <div className="flex flex-col gap-3 rounded-[1.7rem] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_50px_-24px_rgba(0,0,0,0.75)] sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <span className="text-slate-500">Filtrar</span>
@@ -375,6 +429,8 @@ export default function AdminRecompensasPage() {
               <option value="recusado">Recusados</option>
             </select>
           </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className="rounded-lg border border-violet-400/40 bg-violet-600/30 px-3 py-2 text-sm font-medium text-violet-100 hover:bg-violet-600/45"
@@ -435,7 +491,7 @@ export default function AdminRecompensasPage() {
         )}
       </div>
 
-      {exportMsg ? <p className="text-sm text-amber-200/90">{exportMsg}</p> : null}
+      {exportMsg ? <AlertBanner tone="info">{exportMsg}</AlertBanner> : null}
 
       <p className="text-xs text-slate-500">
         Mostrando {filtrados.length} de {rows.length} pedido(s)
@@ -562,7 +618,7 @@ export default function AdminRecompensasPage() {
       </ul>
 
       {filtrados.length === 0 ? (
-        <p className="text-center text-sm text-slate-500">Nenhum pedido neste filtro.</p>
+        <AdminEmptyState>Nenhum pedido encontrado neste filtro.</AdminEmptyState>
       ) : null}
     </div>
   );

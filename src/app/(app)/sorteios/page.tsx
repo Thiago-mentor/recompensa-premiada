@@ -28,7 +28,7 @@ import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
 import { ChevronDown, ChevronUp, Sparkles, Ticket } from "lucide-react";
 
 const MAX_EXPAND_NUMBERS = 240;
-type SorteiosTab = "atual" | "finalizados";
+type SorteiosTab = "atual" | "meus_numeros" | "finalizados";
 
 function shuffleArrayInPlace(nums: number[]): void {
   for (let i = nums.length - 1; i > 0; i--) {
@@ -266,7 +266,11 @@ export default function SorteiosPage() {
     if (!raffle) return null;
     const remaining = Math.max(0, raffle.releasedCount - raffle.soldCount);
     const progressPercent = getRaffleProgressPercent(raffle.soldCount, raffle.releasedCount);
-    return { remaining, progressPercent };
+    const instantPrizeCount = (raffle.instantPrizeTiers ?? []).reduce(
+      (sum, tier) => sum + Math.max(0, tier.quantity),
+      0,
+    );
+    return { remaining, progressPercent, instantPrizeCount };
   }, [raffle]);
 
   return (
@@ -306,9 +310,10 @@ export default function SorteiosPage() {
       ) : null}
 
       <section className="rounded-2xl border border-white/10 bg-slate-950/75 p-2">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {([
             { id: "atual", label: "Atual" },
+            { id: "meus_numeros", label: `Meus números (${purchases.length})` },
             { id: "finalizados", label: `Finalizados (${finalizedRaffles.length})` },
           ] as const).map((tab) => (
             <button
@@ -370,12 +375,13 @@ export default function SorteiosPage() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <StatPill label="Preço / número" value={`${raffle.ticketPrice} TICKET`} />
               <StatPill label="Números liberados" value={String(raffle.releasedCount)} />
               <StatPill label="Já vendidos" value={String(raffle.soldCount)} />
               <StatPill label="Disponíveis" value={hero ? String(hero.remaining) : "—"} />
               <StatPill label="Progresso" value={hero ? `${hero.progressPercent}%` : "—"} />
+              <StatPill label="Premiados" value={hero ? String(hero.instantPrizeCount) : "0"} />
             </div>
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
@@ -542,105 +548,30 @@ export default function SorteiosPage() {
               )}
             </section>
           ) : null}
-
-          <section className="rounded-[1.75rem] border border-white/10 bg-slate-950/80 p-5 sm:p-6">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-amber-200/80" />
-              <h3 className="text-lg font-black text-white">Meus números (esta edição)</h3>
-            </div>
-            <p className="mt-1 text-sm text-white/55">
-              Cada linha é uma compra. Expanda para ver os números individuais (amostra limitada para não travar o
-              app).
-            </p>
-
-            {purchasesLoading && purchases.length === 0 ? (
-              <p className="mt-4 text-sm text-white/45">Carregando compras...</p>
-            ) : purchases.length === 0 ? (
-              <p className="mt-4 text-sm text-white/45">Você ainda não tem números neste sorteio.</p>
-            ) : (
-              <ul className="mt-4 space-y-3">
-                {purchases.map((p) => (
-                  <li
-                    key={p.id}
-                    className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-white">
-                          {p.numbers && p.numbers.length > 0
-                            ? `${p.quantity} números aleatórios`
-                            : `Faixa ${formatRaffleScopedRange(p.rangeStart, p.rangeEnd, raffle.releasedCount)}`}
-                        </p>
-                        {p.numbers && p.numbers.length > 0 ? (
-                          <p className="text-xs text-white/40">
-                            Referência mín.–máx.:{" "}
-                            {formatRaffleScopedRange(
-                              Math.min(...p.numbers),
-                              Math.max(...p.numbers),
-                              raffle.releasedCount,
-                            )}
-                          </p>
-                        ) : null}
-                        <p className="text-xs text-white/45">
-                          {p.quantity} número(s) · {p.ticketCost} TICKET ·{" "}
-                          {p.createdAtMs
-                            ? new Date(p.createdAtMs).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
-                            : "—"}
-                        </p>
-                        {p.instantPrizeHits && p.instantPrizeHits.length > 0 ? (
-                          <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
-                            <Sparkles className="h-3.5 w-3.5" />
-                            {p.instantPrizeHits.length} número(s) premiado(s) ·{" "}
-                            {p.instantPrizeHits.reduce((sum, hit) => sum + hit.amount, 0)} CASH
-                          </p>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setExpandedId((cur) => (cur === p.id ? null : p.id))}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/5"
-                      >
-                        {expandedId === p.id ? (
-                          <>
-                            Ocultar <ChevronUp className="h-3.5 w-3.5" />
-                          </>
-                        ) : (
-                          <>
-                            Ver números <ChevronDown className="h-3.5 w-3.5" />
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    {expandedId === p.id ? (
-                      <ExpandedNumbers
-                        rangeStart={p.rangeStart}
-                        rangeEnd={p.rangeEnd}
-                        numbers={p.numbers}
-                        instantPrizeHits={p.instantPrizeHits}
-                        expandKey={p.id}
-                        releasedCount={raffle.releasedCount}
-                      />
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {nextCursor ? (
-              <div className="mt-4">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={purchasesLoading}
-                  onClick={() => void loadMorePurchases()}
-                >
-                  {purchasesLoading ? "Carregando..." : "Carregar mais compras"}
-                </Button>
-              </div>
-            ) : null}
-          </section>
         </>
       )
+      ) : activeTab === "meus_numeros" ? (
+        loading ? (
+          <p className="text-sm text-white/55">Carregando números...</p>
+        ) : !enabled ? (
+          <AlertBanner tone="info">Sorteios desativados no momento.</AlertBanner>
+        ) : !raffle ? (
+          <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-5 text-sm text-white/65">
+            Não há sorteio disponível para listar seus números agora.
+          </div>
+        ) : (
+          <MyNumbersSection
+            raffle={raffle}
+            purchases={purchases}
+            purchasesLoading={purchasesLoading}
+            nextCursor={nextCursor}
+            expandedId={expandedId}
+            onToggleExpanded={(purchaseId) =>
+              setExpandedId((current) => (current === purchaseId ? null : purchaseId))
+            }
+            onLoadMore={() => void loadMorePurchases()}
+          />
+        )
       ) : !enabled ? (
         <AlertBanner tone="info">Sorteios desativados no momento.</AlertBanner>
       ) : finalizedRaffles.length === 0 ? (
@@ -674,6 +605,122 @@ function StatPill({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">{label}</p>
       <p className="mt-1 text-base font-bold text-white">{value}</p>
     </div>
+  );
+}
+
+function MyNumbersSection({
+  raffle,
+  purchases,
+  purchasesLoading,
+  nextCursor,
+  expandedId,
+  onToggleExpanded,
+  onLoadMore,
+}: {
+  raffle: RaffleView;
+  purchases: RafflePurchaseView[];
+  purchasesLoading: boolean;
+  nextCursor: { createdAtMs: number; purchaseId: string } | null;
+  expandedId: string | null;
+  onToggleExpanded: (purchaseId: string) => void;
+  onLoadMore: () => void;
+}) {
+  return (
+    <section className="rounded-[1.75rem] border border-white/10 bg-slate-950/80 p-5 sm:p-6">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-5 w-5 text-amber-200/80" />
+        <h3 className="text-lg font-black text-white">Meus números</h3>
+      </div>
+      <p className="mt-1 text-sm text-white/55">
+        Cada linha é uma compra. Expanda para ver os números individuais e os destaques premiados.
+      </p>
+
+      {purchasesLoading && purchases.length === 0 ? (
+        <p className="mt-4 text-sm text-white/45">Carregando compras...</p>
+      ) : purchases.length === 0 ? (
+        <p className="mt-4 text-sm text-white/45">Você ainda não tem números neste sorteio.</p>
+      ) : (
+        <ul className="mt-4 space-y-3">
+          {purchases.map((p) => (
+            <li
+              key={p.id}
+              className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    {p.numbers && p.numbers.length > 0
+                      ? `${p.quantity} números aleatórios`
+                      : `Faixa ${formatRaffleScopedRange(p.rangeStart, p.rangeEnd, raffle.releasedCount)}`}
+                  </p>
+                  {p.numbers && p.numbers.length > 0 ? (
+                    <p className="text-xs text-white/40">
+                      Referência mín.–máx.:{" "}
+                      {formatRaffleScopedRange(
+                        Math.min(...p.numbers),
+                        Math.max(...p.numbers),
+                        raffle.releasedCount,
+                      )}
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-white/45">
+                    {p.quantity} número(s) · {p.ticketCost} TICKET ·{" "}
+                    {p.createdAtMs
+                      ? new Date(p.createdAtMs).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+                      : "—"}
+                  </p>
+                  {p.instantPrizeHits && p.instantPrizeHits.length > 0 ? (
+                    <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {p.instantPrizeHits.length} número(s) premiado(s) ·{" "}
+                      {p.instantPrizeHits.reduce((sum, hit) => sum + hit.amount, 0)} CASH
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onToggleExpanded(p.id)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/5"
+                >
+                  {expandedId === p.id ? (
+                    <>
+                      Ocultar <ChevronUp className="h-3.5 w-3.5" />
+                    </>
+                  ) : (
+                    <>
+                      Ver números <ChevronDown className="h-3.5 w-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+              {expandedId === p.id ? (
+                <ExpandedNumbers
+                  rangeStart={p.rangeStart}
+                  rangeEnd={p.rangeEnd}
+                  numbers={p.numbers}
+                  instantPrizeHits={p.instantPrizeHits}
+                  expandKey={p.id}
+                  releasedCount={raffle.releasedCount}
+                />
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {nextCursor ? (
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={purchasesLoading}
+            onClick={onLoadMore}
+          >
+            {purchasesLoading ? "Carregando..." : "Carregar mais compras"}
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

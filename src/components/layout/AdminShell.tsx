@@ -15,6 +15,7 @@ const links = [
   { href: ROUTES.admin.rankings, label: "Rankings" },
   { href: ROUTES.admin.sorteios, label: "Sorteios" },
   { href: ROUTES.admin.quiz, label: "Quiz" },
+  { href: ROUTES.admin.baus, label: "Baús" },
   { href: ROUTES.admin.recompensas, label: "Saque PIX" },
   { href: ROUTES.admin.configuracoes, label: "Configurações" },
   { href: ROUTES.admin.fraudes, label: "Fraudes" },

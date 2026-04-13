@@ -33,7 +33,9 @@ const db =
 const COL = {
   users: "users",
   clans: "clans",
+  clanRankingsDaily: "clan_rankings_daily",
   clanRankingsWeekly: "clan_rankings_weekly",
+  clanRankingsMonthly: "clan_rankings_monthly",
   clanMemberships: "clan_memberships",
   clanJoinRequests: "clan_join_requests",
   userChests: "user_chests",
@@ -6739,6 +6741,88 @@ export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   return { ok: true, targetUid, field, newBalance: after };
 });
 
+export const adminUpdateFraudUserState = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const adminUid = request.auth?.uid;
+  assertAuthed(adminUid);
+  await assertAdmin(adminUid);
+
+  const lookup = String(request.data?.lookup || "username").toLowerCase();
+  const value = String(request.data?.value || "").trim();
+  const nextRisk = String(request.data?.risk || "baixo").trim() as "baixo" | "medio" | "alto";
+  const nextBanned = request.data?.banned === true;
+  const note =
+    typeof request.data?.note === "string" ? request.data.note.trim().slice(0, 500) : "";
+
+  if (!["username", "uid"].includes(lookup)) {
+    throw new HttpsError("invalid-argument", "lookup deve ser username ou uid.");
+  }
+  if (!value) {
+    throw new HttpsError("invalid-argument", "Informe username ou UID.");
+  }
+  if (!["baixo", "medio", "alto"].includes(nextRisk)) {
+    throw new HttpsError("invalid-argument", "Risco inválido.");
+  }
+
+  let targetUid = "";
+  if (lookup === "uid") {
+    const ref = db.doc(`${COL.users}/${value}`);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "UID não encontrado em users.");
+    targetUid = value;
+  } else {
+    const username = value.toLowerCase().replace(/^@/, "");
+    const usersSnap = await db.collection(COL.users).where("username", "==", username).limit(1).get();
+    if (usersSnap.empty) throw new HttpsError("not-found", "Username não encontrado.");
+    targetUid = usersSnap.docs[0].id;
+  }
+
+  const userRef = db.doc(`${COL.users}/${targetUid}`);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpsError("failed-precondition", "Perfil inexistente.");
+  }
+
+  const userData = userSnap.data() as Record<string, unknown>;
+  const previousRisk =
+    userData.riscoFraude === "alto" || userData.riscoFraude === "medio" ? userData.riscoFraude : "baixo";
+  const previousBanned = userData.banido === true;
+
+  await userRef.set(
+    {
+      riscoFraude: nextRisk,
+      banido: nextBanned,
+      atualizadoEm: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  await db.collection(COL.fraudLogs).add({
+    uid: targetUid,
+    tipo: "conta_suspeita",
+    severidade: nextBanned || nextRisk === "alto" ? "alta" : nextRisk === "medio" ? "media" : "baixa",
+    detalhes: {
+      action: "admin_update_user_fraud_state",
+      actorUid: adminUid,
+      previousRisk,
+      nextRisk,
+      previousBanned,
+      nextBanned,
+      note: note || null,
+    },
+    origem: "admin",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  return {
+    ok: true,
+    targetUid,
+    previousRisk,
+    previousBanned,
+    risk: nextRisk,
+    banned: nextBanned,
+  };
+});
+
 export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
@@ -7539,11 +7623,15 @@ export const purchaseRaffleNumbers = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       ticketCost,
       rangeStart,
       rangeEnd,
-      numbers,
-      instantPrizeHits: instantPrizeHits.length > 0 ? instantPrizeHits : undefined,
       clientRequestId,
       createdAt: Timestamp.now(),
     };
+    if (numbers && numbers.length > 0) {
+      purchasePayload.numbers = numbers;
+    }
+    if (instantPrizeHits.length > 0) {
+      purchasePayload.instantPrizeHits = instantPrizeHits;
+    }
 
     tx.set(purchaseRef, {
       ...purchasePayload,
@@ -9948,7 +10036,16 @@ async function closeRankingScopePayout(
   await batch.commit();
 }
 
-function normalizeClanWeeklySnapshot(
+function clanRankingCollectionForPeriod(period: RankingPeriodMode) {
+  return period === "diario"
+    ? COL.clanRankingsDaily
+    : period === "semanal"
+      ? COL.clanRankingsWeekly
+      : COL.clanRankingsMonthly;
+}
+
+function normalizeClanRankingSnapshot(
+  period: RankingPeriodMode,
   periodKey: string,
   raw: Record<string, unknown>,
 ): {
@@ -9956,6 +10053,26 @@ function normalizeClanWeeklySnapshot(
   wins: number;
   ads: number;
 } {
+  if (period === "diario") {
+    if (String(raw.scoreDailyKey || "") !== periodKey) {
+      return { score: 0, wins: 0, ads: 0 };
+    }
+    return {
+      score: normalizeCounter(raw.scoreDaily),
+      wins: normalizeCounter(raw.scoreDailyWins),
+      ads: normalizeCounter(raw.scoreDailyAds),
+    };
+  }
+  if (period === "mensal") {
+    if (String(raw.scoreMonthlyKey || "") !== periodKey) {
+      return { score: 0, wins: 0, ads: 0 };
+    }
+    return {
+      score: normalizeCounter(raw.scoreMonthly),
+      wins: normalizeCounter(raw.scoreMonthlyWins),
+      ads: normalizeCounter(raw.scoreMonthlyAds),
+    };
+  }
   if (String(raw.scoreWeeklyKey || "") !== periodKey) {
     return { score: 0, wins: 0, ads: 0 };
   }
@@ -9966,7 +10083,11 @@ function normalizeClanWeeklySnapshot(
   };
 }
 
-type ClanWeeklyContributorSnapshot = {
+function clanRankingDisplayLabel(period: RankingPeriodMode) {
+  return period === "diario" ? "diária" : period === "semanal" ? "semanal" : "mensal";
+}
+
+type ClanRankingContributorSnapshot = {
   uid: string;
   score: number;
   wins: number;
@@ -9974,12 +10095,12 @@ type ClanWeeklyContributorSnapshot = {
   updatedAt: unknown;
 };
 
-type ClanWeeklyRewardDistributionMode = "contributors_proportional" | "owner_fallback";
+type ClanRankingRewardDistributionMode = "contributors_proportional" | "owner_fallback";
 
-function normalizeClanWeeklyContributorSnapshot(
+function normalizeClanRankingContributorSnapshot(
   uid: string,
   raw: Record<string, unknown>,
-): ClanWeeklyContributorSnapshot {
+): ClanRankingContributorSnapshot {
   return {
     uid,
     score: normalizeCounter(raw.score),
@@ -9989,7 +10110,7 @@ function normalizeClanWeeklyContributorSnapshot(
   };
 }
 
-function compareClanContributor(a: ClanWeeklyContributorSnapshot, b: ClanWeeklyContributorSnapshot): number {
+function compareClanContributor(a: ClanRankingContributorSnapshot, b: ClanRankingContributorSnapshot): number {
   if (b.score !== a.score) return b.score - a.score;
   if (b.wins !== a.wins) return b.wins - a.wins;
   if (b.ads !== a.ads) return b.ads - a.ads;
@@ -10000,8 +10121,8 @@ function compareClanContributor(a: ClanWeeklyContributorSnapshot, b: ClanWeeklyC
 
 function distributeClanRewardsToContributors(
   rewards: RankingPrizeRewards,
-  contributors: ClanWeeklyContributorSnapshot[],
-): Array<{ contributor: ClanWeeklyContributorSnapshot; rewards: RankingPrizeRewards }> {
+  contributors: ClanRankingContributorSnapshot[],
+): Array<{ contributor: ClanRankingContributorSnapshot; rewards: RankingPrizeRewards }> {
   const rankedContributors = [...contributors]
     .filter((item) => item.score > 0)
     .sort(compareClanContributor);
@@ -10053,22 +10174,30 @@ function distributeClanRewardsToContributors(
     .filter((item) => hasRankingPrizeRewards(item.rewards));
 }
 
-async function closeClanWeeklyRankingPayout(
+async function closeClanRankingPayout(
+  period: RankingPeriodMode,
   periodKey: string,
   prizeTiers: RankingPrizeTierResolved[],
 ) {
-  const rankingRootRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}`);
-  const payoutFlagRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}/meta/payout`);
+  const collectionName = clanRankingCollectionForPeriod(period);
+  const rankingRootRef = db.doc(`${collectionName}/${periodKey}`);
+  const payoutFlagRef = db.doc(`${collectionName}/${periodKey}/meta/payout`);
   const payoutFlagSnap = await payoutFlagRef.get();
   if (payoutFlagSnap.exists) return;
 
   const maxPos = prizeTiers[prizeTiers.length - 1]?.posicaoMax ?? 0;
   if (maxPos < 1) return;
 
-  const clansSnap = await db.collection(COL.clans).where("scoreWeeklyKey", "==", periodKey).get();
+  const scoreKeyField =
+    period === "diario"
+      ? "scoreDailyKey"
+      : period === "semanal"
+        ? "scoreWeeklyKey"
+        : "scoreMonthlyKey";
+  const clansSnap = await db.collection(COL.clans).where(scoreKeyField, "==", periodKey).get();
   if (clansSnap.empty) {
     await payoutFlagRef.set({
-      period: "semanal",
+      period,
       periodKey,
       processedAt: FieldValue.serverTimestamp(),
       winners: 0,
@@ -10080,7 +10209,7 @@ async function closeClanWeeklyRankingPayout(
   const entries = clansSnap.docs
     .map((docSnap) => {
       const raw = (docSnap.data() || {}) as Record<string, unknown>;
-      const weekly = normalizeClanWeeklySnapshot(periodKey, raw);
+      const ranking = normalizeClanRankingSnapshot(period, periodKey, raw);
       return {
         clanId: docSnap.id,
         ref: docSnap.ref,
@@ -10092,18 +10221,18 @@ async function closeClanWeeklyRankingPayout(
         coverUrl: typeof raw.coverUrl === "string" ? raw.coverUrl : null,
         privacy: raw.privacy === "open" ? "open" : "code_only",
         memberCount: normalizeCounter(raw.memberCount),
-        weeklyScore: weekly.score,
-        weeklyWins: weekly.wins,
-        weeklyAds: weekly.ads,
+        score: ranking.score,
+        wins: ranking.wins,
+        ads: ranking.ads,
         lastScoreAt: raw.lastScoreAt ?? null,
         updatedAt: raw.updatedAt ?? null,
       };
     })
-    .filter((entry) => entry.weeklyScore > 0)
+    .filter((entry) => entry.score > 0)
     .sort((a, b) => {
-      if (b.weeklyScore !== a.weeklyScore) return b.weeklyScore - a.weeklyScore;
-      if (b.weeklyWins !== a.weeklyWins) return b.weeklyWins - a.weeklyWins;
-      if (b.weeklyAds !== a.weeklyAds) return b.weeklyAds - a.weeklyAds;
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.ads !== a.ads) return b.ads - a.ads;
       if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
       const scoreActivityDiff =
         millisFromFirestoreTime(b.lastScoreAt ?? b.updatedAt) -
@@ -10123,8 +10252,10 @@ async function closeClanWeeklyRankingPayout(
   let ownerFallbackClans = 0;
 
   for (const entry of entries) {
-    const entryRef = db.doc(`${COL.clanRankingsWeekly}/${periodKey}/entries/${entry.clanId}`);
-    const contributorsColl = db.collection(`${COL.clanRankingsWeekly}/${periodKey}/clans/${entry.clanId}/contributors`);
+    const entryRef = db.doc(`${collectionName}/${periodKey}/entries/${entry.clanId}`);
+    const contributorsColl = db.collection(
+      `${collectionName}/${periodKey}/clans/${entry.clanId}/contributors`,
+    );
     const clanRewards = entry.tier?.rewards ?? emptyRankingPrizeRewards();
     const result = await db.runTransaction(async (tx) => {
       const [entrySnap, contributorsSnap] = await Promise.all([tx.get(entryRef), tx.get(contributorsColl)]);
@@ -10140,7 +10271,7 @@ async function closeClanWeeklyRankingPayout(
 
       const rankedContributors = contributorsSnap.docs
         .map((docSnap) =>
-          normalizeClanWeeklyContributorSnapshot(
+          normalizeClanRankingContributorSnapshot(
             docSnap.id,
             (docSnap.data() || {}) as Record<string, unknown>,
           ),
@@ -10148,7 +10279,7 @@ async function closeClanWeeklyRankingPayout(
         .filter((contributor) => contributor.score > 0)
         .sort(compareClanContributor);
 
-      let rewardDistributionMode: ClanWeeklyRewardDistributionMode = "contributors_proportional";
+      let rewardDistributionMode: ClanRankingRewardDistributionMode = "contributors_proportional";
       let payoutCandidates = rankedContributors;
       if (payoutCandidates.length === 0 && entry.ownerUid) {
         rewardDistributionMode = "owner_fallback";
@@ -10156,8 +10287,8 @@ async function closeClanWeeklyRankingPayout(
           {
             uid: entry.ownerUid,
             score: 1,
-            wins: entry.weeklyWins,
-            ads: entry.weeklyAds,
+            wins: entry.wins,
+            ads: entry.ads,
             updatedAt: entry.lastScoreAt ?? entry.updatedAt,
           },
         ];
@@ -10179,7 +10310,7 @@ async function closeClanWeeklyRankingPayout(
           (
             row,
           ): row is {
-            contributor: ClanWeeklyContributorSnapshot;
+            contributor: ClanRankingContributorSnapshot;
             userRef: DocumentReference;
             userData: Record<string, unknown>;
           } => row != null,
@@ -10254,8 +10385,8 @@ async function closeClanWeeklyRankingPayout(
               moeda: currency,
               valor: amount,
               saldoApos: rewardPatch.balancesAfter[currency],
-              descricao: `Premiação semanal do clã ${entry.name} · rateio por contribuição · ${rewardCurrencyLabel(currency)}`,
-              referenciaId: `cla:semanal:${periodKey}:${entry.clanId}:#${entry.pos}`,
+              descricao: `Premiação ${clanRankingDisplayLabel(period)} do clã ${entry.name} · rateio por contribuição · ${rewardCurrencyLabel(currency)}`,
+              referenciaId: `cla:${period}:${periodKey}:${entry.clanId}:#${entry.pos}`,
               criadoEm: FieldValue.serverTimestamp(),
             },
           );
@@ -10277,9 +10408,9 @@ async function closeClanWeeklyRankingPayout(
           coverUrl: entry.coverUrl,
           privacy: entry.privacy,
           memberCount: entry.memberCount,
-          score: entry.weeklyScore,
-          wins: entry.weeklyWins,
-          ads: entry.weeklyAds,
+          score: entry.score,
+          wins: entry.wins,
+          ads: entry.ads,
           posicao: entry.pos,
           rewards: clanRewards,
           premioRecebido: clanRewards,
@@ -10311,7 +10442,7 @@ async function closeClanWeeklyRankingPayout(
 
   const batch = db.batch();
   batch.set(payoutFlagRef, {
-    period: "semanal",
+    period,
     periodKey,
     processedAt: FieldValue.serverTimestamp(),
     winners: entries.length,
@@ -10323,7 +10454,7 @@ async function closeClanWeeklyRankingPayout(
   batch.set(
     rankingRootRef,
     {
-      period: "semanal",
+      period,
       periodKey,
       prizeProcessedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -10347,11 +10478,9 @@ async function closeRankingJob(period: RankingPeriodMode) {
     await closeRankingScopePayout(period, periodKey, gamePrizeTiers, gameId);
   }
 
-  if (period === "semanal") {
-    const clanPrizeTiers = clanRankingPrizeTiersForPeriod(economy.rankingPrizes, period);
-    if (clanPrizeTiers.length > 0) {
-      await closeClanWeeklyRankingPayout(periodKey, clanPrizeTiers);
-    }
+  const clanPrizeTiers = clanRankingPrizeTiersForPeriod(economy.rankingPrizes, period);
+  if (clanPrizeTiers.length > 0) {
+    await closeClanRankingPayout(period, periodKey, clanPrizeTiers);
   }
 }
 
@@ -10976,12 +11105,42 @@ function writeClanScoreCreditForTargetTx(
   );
   tx.set(
     db.doc(
+      `${COL.clanRankingsDaily}/${target.dailyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`,
+    ),
+    {
+      uid: target.uid,
+      clanId: target.clanId,
+      periodKey: target.dailyPeriodKey,
+      score: FieldValue.increment(total),
+      wins: FieldValue.increment(wins),
+      ads: FieldValue.increment(ads),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  tx.set(
+    db.doc(
       `${COL.clanRankingsWeekly}/${target.weeklyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`,
     ),
     {
       uid: target.uid,
       clanId: target.clanId,
       periodKey: target.weeklyPeriodKey,
+      score: FieldValue.increment(total),
+      wins: FieldValue.increment(wins),
+      ads: FieldValue.increment(ads),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  tx.set(
+    db.doc(
+      `${COL.clanRankingsMonthly}/${target.monthlyPeriodKey}/clans/${target.clanId}/contributors/${target.uid}`,
+    ),
+    {
+      uid: target.uid,
+      clanId: target.clanId,
+      periodKey: target.monthlyPeriodKey,
       score: FieldValue.increment(total),
       wins: FieldValue.increment(wins),
       ads: FieldValue.increment(ads),

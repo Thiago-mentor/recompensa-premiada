@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1024916062239",
+    "project_id": "premios-14238",
+    "storage_bucket": "premios-14238.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1024916062239:android:be8f78bbd86115b7d1952a",
+        "android_client_info": {
+          "package_name": "com.recompensa.premiada"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDX5GoyZIsko1LoBElDSmn1J1UAec2n5Hs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
