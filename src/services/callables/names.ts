@@ -26,6 +26,7 @@ export const CALLABLES = {
   prepareRewardedAdSession: "prepareRewardedAdSession",
   getRewardedAdSessionStatus: "getRewardedAdSessionStatus",
   processRewardedAd: "processRewardedAd",
+  processRouletteSpin: "processRouletteSpin",
   finalizeMatch: "finalizeMatch",
   closeDailyRanking: "closeDailyRanking",
   closeWeeklyRanking: "closeWeeklyRanking",

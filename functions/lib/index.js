@@ -33,10 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = void 0;
+exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
+exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
+const vision_1 = require("@google-cloud/vision");
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
@@ -86,6 +87,13 @@ const COL = {
 const AUTO_QUEUE_GAMES = new Set(["ppt", "quiz", "reaction_tap"]);
 const RANKING_GAME_IDS = ["ppt", "quiz", "reaction_tap", "roleta", "bau", "numero_secreto"];
 const VICTORY_RANKED_GAME_IDS = new Set(["ppt", "quiz", "reaction_tap"]);
+const AVATAR_REQUIREMENTS = {
+    ads: 50,
+    pptMatches: 10,
+    quizMatches: 10,
+    reactionMatches: 10,
+};
+const UNSAFE_SAFESEARCH_LEVELS = new Set(["LIKELY", "VERY_LIKELY"]);
 const GAME_TITLES = {
     ppt: "Pedra, papel e tesoura",
     quiz: "Quiz rápido 1x1",
@@ -191,11 +199,17 @@ const REACTION_DUEL_CHARGES_MAX_STACK = 30;
 const REACTION_DUEL_TIME_REFILL_MS = 10 * 60 * 1000;
 const REACTION_PVP_DUELS_PLACEMENT_ID = "reaction_pvp_duels";
 const HOME_REWARDED_PLACEMENT_ID = "home_rewarded";
+const ROULETTE_DAILY_SPIN_PLACEMENT_ID = "roulette_daily_spin";
+const CLAN_MESSAGE_RETENTION_LIMIT = 80;
+/** Anúncio recompensado → 1 número do sorteio (quando `entryMode` do sorteio é `rewarded_ad`). */
+const RAFFLE_NUMBER_PLACEMENT_ID = "raffle_number";
 const ALLOWED_REWARDED_AD_PLACEMENTS = new Set([
     HOME_REWARDED_PLACEMENT_ID,
+    ROULETTE_DAILY_SPIN_PLACEMENT_ID,
     PPT_PVP_DUELS_PLACEMENT_ID,
     QUIZ_PVP_DUELS_PLACEMENT_ID,
     REACTION_PVP_DUELS_PLACEMENT_ID,
+    RAFFLE_NUMBER_PLACEMENT_ID,
 ]);
 const REWARDED_AD_MOCK_PREFIX = "mock_";
 const REWARDED_AD_NATIVE_ANDROID_PREFIX = "native_android_";
@@ -341,6 +355,7 @@ const DEFAULT_CHEST_SYSTEM_CONFIG = {
         },
     },
     adSpeedupPercent: 0.33,
+    adSpeedupFixedMinutes: 0,
     maxAdsPerChest: 3,
     adCooldownSeconds: 3 * 60,
     dailyChestAdsLimit: 12,
@@ -395,6 +410,42 @@ function readQuizDuelCharges(data) {
     if (!Number.isFinite(v))
         return QUIZ_DEFAULT_DUEL_CHARGES;
     return Math.min(QUIZ_DUEL_CHARGES_MAX_STACK, Math.max(0, Math.floor(v)));
+}
+function avatarRequirementProgress(data) {
+    return {
+        ads: Math.max(0, Math.floor(Number(data.totalAdsAssistidos) || 0)),
+        pptMatches: Math.max(0, Math.floor(Number(data.totalPptPartidas) || 0)),
+        quizMatches: Math.max(0, Math.floor(Number(data.totalQuizPartidas) || 0)),
+        reactionMatches: Math.max(0, Math.floor(Number(data.totalReactionPartidas) || 0)),
+    };
+}
+function assertAvatarUploadUnlocked(data) {
+    const progress = avatarRequirementProgress(data);
+    const missing = [];
+    if (progress.ads < AVATAR_REQUIREMENTS.ads) {
+        missing.push(`${AVATAR_REQUIREMENTS.ads - progress.ads} anúncio(s)`);
+    }
+    if (progress.pptMatches < AVATAR_REQUIREMENTS.pptMatches) {
+        missing.push(`${AVATAR_REQUIREMENTS.pptMatches - progress.pptMatches} partida(s) PPT`);
+    }
+    if (progress.quizMatches < AVATAR_REQUIREMENTS.quizMatches) {
+        missing.push(`${AVATAR_REQUIREMENTS.quizMatches - progress.quizMatches} partida(s) QUIZ`);
+    }
+    if (progress.reactionMatches < AVATAR_REQUIREMENTS.reactionMatches) {
+        missing.push(`${AVATAR_REQUIREMENTS.reactionMatches - progress.reactionMatches} partida(s) REACTION`);
+    }
+    if (missing.length > 0) {
+        throw new https_1.HttpsError("failed-precondition", `Upload de avatar bloqueado. Ainda falta: ${missing.join(", ")}.`);
+    }
+}
+function gameMatchCounterPatch(gameId) {
+    if (gameId === "ppt")
+        return { totalPptPartidas: firestore_2.FieldValue.increment(1) };
+    if (gameId === "quiz")
+        return { totalQuizPartidas: firestore_2.FieldValue.increment(1) };
+    if (gameId === "reaction_tap")
+        return { totalReactionPartidas: firestore_2.FieldValue.increment(1) };
+    return {};
 }
 function readQuizTargetScore(data) {
     if (!data)
@@ -585,6 +636,9 @@ async function getEconomy() {
         referralBonusIndicador: typeof d.referralBonusIndicador === "number" ? d.referralBonusIndicador : 200,
         referralBonusConvidado: typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
         matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
+        rouletteTable: normalizeWeightedPrizeTable(d.rouletteTable, gameEconomy_1.DEFAULT_ROULETTE_TABLE),
+        rouletteSpinCostAmount: Math.max(0, Math.floor(Number(d.rouletteSpinCostAmount) || 0)),
+        rouletteSpinCostCurrency: normalizeRewardCurrency(d.rouletteSpinCostCurrency, "gems"),
         rankingPrizes: normalizeRankingPrizeConfig(d.rankingPrizes),
         streakTable: (0, streakEconomy_1.normalizeStreakTable)(d.streakTable),
         pvpChoiceSeconds: parsePvpChoiceSecondsFromDoc(d),
@@ -613,6 +667,15 @@ function normalizeRaffleMaxPerPurchase(raw) {
     if (!Number.isFinite(parsed))
         return RAFFLE_DEFAULT_SYSTEM_CONFIG.defaultMaxPerPurchase;
     return Math.min(500, Math.max(1, parsed));
+}
+const RAFFLE_AD_COOLDOWN_MAX_SEC = 86400;
+function normalizeRaffleRewardedAdCooldownSeconds(raw, entryMode) {
+    if (entryMode !== "rewarded_ad")
+        return 0;
+    const parsed = Math.floor(Number(raw));
+    if (!Number.isFinite(parsed))
+        return 120;
+    return Math.min(RAFFLE_AD_COOLDOWN_MAX_SEC, Math.max(0, parsed));
 }
 function normalizeRafflePrizeAmount(raw) {
     const parsed = Math.floor(Number(raw));
@@ -758,12 +821,16 @@ function coerceTimestampOrNull(value) {
     }
     return null;
 }
+function normalizeRaffleEntryMode(raw) {
+    return raw === "rewarded_ad" ? "rewarded_ad" : "ticket";
+}
 function raffleDocFromFirestore(id, data) {
     const status = String(data.status || "draft");
     const prizeCurrencyRaw = data.prizeCurrency;
     const prizeCurrency = isRewardCurrency(prizeCurrencyRaw) ? prizeCurrencyRaw : "coins";
     const startsAt = coerceTimestampOrNull(data.startsAt);
     const endsAt = coerceTimestampOrNull(data.endsAt);
+    const entryModeNorm = normalizeRaffleEntryMode(data.entryMode);
     return {
         id,
         title: String(data.title || "").trim() || "Sorteio",
@@ -771,6 +838,8 @@ function raffleDocFromFirestore(id, data) {
         status: ["draft", "active", "closed", "drawn", "paid", "no_winner"].includes(status)
             ? status
             : "draft",
+        entryMode: entryModeNorm,
+        rewardedAdCooldownSeconds: normalizeRaffleRewardedAdCooldownSeconds(data.rewardedAdCooldownSeconds, entryModeNorm),
         releasedCount: normalizeRaffleReleasedCount(data.releasedCount),
         nextSequentialNumber: Math.max(0, Math.min(RAFFLE_MAX_RELEASED_COUNT, Math.floor(Number(data.nextSequentialNumber) || 0))),
         soldCount: Math.max(0, Math.floor(Number(data.soldCount) || 0)),
@@ -819,6 +888,8 @@ function raffleViewFromDoc(docSnap) {
         nextSequentialNumber: d.nextSequentialNumber,
         soldCount: d.soldCount,
         soldTicketsRevenue: d.soldTicketsRevenue,
+        entryMode: d.entryMode,
+        rewardedAdCooldownSeconds: d.rewardedAdCooldownSeconds,
         ticketPrice: d.ticketPrice,
         maxPerPurchase: d.maxPerPurchase,
         prizeCurrency: d.prizeCurrency,
@@ -884,6 +955,7 @@ function rafflePurchaseViewFromDoc(docSnap) {
         userId: String(d.userId || ""),
         quantity: Math.max(0, Math.floor(Number(d.quantity) || 0)),
         ticketCost: Math.max(0, Math.floor(Number(d.ticketCost) || 0)),
+        entryVia: normalizeRaffleEntryMode(d.entryVia),
         rangeStart: Math.max(0, Math.floor(Number(d.rangeStart) || 0)),
         rangeEnd: Math.max(0, Math.floor(Number(d.rangeEnd) || 0)),
         numbers,
@@ -1138,6 +1210,24 @@ function clampPositiveInt(value, fallback, min = 1) {
         return fallback;
     return Math.max(min, raw);
 }
+const CHEST_AD_SPEEDUP_FIXED_MINUTES_MAX = 7 * 24 * 60;
+function clampChestAdSpeedupFixedMinutes(value, fallback) {
+    const raw = Math.floor(Number(value));
+    if (!Number.isFinite(raw))
+        return fallback;
+    return Math.min(CHEST_AD_SPEEDUP_FIXED_MINUTES_MAX, Math.max(0, raw));
+}
+/** Quanto o timer avança (ms) por uma aceleração válida com anúncio. */
+function chestAdSpeedupReducedMs(config, remainingMs) {
+    const rem = Math.max(0, remainingMs);
+    if (rem <= 0)
+        return 0;
+    if (config.adSpeedupFixedMinutes > 0) {
+        const sliceMs = config.adSpeedupFixedMinutes * 60 * 1000;
+        return Math.min(rem, Math.max(1, sliceMs));
+    }
+    return Math.max(1, Math.ceil(rem * config.adSpeedupPercent));
+}
 function normalizeChestRewardRange(raw, fallback) {
     const value = raw && typeof raw === "object" ? raw : {};
     const min = Math.max(0, Math.floor(Number(value.min) || fallback.min));
@@ -1251,6 +1341,7 @@ async function getChestSystemConfig() {
         adSpeedupPercent: Math.min(0.95, Math.max(0.05, Number.isFinite(Number(d.adSpeedupPercent))
             ? Number(d.adSpeedupPercent)
             : DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupPercent)),
+        adSpeedupFixedMinutes: clampChestAdSpeedupFixedMinutes(d.adSpeedupFixedMinutes, DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupFixedMinutes),
         maxAdsPerChest: clampPositiveInt(d.maxAdsPerChest, DEFAULT_CHEST_SYSTEM_CONFIG.maxAdsPerChest, 0),
         adCooldownSeconds: clampPositiveInt(d.adCooldownSeconds, DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds, 0),
         dailyChestAdsLimit: clampPositiveInt(d.dailyChestAdsLimit, DEFAULT_CHEST_SYSTEM_CONFIG.dailyChestAdsLimit, 0),
@@ -1541,8 +1632,9 @@ async function grantChestIfEligible(input) {
         if (occupiedSlots >= config.slotCount && queuedCount >= config.queueCapacity) {
             return null;
         }
-        const rolled = pickWeightedChestRarity(config.dropTablesBySource[input.source]);
-        const rarity = applyChestPity(rolled, meta, config);
+        const rarity = input.fixedRarity
+            ? input.fixedRarity
+            : applyChestPity(pickWeightedChestRarity(config.dropTablesBySource[input.source]), meta, config);
         const newItemRef = itemsCol.doc();
         const slotIndex = occupiedSlots < config.slotCount ? occupiedSlots : null;
         const queuePosition = slotIndex == null ? queuedCount : null;
@@ -1684,6 +1776,40 @@ function normalizeMatchRewardOverrides(raw) {
         quiz: normalizeRewardOverride(raw.quiz),
         reaction_tap: normalizeRewardOverride(raw.reaction_tap),
     };
+}
+function normalizeWeightedPrizeTable(raw, fallback) {
+    if (!Array.isArray(raw))
+        return fallback;
+    const chestRarities = ["comum", "raro", "epico", "lendario"];
+    const rows = [];
+    for (const item of raw) {
+        const value = item && typeof item === "object" ? item : {};
+        const kind = String(value.kind || "coins").trim();
+        const weight = Math.max(0, Math.floor(Number(value.weight) || 0));
+        if (weight <= 0)
+            continue;
+        if (kind === "chest") {
+            const r = String(value.chestRarity || "").trim();
+            if (!chestRarities.includes(r))
+                continue;
+            rows.push({ kind: "chest", coins: 0, weight, chestRarity: r });
+            continue;
+        }
+        const amt = Math.max(0, Math.floor(Number(value.coins) || 0));
+        if (amt <= 0)
+            continue;
+        if (kind === "gems") {
+            rows.push({ kind: "gems", coins: amt, weight });
+            continue;
+        }
+        if (kind === "rewardBalance") {
+            rows.push({ kind: "rewardBalance", coins: amt, weight });
+            continue;
+        }
+        rows.push({ kind: "coins", coins: amt, weight });
+    }
+    const slice = rows.slice(0, 24);
+    return slice.length > 0 ? slice : fallback;
 }
 function pad2(value) {
     return String(value).padStart(2, "0");
@@ -1969,6 +2095,58 @@ function buildReferralCodeSeed(name, username) {
     const raw = `${username || ""}${name || ""}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
     const compact = raw.slice(0, 4);
     return compact.length >= 3 ? compact : "PREM";
+}
+const BLOCKED_PUBLIC_NAME_PATTERNS = [
+    /porn/i,
+    /porno/i,
+    /porn[oô]graf/i,
+    /sex[o0]?/i,
+    /put[ao]/i,
+    /puta/i,
+    /putaria/i,
+    /caralh/i,
+    /cu(?![a-z])/i,
+    /bucet/i,
+    /bct/i,
+    /pqp/i,
+    /foder/i,
+    /foda/i,
+    /fodase/i,
+    /merd/i,
+    /porra/i,
+    /cacete/i,
+    /desgra[çc]/i,
+    /arromb/i,
+    /vagabund/i,
+    /fdp/i,
+    /filh[ao]d[ae]puta/i,
+    /nazi/i,
+    /hitler/i,
+    /racist/i,
+];
+function normalizePublicNameModerationValue(value) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[@$!|1]/g, "i")
+        .replace(/[0º°]/g, "o")
+        .replace(/[3]/g, "e")
+        .replace(/[4]/g, "a")
+        .replace(/[5]/g, "s")
+        .replace(/[7]/g, "t")
+        .replace(/[^a-z0-9]/g, "");
+}
+function hasBlockedPublicNameTerm(value) {
+    const normalized = normalizePublicNameModerationValue(value);
+    return normalized
+        ? BLOCKED_PUBLIC_NAME_PATTERNS.some((pattern) => pattern.test(normalized))
+        : false;
+}
+function assertAllowedPublicName(value, fieldLabel) {
+    if (hasBlockedPublicNameTerm(value)) {
+        throw new https_1.HttpsError("invalid-argument", `${fieldLabel} não permitido. Evite palavrões, pornografia, ofensas ou termos inadequados.`);
+    }
 }
 function randomReferralCode(seed) {
     return `${seed}${randomCode(4)}`.slice(0, 8);
@@ -2541,6 +2719,7 @@ async function grantRewardedAdPlacement(input) {
     const isPptDuels = input.placementId === PPT_PVP_DUELS_PLACEMENT_ID;
     const isQuizDuels = input.placementId === QUIZ_PVP_DUELS_PLACEMENT_ID;
     const isReactionDuels = input.placementId === REACTION_PVP_DUELS_PLACEMENT_ID;
+    const isRaffleNumber = input.placementId === RAFFLE_NUMBER_PLACEMENT_ID;
     const result = await db.runTransaction(async (tx) => {
         const [uSnap, existingAdSnap] = await Promise.all([tx.get(userRef), tx.get(adRef)]);
         if (!uSnap.exists)
@@ -2574,7 +2753,9 @@ async function grantRewardedAdPlacement(input) {
                     ? "quiz_pvp_duels"
                     : isReactionDuels
                         ? "reaction_pvp_duels"
-                        : "coins",
+                        : isRaffleNumber
+                            ? "raffle_number"
+                            : "coins",
             mock: input.mock,
             tokenHash: input.tokenHash ?? null,
             source: input.origin,
@@ -2625,6 +2806,10 @@ async function grantRewardedAdPlacement(input) {
                 reactionPvPDuelsAdded: addedDuels,
                 reactionPvPDuelsRemaining: cappedNext,
             };
+        }
+        if (isRaffleNumber) {
+            tx.update(userRef, userPatch);
+            return { coins: 0, boostCoins: 0 };
         }
         const boostedCoins = resolveBoostedCoins(economy.rewardAdCoinAmount, u, economy);
         const newCoins = Number(u.coins ?? 0) + boostedCoins.totalCoins;
@@ -2829,6 +3014,54 @@ async function syncUserPresentation(uid, nome, foto) {
     }
     await batch.commit();
 }
+let visionClient = null;
+function getVisionClient() {
+    if (!visionClient) {
+        visionClient = new vision_1.ImageAnnotatorClient();
+    }
+    return visionClient;
+}
+async function downloadImageForModeration(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new https_1.HttpsError("invalid-argument", "Não foi possível baixar a imagem para moderação.");
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) {
+        throw new https_1.HttpsError("invalid-argument", "O arquivo enviado não parece ser uma imagem válida.");
+    }
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > 4 * 1024 * 1024) {
+        throw new https_1.HttpsError("invalid-argument", "A imagem precisa ter no máximo 4 MB para moderação.");
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > 4 * 1024 * 1024) {
+        throw new https_1.HttpsError("invalid-argument", "A imagem precisa ter no máximo 4 MB para moderação.");
+    }
+    return Buffer.from(arrayBuffer);
+}
+async function assertAvatarImageAllowed(photoURL) {
+    const image = await downloadImageForModeration(photoURL);
+    try {
+        const [result] = await getVisionClient().safeSearchDetection({
+            image: { content: image.toString("base64") },
+        });
+        const safeSearch = result.safeSearchAnnotation;
+        const adult = String(safeSearch?.adult || "UNKNOWN");
+        const racy = String(safeSearch?.racy || "UNKNOWN");
+        const violence = String(safeSearch?.violence || "UNKNOWN");
+        if (UNSAFE_SAFESEARCH_LEVELS.has(adult) ||
+            UNSAFE_SAFESEARCH_LEVELS.has(racy) ||
+            violence === "VERY_LIKELY") {
+            throw new https_1.HttpsError("permission-denied", "Avatar recusado pela moderação automática. Envie uma foto sem nudez, conteúdo vulgar ou violência explícita.");
+        }
+    }
+    catch (error) {
+        if (error instanceof https_1.HttpsError)
+            throw error;
+        throw new https_1.HttpsError("failed-precondition", "Não foi possível moderar a imagem agora. Tente novamente mais tarde.");
+    }
+}
 async function bumpPlayMatchMissions(uid) {
     const playSnap = await db
         .collection(COL.missions)
@@ -2869,6 +3102,28 @@ function millisFromFirestoreTime(v) {
     }
     return 0;
 }
+function readRaffleAdLastClaimMs(u, raffleId) {
+    const map = u.raffleAdLastClaimAt;
+    if (!map || typeof map !== "object" || Array.isArray(map))
+        return 0;
+    const v = map[raffleId];
+    return millisFromFirestoreTime(v);
+}
+function assertCanClaimRaffleAdNumber(u, raffle, nowMs) {
+    if (raffle.entryMode !== "rewarded_ad")
+        return;
+    const sec = Math.max(0, Math.floor(Number(raffle.rewardedAdCooldownSeconds) || 0));
+    if (sec <= 0)
+        return;
+    const lastMs = readRaffleAdLastClaimMs(u, raffle.id);
+    if (lastMs <= 0)
+        return;
+    const elapsedSec = (nowMs - lastMs) / 1000;
+    if (elapsedSec < sec) {
+        const wait = Math.ceil(sec - elapsedSec);
+        throw new https_1.HttpsError("resource-exhausted", `Aguarde ${wait}s para obter outro número por anúncio neste sorteio.`);
+    }
+}
 function losingHandAgainst(winnerHand) {
     if (winnerHand === "pedra")
         return "tesoura";
@@ -2885,6 +3140,11 @@ const PVP_PPT_GRACE_AFTER_CREATE_MS = 2 * 60 * 1000;
  * Dois ciclos seguidos → partida anulada, slots em idle, sem recompensas.
  */
 const PPT_BOTH_IDLE_NO_PICK_MS = 22000;
+/**
+ * O cliente renova o slot a cada ~1,2s enquanto busca partida (`joinAutoMatch`).
+ * Sem atualização neste intervalo → considerado offline (app fechado / suspenso) e removido da fila.
+ */
+const MATCHMAKING_SLOT_STALE_MS = 90000;
 async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, forfeitMeta) {
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
     const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
@@ -3145,6 +3405,7 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
     });
     tx.update(hostUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("quiz"),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
@@ -3153,6 +3414,7 @@ async function applyQuizMatchCompletionInTransaction(tx, roomRef, roomId, r, mat
     });
     tx.update(guestUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("quiz"),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
@@ -3309,6 +3571,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
     });
     tx.update(hostUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("quiz"),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
@@ -3317,6 +3580,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
     });
     tx.update(guestUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("quiz"),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
@@ -3494,6 +3758,7 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
     });
     tx.update(hostUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("reaction_tap"),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
@@ -3502,6 +3767,7 @@ async function applyReactionMatchCompletionInTransaction(tx, roomRef, roomId, r,
     });
     tx.update(guestUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("reaction_tap"),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
@@ -3711,6 +3977,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
     const gLoss = guestRes === "derrota";
     tx.update(hostUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("ppt"),
         totalVitorias: firestore_2.FieldValue.increment(hWin ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hLoss ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
@@ -3719,6 +3986,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
     });
     tx.update(guestUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("ppt"),
         totalVitorias: firestore_2.FieldValue.increment(gWin ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(gLoss ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
@@ -4011,6 +4279,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
     });
     tx.update(hostUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("ppt"),
         totalVitorias: firestore_2.FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(hostRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedH.totalCoins),
@@ -4019,6 +4288,7 @@ async function applyPptRoundResultInTransaction(tx, roomRef, roomId, r, hostHand
     });
     tx.update(guestUserRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch("ppt"),
         totalVitorias: firestore_2.FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(guestRes === "derrota" ? 1 : 0),
         coins: firestore_2.FieldValue.increment(boostedG.totalCoins),
@@ -4100,6 +4370,8 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     if (nome.length < 2 || username.length < 3 || username.length > 10) {
         throw new https_1.HttpsError("invalid-argument", "Nome ou username inválidos. Username: 3 a 10 caracteres (a-z, 0-9, _).");
     }
+    assertAllowedPublicName(nome, "Nome");
+    assertAllowedPublicName(username, "Username");
     const foto = rawFoto || buildDefaultAvatarDataUrl(username || uid, nome);
     const userRef = db.doc(`${COL.users}/${uid}`);
     const existing = await userRef.get();
@@ -4182,6 +4454,9 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             dailyLoginCount: 0,
             totalAdsAssistidos: 0,
             totalPartidas: 0,
+            totalPptPartidas: 0,
+            totalQuizPartidas: 0,
+            totalReactionPartidas: 0,
             totalVitorias: 0,
             totalDerrotas: 0,
             scoreRankingDiario: 0,
@@ -4273,6 +4548,10 @@ exports.updateUserAvatar = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
     const username = String(userData.username || uid).trim() || uid;
     const authPhotoURL = normalizeHttpPhotoUrl(rawPhotoUrl);
     const photoURL = authPhotoURL || buildDefaultAvatarDataUrl(username, nome);
+    if (authPhotoURL) {
+        assertAvatarUploadUnlocked(userData);
+        await assertAvatarImageAllowed(authPhotoURL);
+    }
     await Promise.all([
         userRef.set({
             foto: photoURL,
@@ -4431,6 +4710,222 @@ exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         tokenHash,
     });
 });
+exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const mode = String(request.data?.mode || "").trim();
+    if (mode !== "daily_ad" && mode !== "paid") {
+        throw new https_1.HttpsError("invalid-argument", "Modo de giro inválido.");
+    }
+    const economyConfig = await getEconomy();
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const today = dailyKey();
+    const { token: completionToken, isMock } = mode === "daily_ad"
+        ? parseRewardedAdCompletionToken(request.data?.mockCompletionToken)
+        : { token: "", isMock: false };
+    const adEventId = mode === "daily_ad" ? hashId(uid, ROULETTE_DAILY_SPIN_PLACEMENT_ID, today, completionToken) : "";
+    const adRef = adEventId ? db.doc(`${COL.adEvents}/${adEventId}`) : null;
+    const matchRef = db.collection(COL.matches).doc();
+    const result = await db.runTransaction(async (tx) => {
+        const reads = adRef ? [tx.get(userRef), tx.get(adRef)] : [tx.get(userRef)];
+        const [userSnap, adSnap] = await Promise.all(reads);
+        if (!userSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const u = userSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const userPatch = {
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        };
+        let paidCost = null;
+        if (mode === "daily_ad") {
+            if (String(u.rouletteDailyAdSpinDayKey || "") === today) {
+                throw new https_1.HttpsError("already-exists", "Você já usou o giro diário por anúncio hoje.");
+            }
+            if (adSnap?.exists) {
+                throw new https_1.HttpsError("already-exists", "Este anúncio já foi usado para girar a roleta.");
+            }
+            const currentDayKey = String(u.rewardedAdsDayKey || "");
+            const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
+            if (currentCount >= economyConfig.limiteDiarioAds) {
+                throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
+            }
+            userPatch.rewardedAdsDayKey = today;
+            userPatch.rewardedAdsCount = currentCount + 1;
+            userPatch.totalAdsAssistidos = firestore_2.FieldValue.increment(1);
+            userPatch.rouletteDailyAdSpinDayKey = today;
+            if (adRef) {
+                tx.set(adRef, {
+                    id: adEventId,
+                    userId: uid,
+                    status: "recompensado",
+                    placementId: ROULETTE_DAILY_SPIN_PLACEMENT_ID,
+                    rewardKind: "roulette_daily_spin",
+                    mock: isMock,
+                    tokenHash: adEventId,
+                    origin: "callable",
+                    criadoEm: firestore_2.FieldValue.serverTimestamp(),
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                });
+            }
+        }
+        else {
+            const amount = Math.max(0, Math.floor(Number(economyConfig.rouletteSpinCostAmount) || 0));
+            const currency = normalizeRewardCurrency(economyConfig.rouletteSpinCostCurrency, "gems");
+            if (amount > 0) {
+                const currentBalance = getUserBalanceByCurrency(u, currency);
+                if (currentBalance < amount) {
+                    throw new https_1.HttpsError("failed-precondition", `Saldo insuficiente para girar. Custo: ${amount} ${rewardCurrencyLabel(currency)}.`);
+                }
+                userPatch[rewardFieldName(currency)] = firestore_2.FieldValue.increment(-amount);
+                paidCost = { amount, currency, balanceAfter: currentBalance - amount };
+            }
+        }
+        const economy = (0, gameEconomy_1.resolveMatchEconomy)("roleta", "vitoria", 0, { spinMode: mode, paidCurrency: paidCost?.currency ?? null, paidAmount: paidCost?.amount ?? 0 }, economyConfig.matchRewardOverrides, undefined, economyConfig.rouletteTable);
+        const spinMeta = economy.resolvedMetadata;
+        const pkStr = typeof spinMeta["roulettePrizeKind"] === "string" ? String(spinMeta["roulettePrizeKind"]).trim() : "";
+        const rawCr = spinMeta["chestRarity"];
+        const chestRarityResolved = pkStr === "chest" && typeof rawCr === "string" && CHEST_RARITIES.includes(rawCr)
+            ? rawCr
+            : null;
+        const chestRarity = chestRarityResolved;
+        const roulettePrizeKind = chestRarityResolved
+            ? "chest"
+            : pkStr === "gems"
+                ? "gems"
+                : pkStr === "rewardBalance"
+                    ? "rewardBalance"
+                    : "coins";
+        const grantAmt = roulettePrizeKind === "chest"
+            ? 0
+            : Math.max(0, Math.floor(Number(spinMeta["rouletteRewardAmount"] ?? spinMeta["serverPrize"] ?? economy.rewardCoins) || 0));
+        const rewardCoins = roulettePrizeKind === "coins" ? grantAmt : 0;
+        const coinsBefore = Number(u.coins ?? 0);
+        const gemsBefore = Number(u.gems ?? 0);
+        const cashBefore = Number(u.rewardBalance ?? 0);
+        if (roulettePrizeKind === "coins" && grantAmt > 0) {
+            userPatch.coins = firestore_2.FieldValue.increment(grantAmt);
+        }
+        if (roulettePrizeKind === "gems" && grantAmt > 0) {
+            userPatch.gems = firestore_2.FieldValue.increment(grantAmt);
+        }
+        if (roulettePrizeKind === "rewardBalance" && grantAmt > 0) {
+            userPatch.rewardBalance = firestore_2.FieldValue.increment(grantAmt);
+        }
+        userPatch.totalPartidas = firestore_2.FieldValue.increment(1);
+        userPatch.totalVitorias = firestore_2.FieldValue.increment(1);
+        userPatch.xp = firestore_2.FieldValue.increment(15);
+        tx.update(userRef, userPatch);
+        tx.set(matchRef, {
+            id: matchRef.id,
+            gameId: "roleta",
+            gameType: "roleta",
+            userId: uid,
+            opponentId: null,
+            resultado: "vitoria",
+            result: "vitoria",
+            score: economy.normalizedScore,
+            rewardCoins,
+            rankingPoints: economy.rankingPoints,
+            startedAt: null,
+            finishedAt: firestore_2.Timestamp.now(),
+            metadata: economy.resolvedMetadata,
+            detalhes: economy.resolvedMetadata,
+            antiSpamToken: null,
+            criadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        if (paidCost) {
+            addWalletTxInTx(tx, {
+                id: hashId("roulette_paid_spin", matchRef.id, uid),
+                userId: uid,
+                tipo: "roleta_giro",
+                moeda: paidCost.currency,
+                valor: -paidCost.amount,
+                saldoApos: paidCost.balanceAfter,
+                descricao: "Custo do giro pago da roleta",
+                referenciaId: matchRef.id,
+            });
+        }
+        if (rewardCoins > 0) {
+            addWalletTxInTx(tx, {
+                id: hashId("roulette_reward", matchRef.id, uid),
+                userId: uid,
+                tipo: "roleta",
+                moeda: "coins",
+                valor: rewardCoins,
+                saldoApos: coinsBefore + rewardCoins,
+                descricao: mode === "daily_ad" ? "Giro diário por anúncio" : "Giro pago da roleta",
+                referenciaId: matchRef.id,
+            });
+        }
+        if (roulettePrizeKind === "gems" && grantAmt > 0) {
+            addWalletTxInTx(tx, {
+                id: hashId("roulette_reward_gems", matchRef.id, uid),
+                userId: uid,
+                tipo: "roleta",
+                moeda: "gems",
+                valor: grantAmt,
+                saldoApos: gemsBefore + grantAmt,
+                descricao: mode === "daily_ad" ? "Giro diário por anúncio (ticket)" : "Giro pago da roleta (ticket)",
+                referenciaId: matchRef.id,
+            });
+        }
+        if (roulettePrizeKind === "rewardBalance" && grantAmt > 0) {
+            addWalletTxInTx(tx, {
+                id: hashId("roulette_reward_cash", matchRef.id, uid),
+                userId: uid,
+                tipo: "roleta",
+                moeda: "rewardBalance",
+                valor: grantAmt,
+                saldoApos: cashBefore + grantAmt,
+                descricao: mode === "daily_ad" ? "Giro diário por anúncio (CASH)" : "Giro pago da roleta (CASH)",
+                referenciaId: matchRef.id,
+            });
+        }
+        return {
+            ok: true,
+            matchId: matchRef.id,
+            rewardCoins,
+            rewardGems: roulettePrizeKind === "gems" ? grantAmt : 0,
+            rewardCash: roulettePrizeKind === "rewardBalance" ? grantAmt : 0,
+            rouletteRewardAmount: grantAmt,
+            rankingPoints: economy.rankingPoints,
+            normalizedScore: economy.normalizedScore,
+            spinMode: mode,
+            paidCost,
+            nextFreeSpinAtMs: Date.now() + 24 * 60 * 60 * 1000,
+            roulettePrizeKind,
+            chestRarity,
+        };
+    });
+    let grantedChest = null;
+    if (result.roulettePrizeKind === "chest" && result.chestRarity) {
+        grantedChest = await grantChestIfEligible({
+            uid,
+            source: "event",
+            sourceRefId: result.matchId,
+            fixedRarity: result.chestRarity,
+        });
+    }
+    await Promise.all([bumpPlayMatchMissions(uid), evaluateReferralForUser(uid)]);
+    return {
+        ok: result.ok,
+        matchId: result.matchId,
+        rewardCoins: result.rewardCoins,
+        rewardGems: result.rewardGems ?? 0,
+        rewardCash: result.rewardCash ?? 0,
+        rouletteRewardAmount: result.rouletteRewardAmount ?? 0,
+        rankingPoints: result.rankingPoints,
+        normalizedScore: result.normalizedScore,
+        spinMode: result.spinMode,
+        paidCost: result.paidCost,
+        nextFreeSpinAtMs: result.nextFreeSpinAtMs,
+        roulettePrizeKind: result.roulettePrizeKind,
+        chestRarity: result.chestRarity,
+        grantedChest,
+        chestNotGranted: result.roulettePrizeKind === "chest" && Boolean(result.chestRarity) && grantedChest === null,
+    };
+});
 exports.prepareRewardedAdSession = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
@@ -4451,6 +4946,25 @@ exports.prepareRewardedAdSession = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, as
     const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(userData.rewardedAdsCount || 0))) : 0;
     if (currentCount >= economy.limiteDiarioAds) {
         throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
+    }
+    if (placementId === RAFFLE_NUMBER_PLACEMENT_ID) {
+        const raffleIdForAd = String(request.data?.raffleId || "").trim();
+        if (!raffleIdForAd) {
+            throw new https_1.HttpsError("invalid-argument", "Informe raffleId para preparar o anúncio do sorteio.");
+        }
+        const raffleSnapForAd = await db.doc(`${COL.raffles}/${raffleIdForAd}`).get();
+        if (!raffleSnapForAd.exists) {
+            throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
+        }
+        const raffleForAd = raffleDocFromFirestore(raffleSnapForAd.id, (raffleSnapForAd.data() || {}));
+        if (raffleForAd.status !== "active" || raffleForAd.entryMode !== "rewarded_ad") {
+            throw new https_1.HttpsError("failed-precondition", "Este sorteio não está aberto para números por anúncio.");
+        }
+        const nowAd = Date.now();
+        if (!isRafflePurchaseWindowOpen(raffleForAd, nowAd)) {
+            throw new https_1.HttpsError("failed-precondition", "Fora da janela de inscrições deste sorteio.");
+        }
+        assertCanClaimRaffleAdNumber(userData, raffleForAd, nowAd);
     }
     const sessionRef = db.collection(COL.rewardedAdSessions).doc();
     const expiresAtMs = Date.now() + REWARDED_AD_SESSION_TTL_MS;
@@ -4678,6 +5192,9 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     if (gameEconomy_1.GAME_COOLDOWN_SEC[gameId] === undefined) {
         throw new https_1.HttpsError("invalid-argument", "Jogo inválido.");
     }
+    if (gameId === "roleta") {
+        throw new https_1.HttpsError("failed-precondition", "A roleta deve ser girada pela função segura processRouletteSpin.");
+    }
     const userRef = db.doc(`${COL.users}/${uid}`);
     const [uSnap, membershipSnap] = await Promise.all([userRef.get(), clanMembershipRef(uid).get()]);
     if (!uSnap.exists)
@@ -4700,9 +5217,9 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
         await logMatchFraud(uid, "match_rate_limit", { gameId });
         throw new https_1.HttpsError("resource-exhausted", "Muitas partidas em sequência. Aguarde um minuto.");
     }
-    const effectiveResult = gameId === "roleta" || gameId === "bau" ? "vitoria" : resultado;
+    const effectiveResult = gameId === "bau" ? "vitoria" : resultado;
     const economyConfig = await getEconomy();
-    const economy = (0, gameEconomy_1.resolveMatchEconomy)(gameId, effectiveResult, clientScore, metadata, economyConfig.matchRewardOverrides);
+    const economy = (0, gameEconomy_1.resolveMatchEconomy)(gameId, effectiveResult, clientScore, metadata, economyConfig.matchRewardOverrides, undefined, economyConfig.rouletteTable);
     const cdSec = gameEconomy_1.GAME_COOLDOWN_SEC[gameId] ?? 3;
     const cooldownUntil = firestore_2.Timestamp.fromMillis(now + cdSec * 1000);
     let startedTs = null;
@@ -4744,6 +5261,7 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     batch.set(matchRef, matchDoc);
     batch.update(userRef, {
         totalPartidas: firestore_2.FieldValue.increment(1),
+        ...gameMatchCounterPatch(gameId),
         totalVitorias: firestore_2.FieldValue.increment(win ? 1 : 0),
         totalDerrotas: firestore_2.FieldValue.increment(loss ? 1 : 0),
         coins: firestore_2.FieldValue.increment(rewardCoins),
@@ -4937,9 +5455,24 @@ exports.startChestUnlock = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
             item.status === "unlocking" &&
             item.readyAtMs != null &&
             item.readyAtMs > nowMs)) {
+            // Mantenha igual a `CHEST_ALREADY_OPENING_MESSAGE` em `src/lib/firebase/errors.ts` do app Web.
             throw new https_1.HttpsError("failed-precondition", "Já existe um baú em abertura.");
         }
         const currentStatus = chestActionStatus(chest, nowMs);
+        if (currentStatus === "locked" &&
+            chest.slotIndex != null &&
+            Number.isFinite(Number(chest.slotIndex))) {
+            const mySlot = chest.slotIndex;
+            const hasLockedLowerSlot = normalizedItems.some((other) => other.id !== chestId &&
+                other.status === "locked" &&
+                other.slotIndex != null &&
+                typeof other.slotIndex === "number" &&
+                other.slotIndex < mySlot);
+            if (hasLockedLowerSlot) {
+                // Mantenha igual a `CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE` em `src/lib/firebase/errors.ts`.
+                throw new https_1.HttpsError("failed-precondition", "Abra primeiro o baú no slot de menor número (comece pelo slot 1).");
+            }
+        }
         if (currentStatus === "ready" || currentStatus === "unlocking") {
             if (currentStatus === "ready" && chest.status !== "ready") {
                 chest.status = "ready";
@@ -5020,7 +5553,7 @@ exports.speedUpChestUnlock = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
             throw new https_1.HttpsError("resource-exhausted", `Aguarde ${waitSec}s para acelerar este baú de novo.`);
         }
         const remainingMs = Math.max(0, chest.readyAtMs - nowMs);
-        const reducedMs = Math.max(1, Math.ceil(remainingMs * config.adSpeedupPercent));
+        const reducedMs = chestAdSpeedupReducedMs(config, remainingMs);
         const nextReadyAtMs = Math.max(nowMs, chest.readyAtMs - reducedMs);
         chest.adsUsed += 1;
         chest.readyAtMs = nextReadyAtMs;
@@ -5952,6 +6485,8 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const raffleId = String(request.data?.raffleId || "").trim();
     const quantity = Math.floor(Number(request.data?.quantity));
     const clientRequestId = String(request.data?.clientRequestId || "").trim();
+    const rewardedAdSessionIdIn = String(request.data?.rewardedAdSessionId || "").trim();
+    const completionTokenRaw = request.data?.rewardedAdCompletionToken;
     if (!raffleId || !clientRequestId) {
         throw new https_1.HttpsError("invalid-argument", "raffleId e clientRequestId são obrigatórios.");
     }
@@ -5966,6 +6501,31 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const purchaseId = hashId("raffle_buy", uid, raffleId, clientRequestId);
     const purchaseRef = db.doc(`${COL.rafflePurchases}/${purchaseId}`);
     const userRef = db.doc(`${COL.users}/${uid}`);
+    const previewSnap = await raffleRef.get();
+    if (!previewSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
+    }
+    const previewRaffle = raffleDocFromFirestore(previewSnap.id, (previewSnap.data() || {}));
+    const previewEntryMode = previewRaffle.entryMode;
+    let adCompletionToken = null;
+    if (completionTokenRaw !== undefined && completionTokenRaw !== null && String(completionTokenRaw).trim()) {
+        const parsed = parseRewardedAdCompletionToken(completionTokenRaw);
+        adCompletionToken = parsed.token;
+    }
+    if (previewEntryMode === "ticket") {
+        if (rewardedAdSessionIdIn || adCompletionToken) {
+            throw new https_1.HttpsError("invalid-argument", "Este sorteio aceita apenas pagamento em TICKET. Não envie dados de anúncio.");
+        }
+    }
+    else {
+        if (quantity !== 1) {
+            throw new https_1.HttpsError("invalid-argument", "Neste sorteio cada anúncio válido libera exatamente 1 número por vez.");
+        }
+        const proofCount = (rewardedAdSessionIdIn ? 1 : 0) + (adCompletionToken ? 1 : 0);
+        if (proofCount !== 1) {
+            throw new https_1.HttpsError("invalid-argument", "Informe rewardedAdSessionId (app com validação AdMob) ou rewardedAdCompletionToken (apenas ambientes autorizados), um dos dois.");
+        }
+    }
     const existingPurchase = await purchaseRef.get();
     if (existingPurchase.exists) {
         const raffleSnap = await raffleRef.get();
@@ -5997,6 +6557,13 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         if (raffle.status !== "active") {
             throw new https_1.HttpsError("failed-precondition", "Este sorteio não está ativo para compras.");
         }
+        const entryMode = raffle.entryMode;
+        if (entryMode === "ticket" && (rewardedAdSessionIdIn || adCompletionToken)) {
+            throw new https_1.HttpsError("failed-precondition", "Este sorteio não está em modo anúncio.");
+        }
+        if (entryMode === "rewarded_ad" && quantity !== 1) {
+            throw new https_1.HttpsError("invalid-argument", "Quantidade inválida para sorteio por anúncio.");
+        }
         const nowMs = Date.now();
         const nowTs = firestore_2.Timestamp.fromMillis(nowMs);
         if (!isRafflePurchaseWindowOpen(raffle, nowMs)) {
@@ -6011,36 +6578,98 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         if (remainingPool < quantity) {
             throw new https_1.HttpsError("failed-precondition", "Números esgotados para este sorteio.");
         }
-        const ticketCost = quantity * raffle.ticketPrice;
-        if (!Number.isSafeInteger(ticketCost) || ticketCost < 1) {
-            throw new https_1.HttpsError("failed-precondition", "Custo inválido.");
+        const ticketCost = entryMode === "rewarded_ad" ? 0 : quantity * raffle.ticketPrice;
+        if (entryMode === "ticket") {
+            if (!Number.isSafeInteger(ticketCost) || ticketCost < 1) {
+                throw new https_1.HttpsError("failed-precondition", "Custo inválido.");
+            }
         }
         const gems = Number(u.gems ?? 0);
-        if (gems < ticketCost) {
-            throw new https_1.HttpsError("failed-precondition", "Saldo de TICKET insuficiente.");
+        if (entryMode === "ticket") {
+            if (gems < ticketCost) {
+                throw new https_1.HttpsError("failed-precondition", "Saldo de TICKET insuficiente.");
+            }
         }
         const newGems = gems - ticketCost;
+        if (entryMode === "rewarded_ad") {
+            assertCanClaimRaffleAdNumber(u, raffle, nowMs);
+            if (rewardedAdSessionIdIn) {
+                const sessionRef = db.doc(`${COL.rewardedAdSessions}/${rewardedAdSessionIdIn}`);
+                const sessSnap = await tx.get(sessionRef);
+                if (!sessSnap.exists) {
+                    throw new https_1.HttpsError("failed-precondition", "Sessão de anúncio não encontrada.");
+                }
+                const sd = (sessSnap.data() || {});
+                if (String(sd.userId || "") !== uid) {
+                    throw new https_1.HttpsError("permission-denied", "Sessão de anúncio não pertence a você.");
+                }
+                if (String(sd.placementId || "").trim() !== RAFFLE_NUMBER_PLACEMENT_ID) {
+                    throw new https_1.HttpsError("failed-precondition", "Este anúncio não é do tipo sorteio.");
+                }
+                if (String(sd.status || "") !== "recompensado") {
+                    throw new https_1.HttpsError("failed-precondition", "Anúncio ainda não foi validado. Aguarde ou assista novamente.");
+                }
+                if (sd.raffleConsumedPurchaseId) {
+                    throw new https_1.HttpsError("failed-precondition", "Este anúncio já foi usado para obter um número.");
+                }
+                tx.set(sessionRef, {
+                    raffleConsumedAt: firestore_2.FieldValue.serverTimestamp(),
+                    raffleConsumedPurchaseId: purchaseRef.id,
+                    updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                }, { merge: true });
+            }
+            else if (adCompletionToken) {
+                const adEventId = hashId(uid, RAFFLE_NUMBER_PLACEMENT_ID, adCompletionToken);
+                const adRef = db.doc(`${COL.adEvents}/${adEventId}`);
+                const adSnap = await tx.get(adRef);
+                if (!adSnap.exists) {
+                    throw new https_1.HttpsError("failed-precondition", "Comprovante de anúncio não encontrado. Assista ao anúncio e tente novamente.");
+                }
+                const ad = (adSnap.data() || {});
+                if (String(ad.userId || "") !== uid) {
+                    throw new https_1.HttpsError("permission-denied", "Comprovante de anúncio inválido.");
+                }
+                if (String(ad.rewardKind || "") !== "raffle_number") {
+                    throw new https_1.HttpsError("failed-precondition", "Este comprovante não é de sorteio por anúncio.");
+                }
+                if (ad.raffleConsumedPurchaseId) {
+                    throw new https_1.HttpsError("failed-precondition", "Este anúncio já foi usado para obter um número.");
+                }
+                tx.set(adRef, {
+                    raffleConsumedAt: firestore_2.FieldValue.serverTimestamp(),
+                    raffleConsumedPurchaseId: purchaseRef.id,
+                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                }, { merge: true });
+            }
+            else {
+                throw new https_1.HttpsError("failed-precondition", "Comprovante de anúncio obrigatório.");
+            }
+        }
         const winnerName = typeof u.nome === "string" && u.nome.trim() ? String(u.nome).trim() : null;
         const winnerUsername = typeof u.username === "string" && u.username.trim() ? String(u.username).trim() : null;
-        addWalletTxInTx(tx, {
-            id: hashId("raffle_buy", purchaseId),
-            userId: uid,
-            tipo: "sorteio_compra",
-            moeda: "gems",
-            valor: -ticketCost,
-            saldoApos: newGems,
-            descricao: `Sorteio: compra de ${quantity} número(s) · ${raffle.title}`,
-            referenciaId: purchaseId,
-        });
+        if (entryMode === "ticket") {
+            addWalletTxInTx(tx, {
+                id: hashId("raffle_buy", purchaseId),
+                userId: uid,
+                tipo: "sorteio_compra",
+                moeda: "gems",
+                valor: -ticketCost,
+                saldoApos: newGems,
+                descricao: `Sorteio: compra de ${quantity} número(s) · ${raffle.title}`,
+                referenciaId: purchaseId,
+            });
+        }
         let rangeStart = 0;
         let rangeEnd = 0;
         let numbers;
         let ticketNumbers = [];
         const raffleUpdate = {
             soldCount: firestore_2.FieldValue.increment(quantity),
-            soldTicketsRevenue: firestore_2.FieldValue.increment(ticketCost),
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
         };
+        if (entryMode === "ticket") {
+            raffleUpdate.soldTicketsRevenue = firestore_2.FieldValue.increment(ticketCost);
+        }
         if (raffle.allocationMode === "random") {
             const rawRaffle = (raffleSnap.data() || {});
             const buf = readSoldBitsBuffer(rawRaffle.soldBits, raffle.releasedCount);
@@ -6126,6 +6755,12 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 userUpdate[rewardFieldName(currency)] = firestore_2.FieldValue.increment(userDeltas[currency]);
             }
         }
+        if (entryMode === "rewarded_ad") {
+            /** Mapa aninhado (merge recursivo). Chaves com ponto em `set(merge)` não viram subcampo — antes o cooldown nunca lia o timestamp. */
+            userUpdate.raffleAdLastClaimAt = {
+                [raffleId]: firestore_2.FieldValue.serverTimestamp(),
+            };
+        }
         tx.set(userRef, userUpdate, { merge: true });
         tx.set(raffleRef, raffleUpdate, { merge: true });
         const purchasePayload = {
@@ -6134,6 +6769,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             userId: uid,
             quantity,
             ticketCost,
+            entryVia: entryMode,
             rangeStart,
             rangeEnd,
             clientRequestId,
@@ -6158,6 +6794,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 userId: uid,
                 quantity,
                 ticketCost,
+                entryVia: entryMode,
                 rangeStart,
                 rangeEnd,
                 numbers: numbers ?? null,
@@ -6237,7 +6874,13 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
     const status = String(request.data?.status || "draft").trim();
     const releasedCount = normalizeRaffleReleasedCount(request.data?.releasedCount);
     const ticketPrice = normalizeRaffleTicketPrice(request.data?.ticketPrice);
-    const maxPerPurchase = normalizeRaffleMaxPerPurchase(request.data?.maxPerPurchase);
+    let maxPerPurchase = normalizeRaffleMaxPerPurchase(request.data?.maxPerPurchase);
+    const entryModeInput = request.data?.entryMode;
+    const entryMode = entryModeInput === "rewarded_ad" ? "rewarded_ad" : "ticket";
+    if (entryMode === "rewarded_ad") {
+        maxPerPurchase = 1;
+    }
+    const rewardedAdCooldownSeconds = normalizeRaffleRewardedAdCooldownSeconds(request.data?.rewardedAdCooldownSeconds, entryMode);
     const prizeCurrencyRaw = request.data?.prizeCurrency;
     const prizeCurrency = isRewardCurrency(prizeCurrencyRaw) ? prizeCurrencyRaw : "coins";
     const prizeAmount = normalizeRafflePrizeAmount(request.data?.prizeAmount);
@@ -6303,6 +6946,9 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
             if (prev.soldCount > 0 && resolvedAllocation !== prev.allocationMode) {
                 throw new https_1.HttpsError("failed-precondition", "Não é possível alterar o modo de numeração após existirem vendas.");
             }
+            if (prev.soldCount > 0 && entryMode !== prev.entryMode) {
+                throw new https_1.HttpsError("failed-precondition", "Não é possível alterar o modo de inscrição (TICKET / anúncio) após existirem números distribuídos.");
+            }
             if (prev.soldCount > 0 &&
                 instantPrizeConfigSignature(prev.instantPrizeTiers) !== instantPrizeConfigSignature(requestedInstantPrizeTiers)) {
                 throw new https_1.HttpsError("failed-precondition", "Não é possível alterar os números premiados após existirem vendas.");
@@ -6322,6 +6968,8 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
             nextSequentialNumber,
             soldCount,
             soldTicketsRevenue,
+            entryMode,
+            rewardedAdCooldownSeconds,
             ticketPrice,
             maxPerPurchase,
             prizeCurrency,
@@ -6760,6 +7408,27 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
             const jb = pSnap.data().joinedAt;
             const host = ja.toMillis() <= jb.toMillis() ? uid : partnerId;
             const guest = host === uid ? partnerId : uid;
+            const nowForSlots = Date.now();
+            const [hostSlotSnap, guestSlotSnap] = await Promise.all([
+                tx.get(slotRef(host)),
+                tx.get(slotRef(guest)),
+            ]);
+            const matchmakingSlotStillActive = (snap) => {
+                if (!snap.exists)
+                    return false;
+                const sd = snap.data();
+                if (String(sd.queueStatus) !== "waiting")
+                    return false;
+                if (String(sd.gameId) !== gameId)
+                    return false;
+                const updatedMs = millisFromFirestoreTime(sd.atualizadoEm);
+                if (updatedMs <= 0)
+                    return false;
+                return nowForSlots - updatedMs <= MATCHMAKING_SLOT_STALE_MS;
+            };
+            if (!matchmakingSlotStillActive(hostSlotSnap) || !matchmakingSlotStillActive(guestSlotSnap)) {
+                return null;
+            }
             const hostData = host === uid ? selfSnap.data() : pSnap.data();
             const guestData = host === uid ? pSnap.data() : selfSnap.data();
             const hostUserRef = db.doc(`${COL.users}/${host}`);
@@ -8187,7 +8856,7 @@ function distributeClanRewardsToContributors(rewards, contributors) {
                 contributor: item,
             };
         });
-        let remaining = amount - distributed;
+        const remaining = amount - distributed;
         if (remaining > 0) {
             remainderRows.sort((a, b) => {
                 if (b.remainder !== a.remainder)
@@ -8623,6 +9292,36 @@ exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCH
         }
     }
 });
+/** Remove da fila automática jogadores cujo app parou de renovar o slot (fechou ou ficou inativo). */
+exports.reapStaleAutoMatchSlots = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" }, async () => {
+    const cutoff = firestore_2.Timestamp.fromMillis(Date.now() - MATCHMAKING_SLOT_STALE_MS);
+    const snap = await db
+        .collection(COL.multiplayerSlots)
+        .where("queueStatus", "==", "waiting")
+        .where("atualizadoEm", "<", cutoff)
+        .limit(100)
+        .get();
+    for (const doc of snap.docs) {
+        try {
+            const d = doc.data();
+            const staleUid = doc.id;
+            const g = String(d.gameId || "");
+            if (!AUTO_QUEUE_GAMES.has(g))
+                continue;
+            await waitingColl(g).doc(staleUid).delete().catch(() => undefined);
+            await doc.ref.set({
+                uid: staleUid,
+                gameId: g,
+                queueStatus: "idle",
+                roomId: null,
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        }
+        catch (e) {
+            console.error("reapStaleAutoMatchSlots", doc.id, e);
+        }
+    }
+});
 exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" }, async () => {
     await closeRankingJob("diario");
 });
@@ -8734,8 +9433,24 @@ function clanMemberRef(clanId, uid) {
 function clanMessagesCollection(clanId) {
     return db.collection(`${COL.clans}/${clanId}/messages`);
 }
+async function pruneClanMessages(clanId, keep = CLAN_MESSAGE_RETENTION_LIMIT) {
+    const overflow = Math.max(0, keep);
+    const snapshot = await clanMessagesCollection(clanId)
+        .orderBy("createdAt", "desc")
+        .offset(overflow)
+        .limit(40)
+        .get();
+    if (snapshot.empty)
+        return;
+    const batch = db.batch();
+    snapshot.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+    await batch.commit();
+}
 function clanJoinRequestRef(uid) {
     return db.doc(`${COL.clanJoinRequests}/${uid}`);
+}
+function clanScopedJoinRequestRef(clanId, uid) {
+    return db.doc(`${COL.clans}/${clanId}/join_requests/${uid}`);
 }
 function normalizeClanName(value) {
     return String(value || "")
@@ -9129,6 +9844,10 @@ exports.createClan = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) 
     if (tag.length < 2) {
         throw new https_1.HttpsError("invalid-argument", "A TAG do clã precisa ter entre 2 e 6 caracteres.");
     }
+    assertAllowedPublicName(name, "Nome do clã");
+    assertAllowedPublicName(tag, "TAG do clã");
+    if (description)
+        assertAllowedPublicName(description, "Descrição do clã");
     const [actor, duplicatedTagSnap, existingJoinRequestSnap] = await Promise.all([
         getClanActorProfile(uid),
         db.collection(COL.clans).where("tag", "==", tag).limit(1).get(),
@@ -9217,7 +9936,11 @@ exports.createClan = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) 
             systemType: "clan_created",
         }));
         if (existingJoinRequestSnap.exists) {
+            const existingRequestClanId = String(existingJoinRequestSnap.get("clanId") || "");
             tx.delete(clanJoinRequestRef(uid));
+            if (existingRequestClanId) {
+                tx.delete(clanScopedJoinRequestRef(existingRequestClanId, uid));
+            }
         }
     });
     return { ok: true, clanId: newClanRef.id };
@@ -9259,7 +9982,7 @@ exports.joinClanByCode = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reque
             shouldIncrementReceived = !(existingStatus === "pending" && existingClanId === targetClanRef.id);
         }
         const batch = db.batch();
-        batch.set(joinRequestRef, buildClanJoinRequestPayload({
+        const requestPayload = buildClanJoinRequestPayload({
             userId: uid,
             clanId: targetClanRef.id,
             clanName: String(targetClanData.name || "Clã"),
@@ -9268,7 +9991,9 @@ exports.joinClanByCode = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reque
             userName: actor.nome,
             username: actor.username,
             photoURL: actor.foto,
-        }), { merge: true });
+        });
+        batch.set(joinRequestRef, requestPayload, { merge: true });
+        batch.set(clanScopedJoinRequestRef(targetClanRef.id, uid), requestPayload, { merge: true });
         if (shouldIncrementReceived) {
             batch.set(targetClanRef, {
                 joinRequestsReceivedCount: firestore_2.FieldValue.increment(1),
@@ -9320,7 +10045,11 @@ exports.joinClanByCode = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reque
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
         });
         if (existingRequestSnap.exists) {
+            const existingRequestClanId = String(existingRequestSnap.get("clanId") || "");
             tx.delete(joinRequestRef);
+            if (existingRequestClanId) {
+                tx.delete(clanScopedJoinRequestRef(existingRequestClanId, uid));
+            }
         }
         tx.set(joinMessageRef, buildClanMessagePayload({
             clanId: targetClanRef.id,
@@ -9372,7 +10101,7 @@ exports.requestClanAccess = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             shouldIncrementReceived = !(existingStatus === "pending" && existingClanId === targetClanRef.id);
         }
         const batch = db.batch();
-        batch.set(joinRequestRef, buildClanJoinRequestPayload({
+        const requestPayload = buildClanJoinRequestPayload({
             userId: uid,
             clanId: targetClanRef.id,
             clanName: String(targetClanData.name || "Clã"),
@@ -9381,7 +10110,9 @@ exports.requestClanAccess = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             userName: actor.nome,
             username: actor.username,
             photoURL: actor.foto,
-        }), { merge: true });
+        });
+        batch.set(joinRequestRef, requestPayload, { merge: true });
+        batch.set(clanScopedJoinRequestRef(targetClanRef.id, uid), requestPayload, { merge: true });
         if (shouldIncrementReceived) {
             batch.set(targetClanRef, {
                 joinRequestsReceivedCount: firestore_2.FieldValue.increment(1),
@@ -9433,7 +10164,11 @@ exports.requestClanAccess = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
         });
         if (existingRequestSnap.exists) {
+            const existingRequestClanId = String(existingRequestSnap.get("clanId") || "");
             tx.delete(joinRequestRef);
+            if (existingRequestClanId) {
+                tx.delete(clanScopedJoinRequestRef(existingRequestClanId, uid));
+            }
         }
         tx.set(joinMessageRef, buildClanMessagePayload({
             clanId: targetClanRef.id,
@@ -9540,6 +10275,7 @@ exports.sendClanMessage = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
         updatedAt: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });
     await batch.commit();
+    await pruneClanMessages(clanId);
     return { ok: true, messageId: messageRef.id };
 });
 exports.markClanChatRead = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -9606,6 +10342,12 @@ exports.updateClanSettings = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
     if (nextTag !== undefined && nextTag.length < 2) {
         throw new https_1.HttpsError("invalid-argument", "A TAG do clã precisa ter entre 2 e 6 caracteres.");
     }
+    if (nextName !== undefined)
+        assertAllowedPublicName(nextName, "Nome do clã");
+    if (nextTag !== undefined)
+        assertAllowedPublicName(nextTag, "TAG do clã");
+    if (description)
+        assertAllowedPublicName(description, "Descrição do clã");
     if (nextInviteCode !== undefined && nextInviteCode.length < 4) {
         throw new https_1.HttpsError("invalid-argument", "O código do clã precisa ter pelo menos 4 caracteres.");
     }
@@ -9925,11 +10667,15 @@ exports.approveClanJoinRequest = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asyn
         if (!requestSnap.exists) {
             throw new https_1.HttpsError("not-found", "Solicitação não encontrada.");
         }
+        const requestData = (requestSnap.data() || {});
         if (targetMembershipSnap.exists) {
             tx.delete(clanJoinRequestRef(targetUid));
+            const requestClanId = String(requestData.clanId || "");
+            if (requestClanId) {
+                tx.delete(clanScopedJoinRequestRef(requestClanId, targetUid));
+            }
             return;
         }
-        const requestData = (requestSnap.data() || {});
         if (String(requestData.clanId || "") !== clanId ||
             String(requestData.status || "pending") !== "pending") {
             throw new https_1.HttpsError("failed-precondition", "A solicitação não está mais pendente.");
@@ -9964,6 +10710,7 @@ exports.approveClanJoinRequest = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asyn
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
         });
         tx.delete(clanJoinRequestRef(targetUid));
+        tx.delete(clanScopedJoinRequestRef(clanId, targetUid));
         tx.set(joinMessageRef, buildClanMessagePayload({
             clanId,
             authorUid: uid,
@@ -10022,6 +10769,7 @@ exports.rejectClanJoinRequest = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             reviewedAt: firestore_2.FieldValue.serverTimestamp(),
             updatedAt: firestore_2.FieldValue.serverTimestamp(),
         }, { merge: true });
+        tx.delete(clanScopedJoinRequestRef(clanId, targetUid));
         tx.set(rejectMessageRef, buildClanMessagePayload({
             clanId,
             authorUid: uid,
@@ -10047,7 +10795,13 @@ exports.cancelClanJoinRequest = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     if (String(requestData.status || "pending") !== "pending") {
         throw new https_1.HttpsError("failed-precondition", "Essa solicitação já foi encerrada.");
     }
-    await requestRef.delete();
+    const clanId = String(requestData.clanId || "");
+    const batch = db.batch();
+    batch.delete(requestRef);
+    if (clanId) {
+        batch.delete(clanScopedJoinRequestRef(clanId, uid));
+    }
+    await batch.commit();
     return { ok: true };
 });
 exports.kickClanMember = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {

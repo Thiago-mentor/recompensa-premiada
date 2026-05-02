@@ -239,7 +239,11 @@ export default function AdminDashboardPage() {
                 />
                 <InfoChip
                   label="Speedup"
-                  value={`${Math.round(chestConfig.adSpeedupPercent * 100)}% por anúncio`}
+                  value={
+                    Number(chestConfig.adSpeedupFixedMinutes) > 0
+                      ? `${chestConfig.adSpeedupFixedMinutes} min/anúncio (cap no restante)`
+                      : `${Math.round(chestConfig.adSpeedupPercent * 100)}% por anúncio`
+                  }
                 />
                 <InfoChip
                   label="Limite diário"

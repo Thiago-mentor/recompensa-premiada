@@ -25,6 +25,7 @@ export function DailyRewardModalHost() {
   );
   const [claimLoading, setClaimLoading] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [dismissedPeriodKey, setDismissedPeriodKey] = useState<string | null>(null);
   /** Força releitura do sessionStorage após fechar o modal. */
   const [storageRev, setStorageRev] = useState(0);
 
@@ -76,6 +77,7 @@ export function DailyRewardModalHost() {
   }, [storageRev]);
 
   const modalOpen = useMemo(() => {
+    if (dismissedPeriodKey === getDailyPeriodKey()) return false;
     if (hiddenByUserToday) return false;
     if (loading) return false;
     if (!user) return false;
@@ -84,11 +86,13 @@ export function DailyRewardModalHost() {
     if (profile?.banido) return false;
     if (ui.kind !== "can_claim") return false;
     return slots.length > 0;
-  }, [hiddenByUserToday, loading, user, profile, profileLoading, ui, slots]);
+  }, [dismissedPeriodKey, hiddenByUserToday, loading, user, profile, profileLoading, ui, slots]);
 
   const hideForToday = useCallback(() => {
     setClaimError(null);
+    setClaimLoading(false);
     const today = getDailyPeriodKey();
+    setDismissedPeriodKey(today);
     try {
       sessionStorage.setItem(HIDE_KEY_PREFIX + today, "1");
     } catch {
@@ -98,21 +102,21 @@ export function DailyRewardModalHost() {
   }, []);
 
   const onClaim = useCallback(async () => {
+    if (claimLoading) return;
     setClaimError(null);
     setClaimLoading(true);
-    const res = await processDailyLogin();
-    setClaimLoading(false);
-    if (res.ok && !res.alreadyCheckedIn) {
-      await refreshProfile();
-      return;
+    try {
+      const res = await processDailyLogin();
+      if (res.ok) {
+        hideForToday();
+        void refreshProfile();
+        return;
+      }
+      setClaimError(res.error || "Não foi possível resgatar. Tente de novo.");
+    } finally {
+      setClaimLoading(false);
     }
-    if (res.alreadyCheckedIn) {
-      await refreshProfile();
-      hideForToday();
-      return;
-    }
-    setClaimError(res.error || "Não foi possível resgatar. Tente de novo.");
-  }, [refreshProfile, hideForToday]);
+  }, [claimLoading, refreshProfile, hideForToday]);
 
   return (
     <DailyRewardModal

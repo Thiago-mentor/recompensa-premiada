@@ -15,6 +15,9 @@ export type RaffleNoWinnerPolicy = "no_payout_close";
 export type RaffleAllocationMode = "sequential" | "random";
 export type RaffleScheduleMode = "date_range" | "until_sold_out";
 
+/** ticket = paga com TICKET (gems); rewarded_ad = 1 número por anúncio validado. */
+export type RaffleEntryMode = "ticket" | "rewarded_ad";
+
 export type RafflePrizeCurrency = WalletCurrency;
 
 export interface RaffleInstantPrizeTier {
@@ -48,6 +51,9 @@ export interface Raffle {
   nextSequentialNumber: number;
   soldCount: number;
   soldTicketsRevenue: number;
+  entryMode?: RaffleEntryMode;
+  /** Segundos entre números por anúncio (modo `rewarded_ad`). */
+  rewardedAdCooldownSeconds?: number;
   ticketPrice: number;
   maxPerPurchase: number;
   prizeCurrency: RafflePrizeCurrency;
@@ -84,6 +90,8 @@ export interface RaffleView {
   nextSequentialNumber: number;
   soldCount: number;
   soldTicketsRevenue: number;
+  entryMode?: RaffleEntryMode;
+  rewardedAdCooldownSeconds?: number;
   ticketPrice: number;
   maxPerPurchase: number;
   prizeCurrency: RafflePrizeCurrency;
@@ -118,6 +126,7 @@ export interface RafflePurchase {
   userId: string;
   quantity: number;
   ticketCost: number;
+  entryVia?: RaffleEntryMode;
   rangeStart: number;
   rangeEnd: number;
   clientRequestId: string;
@@ -132,6 +141,7 @@ export interface RafflePurchaseView {
   userId: string;
   quantity: number;
   ticketCost: number;
+  entryVia?: RaffleEntryMode;
   rangeStart: number;
   rangeEnd: number;
   /** Presente quando o sorteio usa alocação aleatória. */

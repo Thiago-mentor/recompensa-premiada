@@ -133,7 +133,6 @@ export function DailyRewardModal({
 
   if (!open || typeof window === "undefined") return null;
 
-  const hasCurrent = slots.some((s) => s.status === "current");
   const layout = getDailyRewardLayout(slots.length);
 
   return createPortal(
@@ -145,11 +144,14 @@ export function DailyRewardModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.22 }}
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       onClick={onClose}
     >
       <motion.div
         className={cn(
-          "relative w-full overflow-hidden rounded-[1.35rem] border-[3px] border-[#f5d94a] p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_24px_60px_-12px_rgba(0,0,0,0.65),0_0_80px_-20px_rgba(245,217,74,0.35)] sm:p-5",
+          "pointer-events-auto relative w-full overflow-hidden rounded-[1.35rem] border-[3px] border-[#f5d94a] p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_24px_60px_-12px_rgba(0,0,0,0.65),0_0_80px_-20px_rgba(245,217,74,0.35)] sm:p-5",
           "bg-gradient-to-b from-[#5c3eb0] via-[#4f3496] to-[#3d2675]",
           layout.dialogClassName,
         )}
@@ -157,6 +159,7 @@ export function DailyRewardModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", damping: 28, stiffness: 320, mass: 0.85 }}
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.12]"
@@ -168,8 +171,17 @@ export function DailyRewardModal({
 
         <button
           type="button"
-          onClick={onClose}
-          className="absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-red-600/95 text-white shadow-lg ring-2 ring-black/20 transition hover:scale-105 hover:bg-red-500 active:scale-95"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          }}
+          className="pointer-events-auto absolute right-2.5 top-2.5 z-30 flex h-9 w-9 touch-manipulation items-center justify-center rounded-full bg-red-600/95 text-white shadow-lg ring-2 ring-black/20 transition hover:scale-105 hover:bg-red-500 active:scale-95"
           aria-label="Fechar"
         >
           <X className="h-5 w-5" strokeWidth={2.5} />
@@ -325,14 +337,22 @@ export function DailyRewardModal({
 
         <button
           type="button"
-          disabled={claimLoading || !hasCurrent}
-          onClick={onClaim}
+          disabled={claimLoading || slots.length === 0}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!claimLoading && slots.length > 0) onClaim();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
           className={cn(
-            "relative mt-5 w-full overflow-hidden rounded-2xl border-4 border-black/25 py-3.5 text-base font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_6px_0_rgba(0,0,0,0.35)] transition enabled:hover:translate-y-0.5 enabled:hover:shadow-[0_4px_0_rgba(0,0,0,0.35)] enabled:active:translate-y-1 enabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-45",
+            "pointer-events-auto relative z-20 mt-5 w-full touch-manipulation overflow-hidden rounded-2xl border-4 border-black/25 py-3.5 text-base font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_6px_0_rgba(0,0,0,0.35)] transition enabled:hover:translate-y-0.5 enabled:hover:shadow-[0_4px_0_rgba(0,0,0,0.35)] enabled:active:translate-y-1 enabled:active:shadow-none disabled:cursor-not-allowed disabled:opacity-45",
             "bg-gradient-to-r from-[#ffe566] via-[#f472b6] to-[#a855f7]",
           )}
         >
-          <span className="relative z-[1] drop-shadow-sm">{claimLoading ? "RESGATANDO…" : "RESGATAR"}</span>
+          <span className="relative z-[1] drop-shadow-sm">{claimLoading ? "RECEBENDO..." : "RECEBER"}</span>
         </button>
 
         {errorMessage ? (

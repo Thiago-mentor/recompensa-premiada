@@ -98,6 +98,7 @@ export default function AdminJogosPage() {
   const [pvpSecQuiz, setPvpSecQuiz] = useState("10");
   const [pvpSecReaction, setPvpSecReaction] = useState("10");
   const [msg, setMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +163,7 @@ export default function AdminJogosPage() {
 
   async function save() {
     setMsg(null);
+    setSaving(true);
     try {
       const matchRewardOverrides = Object.fromEntries(
         GAME_KEYS.map((game) => [game.id, toConfig(form[game.id])]),
@@ -181,9 +183,9 @@ export default function AdminJogosPage() {
         {
           id: ECONOMY_ID,
           gameEntryCost: {
-            ppt: Number(pptEntryCost),
-            quiz: Number(quizEntryCost),
-            reaction_tap: Number(reactionEntryCost),
+            ppt: parsePositiveInteger(pptEntryCost),
+            quiz: parsePositiveInteger(quizEntryCost),
+            reaction_tap: parsePositiveInteger(reactionEntryCost),
           },
           pvpChoiceSeconds: {
             ppt: clampPvpChoiceSeconds(pvpSecPpt, 10),
@@ -195,10 +197,50 @@ export default function AdminJogosPage() {
         },
         { merge: true },
       );
-      setMsg("Configuração da arena salva. Custos, tempos e overrides já foram atualizados.");
+      const confirmed = await getDoc(doc(db, COLLECTIONS.systemConfigs, ECONOMY_ID));
+      if (confirmed.exists()) {
+        hydrateFormFromEconomyDoc(confirmed.data() as Partial<SystemEconomyConfig>);
+      }
+      setMsg("Configuração da arena salva e confirmada no Firestore.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao salvar configurações da arena.");
+    } finally {
+      setSaving(false);
     }
+  }
+
+  function hydrateFormFromEconomyDoc(data: Partial<SystemEconomyConfig>) {
+    const overrides = data.matchRewardOverrides ?? {};
+    const experienceCatalog = normalizeGameCatalogConfig(data.experienceCatalog);
+    setForm({
+      ppt: fromConfig(overrides.ppt),
+      quiz: fromConfig(overrides.quiz),
+      reaction_tap: fromConfig(overrides.reaction_tap),
+    });
+    setPptEntryCost(String(parsePositiveInteger(data.gameEntryCost?.ppt)));
+    setQuizEntryCost(String(parsePositiveInteger(data.gameEntryCost?.quiz)));
+    setReactionEntryCost(String(parsePositiveInteger(data.gameEntryCost?.reaction_tap)));
+    const pvpChoiceSeconds = parsePvpChoiceSeconds(data);
+    setPvpSecPpt(String(pvpChoiceSeconds.ppt));
+    setPvpSecQuiz(String(pvpChoiceSeconds.quiz));
+    setPvpSecReaction(String(pvpChoiceSeconds.reaction_tap));
+    setExperienceForm(
+      Object.fromEntries(
+        EXPERIENCE_KEYS.map((experience) => [
+          experience.id,
+          {
+            category: experienceCatalog[experience.id]?.category ?? experience.defaultCategory,
+            title: experienceCatalog[experience.id]?.title ?? "",
+            subtitle: experienceCatalog[experience.id]?.subtitle ?? "",
+            badgeLabel: experienceCatalog[experience.id]?.badgeLabel ?? "",
+            order:
+              typeof experienceCatalog[experience.id]?.order === "number"
+                ? String(experienceCatalog[experience.id]?.order)
+                : "",
+          },
+        ]),
+      ) as typeof EMPTY_EXPERIENCE_FORM,
+    );
   }
 
   return (
@@ -209,8 +251,8 @@ export default function AdminJogosPage() {
         accent="cyan"
         description="Configure custo de entrada, janela de resposta em PvP e overrides de PR e ranking dos confrontos competitivos. As experiências classificadas como recurso ficam fora desta categoria."
         actions={
-          <Button onClick={save} variant="secondary">
-            Salvar configuração da arena
+          <Button onClick={save} variant="secondary" disabled={saving}>
+            {saving ? "Salvando..." : "Salvar configuração da arena"}
           </Button>
         }
       />
@@ -457,7 +499,9 @@ export default function AdminJogosPage() {
       </section>
 
       <div className="flex justify-end">
-        <Button onClick={save}>Salvar configuração da arena</Button>
+        <Button onClick={save} disabled={saving}>
+          {saving ? "Salvando..." : "Salvar configuração da arena"}
+        </Button>
       </div>
     </div>
   );
@@ -494,6 +538,11 @@ function parseOptionalNumber(value: string) {
   if (!trimmed) return undefined;
   const n = Number(trimmed);
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : undefined;
+}
+
+function parsePositiveInteger(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
 
 function textOrUndefined(value: string | undefined) {

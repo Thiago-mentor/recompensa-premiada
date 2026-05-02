@@ -50,7 +50,10 @@ export function HomeChestSummaryCard() {
           "border-cyan-400/20 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.16),transparent_34%),linear-gradient(135deg,rgba(8,47,73,0.5),rgba(2,6,23,0.96)_58%,rgba(76,29,149,0.55))]",
         label: "Em liberação",
         title: `Baú ${rarityLabel[activeUnlockChest.rarity]} em contagem regressiva`,
-        description: `Faltam ${formatChestDurationMs(activeUnlockChest.remainingMs)} para coletar esse slot.`,
+        description:
+          activeUnlockChest.speedupCooldownRemainingMs > 0
+            ? `Faltam ${formatChestDurationMs(activeUnlockChest.remainingMs)} para coletar. Novo anúncio para acelerar em ${formatChestDurationMs(activeUnlockChest.speedupCooldownRemainingMs)}.`
+            : `Faltam ${formatChestDurationMs(activeUnlockChest.remainingMs)} para coletar esse slot.`,
         subline: `Origem: ${CHEST_SOURCE_LABEL[activeUnlockChest.source]}.`,
         icon: Clock3,
       };
@@ -91,10 +94,10 @@ export function HomeChestSummaryCard() {
   const SpotlightIcon = spotlight.icon;
 
   return (
-    <section className="game-panel p-4">
+    <section className="casino-panel p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="game-kicker text-amber-200/75">Baús</p>
+          <p className="casino-kicker text-amber-200/85">Baús</p>
           <h2 className="text-lg font-black tracking-tight text-white">Hub de recompensas</h2>
           <p className="text-xs text-white/50">
             Resumo rápido do que já chegou e do que está no pipeline.
@@ -105,10 +108,15 @@ export function HomeChestSummaryCard() {
         </Link>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,1fr)]">
-        <div className={cn("rounded-[1.45rem] border p-4 shadow-[0_0_34px_-18px_rgba(34,211,238,0.18)]", spotlight.tone)}>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,1fr)]">
+        <div
+          className={cn(
+            "rounded-[1.3rem] border p-5 shadow-[0_0_40px_-16px_rgba(34,211,238,0.22),inset_0_1px_0_rgba(255,255,255,0.06)]",
+            spotlight.tone,
+          )}
+        >
           <div className="flex items-start gap-3">
-            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-white">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-black/25 text-white shadow-[0_0_20px_-8px_rgba(255,255,255,0.2)]">
               <SpotlightIcon className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
@@ -126,7 +134,7 @@ export function HomeChestSummaryCard() {
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
               href={chestHubHref}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-[1rem] border border-amber-300/25 bg-amber-400/10 px-4 py-2.5 text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-[1.125rem] border border-fuchsia-400/40 bg-[linear-gradient(135deg,rgba(91,33,182,0.65),rgba(217,70,239,0.55))] px-4 py-2.5 text-sm font-black text-white shadow-[0_0_28px_-10px_rgba(236,72,153,0.4)] transition hover:brightness-110"
             >
               Gerenciar baús
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -182,7 +190,7 @@ function MetricCard({
   return (
     <div
       className={cn(
-                "rounded-[1.25rem] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+        "rounded-[1.2rem] border p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_24px_-12px_rgba(139,92,246,0.2)]",
         tone === "warning"
           ? "border-rose-400/20 bg-rose-500/10"
           : "border-white/10 bg-slate-950/55",

@@ -5,7 +5,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { cn } from "@/lib/utils/cn";
-import { resolveAvatarUrl } from "@/lib/users/avatar";
+import {
+  resolveAvatarBackgroundCssValue,
+  resolveAvatarUrl,
+} from "@/lib/users/avatar";
 import { useReferralDashboard } from "@/hooks/useReferralDashboard";
 import {
   buildReferralQualificationStatus,
@@ -444,12 +447,12 @@ export default function ConvidarPage() {
                     aria-label={profile?.nome || "Convite"}
                     className="h-12 w-12 shrink-0 rounded-2xl border border-white/10 bg-cover bg-center"
                     style={{
-                      backgroundImage: `url(${resolveAvatarUrl({
+                      backgroundImage: resolveAvatarBackgroundCssValue({
                         photoUrl: profile?.foto,
                         name: profile?.nome,
                         username: profile?.username,
                         uid: profile?.uid,
-                      })})`,
+                      }),
                     }}
                   />
                   <div className="min-w-0">

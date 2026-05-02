@@ -16,6 +16,7 @@ import {
   listMyRafflePurchasesCallable,
   purchaseRaffleNumbersCallable,
 } from "@/services/raffle/raffleService";
+import { runRaffleNumberRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
 import type { RafflePurchaseView, RaffleView } from "@/types/raffle";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -25,7 +26,7 @@ import {
   getRaffleProgressPercent,
 } from "@/utils/raffle";
 import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
-import { ChevronDown, ChevronUp, Sparkles, Ticket } from "lucide-react";
+import { ChevronDown, ChevronUp, Clapperboard, Sparkles, Ticket } from "lucide-react";
 
 const MAX_EXPAND_NUMBERS = 240;
 type SorteiosTab = "atual" | "meus_numeros" | "finalizados";
@@ -228,13 +229,17 @@ export default function SorteiosPage() {
 
   const ticketBalance = profile?.gems ?? 0;
   const maxPurchase = raffle?.maxPerPurchase ?? 500;
+  const entryMode = raffle?.entryMode ?? "ticket";
   const qtyNum = Math.min(maxPurchase, Math.max(1, Math.floor(Number(quantity) || 0)));
   const canBuy =
     !!user &&
     raffle?.status === "active" &&
     enabled &&
+    entryMode === "ticket" &&
     qtyNum >= 1 &&
     qtyNum <= maxPurchase;
+  const canBuyWithAd =
+    !!user && raffle?.status === "active" && enabled && entryMode === "rewarded_ad";
 
   async function buy() {
     if (!user || !raffle) return;
@@ -249,6 +254,43 @@ export default function SorteiosPage() {
         raffleId: raffle.id,
         quantity: qtyNum,
         clientRequestId,
+      });
+      await refreshProfile();
+      await loadRaffle();
+      const res = await listMyRafflePurchasesCallable({ raffleId: raffle.id, pageSize: 15, cursor: null });
+      setPurchases(res.items);
+      setNextCursor(res.nextCursor);
+    } catch (e) {
+      setMsg(formatFirebaseError(e));
+    } finally {
+      setBuying(false);
+    }
+  }
+
+  async function buyWithAd() {
+    if (!user || !raffle) return;
+    setBuying(true);
+    setMsg(null);
+    try {
+      const flow = await runRaffleNumberRewardedAdFlow(raffle.id);
+      if (!flow.ok) {
+        setMsg(flow.message);
+        return;
+      }
+      if (!flow.sessionId && !flow.completionToken) {
+        setMsg(flow.message);
+        return;
+      }
+      const clientRequestId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      await purchaseRaffleNumbersCallable({
+        raffleId: raffle.id,
+        quantity: 1,
+        clientRequestId,
+        rewardedAdSessionId: flow.sessionId,
+        rewardedAdCompletionToken: flow.completionToken,
       });
       await refreshProfile();
       await loadRaffle();
@@ -281,8 +323,8 @@ export default function SorteiosPage() {
             <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-fuchsia-200/70">Sorteios</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Números da sorte</h1>
             <p className="mt-2 max-w-2xl text-sm text-white/60">
-              Compre com TICKET: os números são sorteados aleatoriamente dentro da faixa liberada (sem repetição entre
-              participantes). A página atualiza em tempo real quando o admin altera regras do sorteio.
+              Participe com TICKET ou, quando o sorteio estiver em modo anúncio, assista a um vídeo recompensado para
+              ganhar 1 número. Os números saem da faixa liberada pelo admin; esta página atualiza em tempo real.
             </p>
           </div>
           <Link
@@ -376,7 +418,14 @@ export default function SorteiosPage() {
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-              <StatPill label="Preço / número" value={`${raffle.ticketPrice} TICKET`} />
+              <StatPill
+                label={entryMode === "rewarded_ad" ? "Inscrição" : "Preço / número"}
+                value={
+                  entryMode === "rewarded_ad"
+                    ? "1 anúncio = 1 número"
+                    : `${raffle.ticketPrice} TICKET`
+                }
+              />
               <StatPill label="Números liberados" value={String(raffle.releasedCount)} />
               <StatPill label="Já vendidos" value={String(raffle.soldCount)} />
               <StatPill label="Disponíveis" value={hero ? String(hero.remaining) : "—"} />
@@ -408,46 +457,82 @@ export default function SorteiosPage() {
             </div>
 
             {raffle.status === "active" ? (
-              <div className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-end">
-                <div className="flex max-w-xs flex-col gap-2">
-                  <label className="text-xs font-semibold text-white/70" htmlFor="qty">
-                    Quantidade (máx. {raffle.maxPerPurchase})
-                  </label>
-                  <input
-                    id="qty"
-                    type="number"
-                    min={1}
-                    max={raffle.maxPerPurchase}
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    onBlur={() => {
-                      const n = Math.floor(Number(quantity) || 0);
-                      const clamped = Math.min(maxPurchase, Math.max(1, n));
-                      setQuantity(String(clamped));
-                    }}
-                    className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white outline-none ring-fuchsia-500/40 focus:ring-2"
-                  />
-                </div>
-                <div className="flex flex-1 flex-col gap-1 text-sm text-white/55">
-                  <p>
-                    Seu saldo: <strong className="text-white">{ticketBalance} TICKET</strong>
+              entryMode === "rewarded_ad" ? (
+                <div className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-6">
+                  <p className="text-sm text-white/60">
+                    Assista ao anúncio até o fim. Após a validação (AdMob ou ambiente de testes), você recebe{" "}
+                    <strong className="text-white">1 número</strong> neste sorteio. Cada anúncio só pode ser usado uma
+                    vez. O limite diário de anúncios do app continua valendo.
+                    {raffle.rewardedAdCooldownSeconds != null && raffle.rewardedAdCooldownSeconds > 0 ? (
+                      <>
+                        {" "}
+                        Intervalo mínimo entre um número e o próximo:{" "}
+                        <strong className="text-white">
+                          {raffle.rewardedAdCooldownSeconds >= 60
+                            ? `${Math.floor(raffle.rewardedAdCooldownSeconds / 60)} min ${
+                                raffle.rewardedAdCooldownSeconds % 60
+                                  ? `${raffle.rewardedAdCooldownSeconds % 60}s`
+                                  : ""
+                              }`.trim()
+                            : `${raffle.rewardedAdCooldownSeconds}s`}
+                        </strong>
+                        .
+                      </>
+                    ) : null}
                   </p>
-                  <p>
-                    Custo desta compra:{" "}
-                    <strong className="text-white">{Math.max(1, qtyNum) * raffle.ticketPrice} TICKET</strong>
-                  </p>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="w-full sm:w-auto"
+                    disabled={!canBuyWithAd || buying}
+                    onClick={() => void buyWithAd()}
+                  >
+                    <Clapperboard className="h-4 w-4" />
+                    {buying ? "Processando..." : "Assistir anúncio e ganhar número"}
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  size="lg"
-                  className="w-full sm:w-auto"
-                  disabled={!canBuy || buying}
-                  onClick={() => void buy()}
-                >
-                  <Ticket className="h-4 w-4" />
-                  {buying ? "Comprando..." : "Comprar números"}
-                </Button>
-              </div>
+              ) : (
+                <div className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-end">
+                  <div className="flex max-w-xs flex-col gap-2">
+                    <label className="text-xs font-semibold text-white/70" htmlFor="qty">
+                      Quantidade (máx. {raffle.maxPerPurchase})
+                    </label>
+                    <input
+                      id="qty"
+                      type="number"
+                      min={1}
+                      max={raffle.maxPerPurchase}
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      onBlur={() => {
+                        const n = Math.floor(Number(quantity) || 0);
+                        const clamped = Math.min(maxPurchase, Math.max(1, n));
+                        setQuantity(String(clamped));
+                      }}
+                      className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white outline-none ring-fuchsia-500/40 focus:ring-2"
+                    />
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1 text-sm text-white/55">
+                    <p>
+                      Seu saldo: <strong className="text-white">{ticketBalance} TICKET</strong>
+                    </p>
+                    <p>
+                      Custo desta compra:{" "}
+                      <strong className="text-white">{Math.max(1, qtyNum) * raffle.ticketPrice} TICKET</strong>
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="w-full sm:w-auto"
+                    disabled={!canBuy || buying}
+                    onClick={() => void buy()}
+                  >
+                    <Ticket className="h-4 w-4" />
+                    {buying ? "Comprando..." : "Comprar números"}
+                  </Button>
+                </div>
+              )
             ) : (
               <div className="mt-6 border-t border-white/10 pt-5 text-sm text-white/55">
                 {raffle.status === "closed" || raffle.status === "drawn" ? (
@@ -664,7 +749,11 @@ function MyNumbersSection({
                     </p>
                   ) : null}
                   <p className="text-xs text-white/45">
-                    {p.quantity} número(s) · {p.ticketCost} TICKET ·{" "}
+                    {p.quantity} número(s) ·{" "}
+                    {p.entryVia === "rewarded_ad"
+                      ? "via anúncio"
+                      : `${p.ticketCost} TICKET`}{" "}
+                    ·{" "}
                     {p.createdAtMs
                       ? new Date(p.createdAtMs).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
                       : "—"}

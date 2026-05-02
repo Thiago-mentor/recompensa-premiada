@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { CHEST_ALREADY_OPENING_MESSAGE, CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE } from "@/lib/firebase/errors";
 import {
   claimChestRewardCallable,
   fetchUserChestItemsCallable,
@@ -113,6 +114,9 @@ export function useChestHub() {
     [effectiveItems, nowMs],
   );
 
+  const summaryDataRef = useRef(summaryData);
+  summaryDataRef.current = summaryData;
+
   const slotItems = summaryData.summary.slots as Array<ResolvedChestItem | null>;
   const queueItems = summaryData.summary.queue as ResolvedChestItem[];
   const activeUnlockChest = summaryData.items.find((item) => item.resolvedStatus === "unlocking") ?? null;
@@ -120,7 +124,18 @@ export function useChestHub() {
   const clearFeedback = useCallback(() => setFeedback(null), []);
 
   const startUnlock = useCallback(async (chestId: string): Promise<StartChestUnlockResult> => {
-    setBusyState({ chestId, action: "start" });
+    const blockingUnlock = summaryDataRef.current.items.find(
+      (i) => i.resolvedStatus === "unlocking",
+    );
+    if (blockingUnlock != null) {
+      setFeedback({ tone: "error", text: CHEST_ALREADY_OPENING_MESSAGE });
+      return { ok: false, error: CHEST_ALREADY_OPENING_MESSAGE };
+    }
+    const nextAllowed = summaryDataRef.current.items.find((i) => i.canStartUnlock);
+    if (nextAllowed != null && nextAllowed.id !== chestId) {
+      setFeedback({ tone: "error", text: CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE });
+      return { ok: false, error: CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE };
+    }
     setFeedback(null);
     const result = await startChestUnlockCallable(chestId);
     if (result.ok) {

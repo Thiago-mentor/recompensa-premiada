@@ -41,7 +41,12 @@ export type ResolvedChestItem = UserChestItem & {
   readyAtMs: number | null;
   unlockStartedAtMs: number | null;
   nextAdAvailableAtMs: number | null;
+  /** Tempo restante até permitir novo anúncio de aceleração (0 = pode assistir já). */
+  speedupCooldownRemainingMs: number;
+  /** Só true se é o próximo baú **locked** a abrir na ordem dos slots + demais regras. */
   canStartUnlock: boolean;
+  /** Mensagem/UI quando locked mas não pode tocar em Iniciar (ordem ou outro já liberando). */
+  unlockStartBlockedReason: "concurrent_unlock" | "prioritize_lower_slot" | null;
   canSpeedUp: boolean;
   canClaim: boolean;
 };
@@ -94,9 +99,9 @@ export function toResolvedChestItem(
   const nextAdAvailableAtMs = timestampToMs(item.nextAdAvailableAt);
   const resolvedStatus = resolveChestStatus(item, nowMs);
   const remainingMs =
-    resolvedStatus === "unlocking" && readyAtMs != null
-      ? Math.max(0, readyAtMs - nowMs)
-      : 0;
+    resolvedStatus === "unlocking" && readyAtMs != null ? Math.max(0, readyAtMs - nowMs) : 0;
+  const speedupCooldownRemainingMs =
+    nextAdAvailableAtMs != null && nextAdAvailableAtMs > nowMs ? nextAdAvailableAtMs - nowMs : 0;
   const rewardsSnapshot = normalizeChestRewardSnapshot(
     item.rewardsSnapshot as Partial<ChestRewardSnapshot> | Record<string, unknown>,
   );
@@ -108,7 +113,9 @@ export function toResolvedChestItem(
     readyAtMs,
     unlockStartedAtMs,
     nextAdAvailableAtMs,
+    speedupCooldownRemainingMs,
     canStartUnlock: resolvedStatus === "locked",
+    unlockStartBlockedReason: null,
     canSpeedUp: resolvedStatus === "unlocking",
     canClaim: resolvedStatus === "ready",
   };
@@ -120,7 +127,7 @@ export function buildChestSummary(
   slotCount = DEFAULT_CHEST_SLOT_COUNT,
   queueCapacity = DEFAULT_CHEST_QUEUE_CAPACITY,
 ): { items: ResolvedChestItem[]; summary: UserChestSummary } {
-  const resolvedItems = items
+  let resolvedItems = items
     .map((item) => toResolvedChestItem(item, nowMs))
     .sort((a, b) => {
       const slotA = a.slotIndex ?? Number.MAX_SAFE_INTEGER;
@@ -131,6 +138,53 @@ export function buildChestSummary(
       if (queueA !== queueB) return queueA - queueB;
       return a.id.localeCompare(b.id);
     });
+
+  const concurrentUnlockBlocking = resolvedItems.some(
+    (item) => item.resolvedStatus === "unlocking",
+  );
+
+  const lockedOccupyingSlots = resolvedItems.filter(
+    (item) =>
+      item.resolvedStatus === "locked" &&
+      item.slotIndex != null &&
+      item.slotIndex >= 0 &&
+      item.slotIndex < slotCount,
+  );
+
+  let prioritizedLockedChestId: string | null = null;
+  if (!concurrentUnlockBlocking && lockedOccupyingSlots.length > 0) {
+    prioritizedLockedChestId = lockedOccupyingSlots.reduce((best, cur) =>
+      (cur.slotIndex ?? Number.MAX_SAFE_INTEGER) < (best.slotIndex ?? Number.MAX_SAFE_INTEGER)
+        ? cur
+        : best,
+    ).id;
+  }
+
+  resolvedItems = resolvedItems.map((item) => {
+    const inSlotUi =
+      item.slotIndex != null && item.slotIndex >= 0 && item.slotIndex < slotCount;
+    const canStart =
+      item.resolvedStatus === "locked" &&
+      !concurrentUnlockBlocking &&
+      prioritizedLockedChestId !== null &&
+      item.id === prioritizedLockedChestId;
+    let unlockStartBlockedReason: ResolvedChestItem["unlockStartBlockedReason"] = null;
+    if (
+      item.resolvedStatus === "locked" &&
+      !canStart &&
+      inSlotUi &&
+      lockedOccupyingSlots.length > 0
+    ) {
+      unlockStartBlockedReason = concurrentUnlockBlocking
+        ? "concurrent_unlock"
+        : "prioritize_lower_slot";
+    }
+    return {
+      ...item,
+      canStartUnlock: canStart,
+      unlockStartBlockedReason,
+    };
+  });
 
   const slots: Array<ResolvedChestItem | null> = Array.from({ length: slotCount }, () => null);
   const queue = resolvedItems

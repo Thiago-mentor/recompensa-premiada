@@ -41,6 +41,9 @@ export interface UserProfile {
   dailyLoginCount?: number;
   totalAdsAssistidos: number;
   totalPartidas: number;
+  totalPptPartidas?: number;
+  totalQuizPartidas?: number;
+  totalReactionPartidas?: number;
   totalVitorias: number;
   totalDerrotas: number;
   scoreRankingDiario: number;
@@ -83,6 +86,8 @@ export interface UserProfile {
   reactionPvPDuelsRemaining?: number;
   /** Quando (Firestore) os duelos de Reaction podem voltar a 3 só com o tempo (10 min). */
   reactionPvpDuelsRefillAvailableAt?: Timestamp | null;
+  /** Chave `YYYY-MM-DD` (fuso app) do último giro grátis da roleta por anúncio; igual `dailyKey` no servidor. */
+  rouletteDailyAdSpinDayKey?: string | null;
 }
 
 /** Payload permitido na criação inicial (cliente ou função) */

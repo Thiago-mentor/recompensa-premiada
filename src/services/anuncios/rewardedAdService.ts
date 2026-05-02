@@ -19,6 +19,8 @@ import {
 import {
   CHEST_SPEEDUP_PLACEMENT_ID,
   HOME_REWARDED_PLACEMENT_ID,
+  RAFFLE_NUMBER_PLACEMENT_ID,
+  ROULETTE_DAILY_SPIN_PLACEMENT_ID,
   type RewardedAdPlacementId,
 } from "@/lib/constants/rewardedAds";
 import {
@@ -373,6 +375,82 @@ export async function runQuizDuelRewardedAdFlow(): Promise<{
 /**
  * Anúncio recompensado: +3 duelos Reaction Tap (validado no servidor; placement fixo).
  */
+/**
+ * Anúncio do sorteio: valida no servidor (sem crédito de PR/duelos) para liberar 1 número quando o sorteio está em modo anúncio.
+ */
+export async function runRaffleNumberRewardedAdFlow(raffleId: string): Promise<{
+  ok: boolean;
+  sessionId?: string;
+  completionToken?: string;
+  message: string;
+}> {
+  const rid = raffleId.trim();
+  if (!rid) {
+    return { ok: false, message: "Sorteio inválido." };
+  }
+  if (isNativeAndroidPlatform() && admobAndroidSsvEnabled && !rewardedAdMockEnabled) {
+    const prepared = await prepareRewardedAdSessionCallable(RAFFLE_NUMBER_PLACEMENT_ID, {
+      raffleId: rid,
+    });
+    if (!prepared.ok) {
+      return { ok: false, message: prepared.error };
+    }
+    const nativeResult = await showNativeRewardedAd(RAFFLE_NUMBER_PLACEMENT_ID, {
+      ssvUserId: prepared.userId,
+      ssvCustomData: prepared.customData,
+    });
+    if (nativeResult.status !== "granted") {
+      return { ok: false, message: displayFailureMessage(nativeResult) };
+    }
+    const sessionStatus = await waitForRewardedAdSessionResult(prepared.sessionId, {
+      timeoutMs: 12_000,
+      intervalMs: 1000,
+    });
+    if (!sessionStatus.ok) {
+      return { ok: false, message: sessionStatus.error };
+    }
+    if (sessionStatus.status === "invalid") {
+      return {
+        ok: false,
+        message: sessionStatus.errorReason || "A validação do anúncio foi rejeitada pelo servidor.",
+      };
+    }
+    if (sessionStatus.status !== "rewarded") {
+      return {
+        ok: true,
+        message:
+          "Anúncio concluído. Aguarde a validação do AdMob e tente obter o número em alguns segundos.",
+      };
+    }
+    return {
+      ok: true,
+      sessionId: prepared.sessionId,
+      message: "Anúncio validado. Você já pode resgatar seu número.",
+    };
+  }
+
+  const adResult = await runRewardedAdDisplay(RAFFLE_NUMBER_PLACEMENT_ID);
+  if (adResult.status !== "granted") {
+    return {
+      ok: false,
+      message: displayFailureMessage(adResult),
+    };
+  }
+  const completionToken = completionTokenForGrantedAd(adResult);
+  const server = await processRewardedAdOnServer({
+    placementId: RAFFLE_NUMBER_PLACEMENT_ID,
+    completionToken,
+  });
+  if (!server.ok) {
+    return { ok: false, message: server.error || "Validação reprovada." };
+  }
+  return {
+    ok: true,
+    completionToken,
+    message: "Anúncio validado. Resgatando seu número…",
+  };
+}
+
 export async function runReactionDuelRewardedAdFlow(): Promise<{
   ok: boolean;
   reactionPvPDuelsRemaining?: number;
@@ -420,6 +498,22 @@ export async function runReactionDuelRewardedAdFlow(): Promise<{
       total != null
         ? `+${server.reactionPvPDuelsAdded ?? REACTION_DUEL_CHARGES_PER_AD} duelos · total ${total}`
         : `+${server.reactionPvPDuelsAdded ?? REACTION_DUEL_CHARGES_PER_AD} duelos liberados`,
+  };
+}
+
+export type RouletteAdDisplayResult =
+  | { status: "granted"; completionToken?: string; message: string }
+  | { status: "failed"; message: string };
+
+export async function processRouletteDailyAdDisplay(): Promise<RouletteAdDisplayResult> {
+  const adResult = await runRewardedAdDisplay(ROULETTE_DAILY_SPIN_PLACEMENT_ID);
+  if (adResult.status !== "granted") {
+    return { status: "failed", message: displayFailureMessage(adResult) };
+  }
+  return {
+    status: "granted",
+    completionToken: completionTokenForGrantedAd(adResult),
+    message: "Anúncio concluído. Girando roleta...",
   };
 }
 

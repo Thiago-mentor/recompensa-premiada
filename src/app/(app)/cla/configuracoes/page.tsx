@@ -24,6 +24,7 @@ import {
   validateClanImageFile,
 } from "@/services/clans/clanAssetService";
 import { updateClanSettings } from "@/services/clans/clanService";
+import { validatePublicName } from "@/lib/validations/publicNameModeration";
 import type { ClanPrivacy } from "@/types/clan";
 import { ClaSectionNav } from "../ClaSectionNav";
 import { Copy, ImagePlus, RotateCcw, Save, ShieldAlert } from "lucide-react";
@@ -142,6 +143,15 @@ export default function ClaConfiguracoesPage() {
     if (!clan?.id) return;
     setSaving(true);
     setNotice(null);
+    const blockedMessage =
+      validatePublicName(clanName) ||
+      validatePublicName(clanTag) ||
+      validatePublicName(description);
+    if (blockedMessage) {
+      setNotice({ tone: "error", text: blockedMessage });
+      setSaving(false);
+      return;
+    }
     let uploadedCoverUrl: string | null = null;
     try {
       const coverFrameChanged =

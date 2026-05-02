@@ -173,7 +173,7 @@ export function CadastroForm() {
             placeholder="Ex.: PREMIA45"
           />
         </div>
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button type="submit" variant="gold" className="w-full" disabled={loading}>
           {loading ? "Criando…" : "Cadastrar e entrar"}
         </Button>
       </form>

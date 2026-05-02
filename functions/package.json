@@ -12,6 +12,7 @@
     "reset:daily-login": "node ../scripts/reset-daily-streak.cjs"
   },
   "dependencies": {
+    "@google-cloud/vision": "^5.3.5",
     "firebase-admin": "^13.0.0",
     "firebase-functions": "^6.0.0"
   },

@@ -14,7 +14,7 @@ import { COLLECTIONS } from "@/lib/constants/collections";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
-import { resolveAvatarUrl } from "@/lib/users/avatar";
+import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
 import {
   ArrowRight,
@@ -110,12 +110,12 @@ export default function CarteiraPage() {
             aria-label={profile?.nome || user?.displayName || "Carteira"}
             className="h-16 w-16 shrink-0 rounded-[22px] border border-white/10 bg-cover bg-center shadow-[0_0_32px_-16px_rgba(34,211,238,0.5)]"
             style={{
-              backgroundImage: `url(${resolveAvatarUrl({
+              backgroundImage: resolveAvatarBackgroundCssValue({
                 photoUrl: profile?.foto ?? user?.photoURL,
                 name: profile?.nome ?? user?.displayName,
                 username: profile?.username,
                 uid: profile?.uid ?? user?.uid,
-              })})`,
+              }),
             }}
           />
           <div className="min-w-0 flex-1">

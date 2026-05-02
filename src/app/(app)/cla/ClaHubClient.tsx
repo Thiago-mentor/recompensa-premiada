@@ -30,6 +30,7 @@ import {
   requestClanAccess,
   subscribeDiscoverableClans,
 } from "@/services/clans/clanService";
+import { validatePublicName } from "@/lib/validations/publicNameModeration";
 import type { Clan as ClanRecord, ClanPrivacy } from "@/types/clan";
 import {
   ArenaShell,
@@ -157,6 +158,15 @@ export function ClaHubClient() {
   async function handleCreateClan() {
     setBusy("create");
     setNotice(null);
+    const blockedMessage =
+      validatePublicName(createForm.name) ||
+      validatePublicName(createForm.tag) ||
+      validatePublicName(createForm.description);
+    if (blockedMessage) {
+      setNotice({ tone: "error", text: blockedMessage });
+      setBusy(null);
+      return;
+    }
     try {
       await createClan(createForm);
       setCreateForm({

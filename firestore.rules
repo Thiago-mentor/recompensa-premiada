@@ -61,6 +61,11 @@ service cloud.firestore {
         allow read: if isClanMember(clanId) || isAdmin();
         allow create, update, delete: if false;
       }
+
+      match /join_requests/{userId} {
+        allow read: if isClanManager(clanId) || isOwner(userId) || isAdmin();
+        allow create, update, delete: if false;
+      }
     }
 
     // users: criado por initializeUserProfile (Admin); atualizado por Functions e admin.

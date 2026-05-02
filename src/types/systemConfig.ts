@@ -32,6 +32,17 @@ export interface GameRewardOverrideConfig {
   lossRankingPoints?: number;
 }
 
+/** Fatia da roleta: PR, TICKET, CASH ou baú (raridade fixa no servidor). */
+export type RoulettePrizeKindConfig = "coins" | "gems" | "rewardBalance" | "chest";
+
+export interface WeightedPrizeConfig {
+  kind?: RoulettePrizeKindConfig;
+  /** Para PR/TICKET/CASH: valor creditado quando a fatia sai (no Firestore TICKET/CASH também usam o campo `coins` como número). */
+  coins: number;
+  weight: number;
+  chestRarity?: ChestRarity;
+}
+
 export interface ChestRewardRange {
   min: number;
   max: number;
@@ -124,6 +135,7 @@ export interface SystemEconomyConfig {
   gameEntryCost: Partial<Record<string, number>>;
   chestCooldownSegundos: number;
   rankingPrizes: RankingPrizeConfig;
+  rouletteTable?: WeightedPrizeConfig[];
   matchRewardOverrides?: Partial<Record<string, GameRewardOverrideConfig>>;
   experienceCatalog?: Partial<Record<GameId | string, ExperienceCatalogConfigEntry>>;
   referralBonusIndicador: number;
@@ -136,6 +148,9 @@ export interface SystemEconomyConfig {
   conversionCoinsPerGemSell?: number;
   /** Quantos pontos CASH equivalem a R$ 1,00 no cálculo de saque (≥ 1). */
   cashPointsPerReal?: number;
+  /** Custo do giro pago da roleta. */
+  rouletteSpinCostAmount?: number;
+  rouletteSpinCostCurrency?: "coins" | "gems" | "rewardBalance";
   /** Segundos para responder em cada PvP (servidor usa no `actionDeadlineAt`). */
   pvpChoiceSeconds?: Partial<{
     ppt: number;
@@ -157,6 +172,8 @@ export interface ChestSystemConfig {
   bonusWeightsByRarity: Record<ChestRarity, ChestBonusRewardWeight[]>;
   bonusRewardTablesByRarity: Record<ChestRarity, ChestBonusRewardTable>;
   adSpeedupPercent: number;
+  /** > 0 = minutos cortados por anúncio (limitado ao que falta). 0 = usar só `adSpeedupPercent`. */
+  adSpeedupFixedMinutes: number;
   maxAdsPerChest: number;
   adCooldownSeconds: number;
   dailyChestAdsLimit: number;

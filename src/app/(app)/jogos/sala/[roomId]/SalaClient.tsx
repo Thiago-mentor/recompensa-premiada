@@ -36,6 +36,8 @@ type PptHand = (typeof PPT_HANDS)[number];
 const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1800;
 const PPT_ROUND_REVEAL_MS = 3200;
 
+type LeaveIntent = "forfeit" | "lobby" | "rematch";
+
 /** Padrão de segundos para UI; valores reais vêm de `system_configs/economy.pvpChoiceSeconds`. */
 
 function firestoreTimeToMs(value: unknown): number | null {
@@ -64,6 +66,106 @@ function resolveClientBoostedReward(baseCoins: number, boostPercent: number, boo
   }
   const boostCoins = Math.max(1, Math.floor((normalizedBase * boostPercent) / 100));
   return { totalCoins: normalizedBase + boostCoins, boostCoins };
+}
+
+function leavePromptCopy(intent: LeaveIntent) {
+  if (intent === "rematch") {
+    return {
+      eyebrow: "Nova fila",
+      title: "Buscar outra partida agora?",
+      body:
+        "A sala atual ainda está ao vivo. Para entrar em uma nova fila sem risco de conflito, esta partida será encerrada como desistência.",
+      confirmLabel: "Desistir e buscar nova",
+    };
+  }
+  if (intent === "lobby") {
+    return {
+      eyebrow: "Sair da sala",
+      title: "Sair da arena agora?",
+      body:
+        "A partida ainda não terminou. Para sair com segurança, o servidor precisa registrar a sua saída como desistência.",
+      confirmLabel: "Desistir e sair",
+    };
+  }
+  return {
+    eyebrow: "Desistência",
+    title: "Confirmar desistência",
+    body: "Você perde a partida imediatamente e entrega a vitória ao adversário.",
+    confirmLabel: "Desistir agora",
+  };
+}
+
+function LeaveRoomDialog({
+  open,
+  intent,
+  gameLabel,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  intent: LeaveIntent | null;
+  gameLabel: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open || !intent) return null;
+
+  const copy = leavePromptCopy(intent);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[120] flex items-end justify-center bg-black/80 p-3 backdrop-blur-md sm:items-center sm:p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onClick={busy ? undefined : onCancel}
+    >
+      <motion.div
+        className="relative w-full max-w-md overflow-hidden rounded-[1.5rem] border border-red-400/28 bg-[radial-gradient(circle_at_top,rgba(248,113,113,0.16),transparent_28%),linear-gradient(135deg,rgba(76,5,25,0.68),rgba(2,6,23,0.96)_58%,rgba(80,7,36,0.78))] p-5 shadow-[0_20px_60px_-16px_rgba(0,0,0,0.7),0_0_40px_-16px_rgba(248,113,113,0.32)] sm:p-6"
+        initial={{ opacity: 0, y: 18, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 280, damping: 24 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(255,255,255,0.08),transparent_24%),radial-gradient(circle_at_82%_100%,rgba(251,191,36,0.08),transparent_26%)]" />
+        <div className="relative space-y-4">
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-red-100/65">
+              {copy.eyebrow}
+            </p>
+            <h2 className="text-xl font-black tracking-tight text-red-50 sm:text-2xl">
+              {copy.title}
+            </h2>
+            <p className="text-sm leading-relaxed text-white/72">{copy.body}</p>
+          </div>
+
+          <div className="rounded-[1.15rem] border border-white/10 bg-black/20 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/35">
+              Partida atual
+            </p>
+            <p className="mt-1 text-sm font-semibold text-white/88">{gameLabel}</p>
+            <p className="mt-1 text-xs leading-relaxed text-white/50">
+              Fechar ou abandonar a tela durante a partida pode levar a derrota por tempo. Use esta saída
+              para encerrar o confronto de forma limpa e previsível.
+            </p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button variant="secondary" size="lg" disabled={busy} onClick={onCancel}>
+              Continuar jogando
+            </Button>
+            <Button variant="danger" size="lg" disabled={busy} onClick={onConfirm}>
+              {busy ? "Saindo..." : copy.confirmLabel}
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 function handLabel(h: string) {
@@ -193,6 +295,65 @@ function RoundRevealOverlay({
         ? "shadow-[0_0_48px_-8px_rgba(251,113,133,0.45)]"
         : "shadow-[0_0_48px_-8px_rgba(251,191,36,0.4)]";
   const revealContainerStyle = nativeAndroid ? undefined : { perspective: 1200 };
+
+  if (nativeAndroid) {
+    return (
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Resultado da rodada"
+      >
+        <div className="absolute inset-0 bg-slate-950/96" />
+        <div
+          className={cn(
+            "relative w-full max-w-md rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-none sm:p-8",
+            glow,
+          )}
+          style={{ transform: "translate3d(0,0,0)", contain: "layout paint", isolation: "isolate" }}
+        >
+          <p className="text-center text-[10px] font-bold uppercase tracking-[0.32em] text-cyan-200/70">
+            Rodada encerrada
+          </p>
+          <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+            {[
+              { hand: flash.hostHand, label: flash.hostLabel, side: "host" as const },
+              { hand: flash.guestHand, label: flash.guestLabel, side: "guest" as const },
+            ].map(({ hand, label, side }) => (
+              <div key={side} className="flex min-w-0 flex-col items-center gap-2">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-white/40">{label}</span>
+                <div
+                  className={cn(
+                    "flex w-full max-w-[8.5rem] flex-col items-center gap-2 rounded-2xl border bg-slate-950 px-3 py-4 sm:max-w-[9.5rem] sm:px-4 sm:py-5",
+                    side === "host" ? "border-cyan-400/30" : "border-fuchsia-400/30",
+                  )}
+                >
+                  <HandIcon hand={hand} className="h-16 w-16 text-white sm:h-[4.5rem] sm:w-[4.5rem]" />
+                  <span className="text-sm font-black uppercase tracking-wide text-white">{handLabel(hand)}</span>
+                </div>
+              </div>
+            ))}
+            <div className="flex flex-col items-center">
+              <span className="text-lg font-black italic text-amber-200 sm:text-2xl">VS</span>
+            </div>
+          </div>
+          <div className="mt-6 space-y-1 text-center">
+            <p
+              className={cn(
+                "text-xl font-black tracking-tight sm:text-2xl",
+                flash.verdict === "you" && "text-emerald-300",
+                flash.verdict === "opp" && "text-rose-300",
+                flash.verdict === "draw" && "text-amber-200",
+              )}
+            >
+              {flash.headline}
+            </p>
+            <p className="text-sm text-white/55">{flash.subline}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -368,17 +529,23 @@ function CardBackFace({
   return (
     <div
       className={cn(
-        "relative flex aspect-square w-full max-w-[7.5rem] flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-fuchsia-500/35 bg-gradient-to-br from-violet-900/95 via-slate-900 to-slate-950 sm:max-w-[9rem]",
+        "relative flex aspect-square w-full max-w-[7.5rem] flex-col items-center justify-center overflow-hidden rounded-2xl sm:max-w-[9rem]",
+        nativeAndroid
+          ? "border border-fuchsia-400/25 bg-slate-950"
+          : "border-2 border-fuchsia-500/35 bg-gradient-to-br from-violet-900/95 via-slate-900 to-slate-950",
         className,
       )}
+      style={nativeAndroid ? { transform: "translate3d(0,0,0)", contain: "paint" } : undefined}
     >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.22]"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(-12deg, transparent, transparent 5px, rgba(255,255,255,0.06) 5px, rgba(255,255,255,0.06) 10px)",
-        }}
-      />
+      {!nativeAndroid ? (
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.22]"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(-12deg, transparent, transparent 5px, rgba(255,255,255,0.06) 5px, rgba(255,255,255,0.06) 10px)",
+          }}
+        />
+      ) : null}
       <div className="pointer-events-none absolute inset-2 rounded-lg border border-white/10" />
       {!nativeAndroid ? (
         <motion.span
@@ -407,25 +574,38 @@ function PptPlayCardFrame({
   tone,
   children,
   label,
+  simple = false,
 }: {
   tone: "you" | "opp";
   children: ReactNode;
   label: string;
+  simple?: boolean;
 }) {
   const ring =
     tone === "you"
-      ? "border-cyan-400/50 shadow-[0_0_28px_-6px_rgba(34,211,238,0.4)]"
-      : "border-fuchsia-400/40 shadow-[0_0_24px_-8px_rgba(217,70,239,0.25)]";
+      ? simple
+        ? "border-cyan-400/28"
+        : "border-cyan-400/50 shadow-[0_0_28px_-6px_rgba(34,211,238,0.4)]"
+      : simple
+        ? "border-fuchsia-400/24"
+        : "border-fuchsia-400/40 shadow-[0_0_24px_-8px_rgba(217,70,239,0.25)]";
   return (
     <div className="flex flex-1 flex-col items-center gap-2">
-      <span className="text-[8px] font-bold uppercase tracking-[0.22em] text-white/35 sm:text-[9px] sm:tracking-[0.35em]">
+      <span
+        className={cn(
+          "text-[8px] font-bold uppercase tracking-[0.22em] sm:text-[9px] sm:tracking-[0.35em]",
+          simple ? "text-white/45" : "text-white/35",
+        )}
+      >
         {label}
       </span>
       <div
         className={cn(
-          "w-full max-w-[6.3rem] rounded-xl border-2 bg-slate-950/80 p-2.5 sm:max-w-[10rem] sm:rounded-2xl sm:p-4",
+          "w-full max-w-[6.3rem] rounded-xl p-2.5 sm:max-w-[10rem] sm:rounded-2xl sm:p-4",
+          simple ? "border bg-slate-950 shadow-none" : "border-2 bg-slate-950/80",
           ring,
         )}
+        style={simple ? { transform: "translate3d(0,0,0)", contain: "paint" } : undefined}
       >
         {children}
       </div>
@@ -657,6 +837,7 @@ function PlayerPillar({
   scoreLabel = "Placar",
   progressRatio = 1,
   detail,
+  simple = false,
 }: {
   nome: string;
   score: number;
@@ -665,6 +846,7 @@ function PlayerPillar({
   scoreLabel?: string;
   progressRatio?: number;
   detail?: string | null;
+  simple?: boolean;
 }) {
   const progressPercent = Math.max(0, Math.min(100, progressRatio * 100));
   return (
@@ -676,7 +858,8 @@ function PlayerPillar({
     >
       <div
         className={cn(
-          "inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 sm:gap-1.5 sm:px-2.5 sm:py-1",
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 sm:gap-1.5 sm:px-2.5 sm:py-1",
+          simple ? "border-white/8 bg-slate-950" : "border-white/10 bg-white/[0.04]",
           align === "left" ? "" : "flex-row-reverse",
         )}
       >
@@ -684,8 +867,12 @@ function PlayerPillar({
           className={cn(
             "h-1.5 w-1.5 rounded-full",
             align === "left"
-              ? "bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.75)]"
-              : "bg-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.75)]",
+              ? simple
+                ? "bg-cyan-400"
+                : "bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.75)]"
+              : simple
+                ? "bg-fuchsia-400"
+                : "bg-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.75)]",
           )}
         />
         <p className="max-w-[7rem] truncate text-[9px] font-bold uppercase tracking-[0.12em] text-white/70 sm:max-w-[11rem] sm:text-[10px]">
@@ -694,22 +881,31 @@ function PlayerPillar({
       </div>
       <div
         className={cn(
-          "relative flex h-[3.35rem] w-[3.35rem] items-center justify-center rounded-xl border-2 text-lg font-black text-white shadow-lg transition-transform duration-300 sm:h-[5.25rem] sm:w-[5.25rem] sm:rounded-2xl sm:text-2xl",
+          "relative flex h-[3.35rem] w-[3.35rem] items-center justify-center rounded-xl border-2 text-lg font-black text-white sm:h-[5.25rem] sm:w-[5.25rem] sm:rounded-2xl sm:text-2xl",
+          simple ? "shadow-none transition-none" : "shadow-lg transition-transform duration-300",
           ringClass,
         )}
+        style={simple ? { transform: "translate3d(0,0,0)", contain: "paint" } : undefined}
       >
-        <span className="relative z-10 font-mono text-2xl drop-shadow-[0_0_12px_rgba(255,255,255,0.35)] sm:text-4xl">
+        <span
+          className={cn(
+            "relative z-10 font-mono text-2xl sm:text-4xl",
+            !simple && "drop-shadow-[0_0_12px_rgba(255,255,255,0.35)]",
+          )}
+        >
           {score}
         </span>
-        <span
-          className="pointer-events-none absolute inset-0 rounded-2xl opacity-40"
-          style={{
-            background:
-              align === "left"
-                ? "radial-gradient(circle at 30% 30%, rgb(34 211 238 / 0.35), transparent 65%)"
-                : "radial-gradient(circle at 70% 30%, rgb(217 70 239 / 0.35), transparent 65%)",
-          }}
-        />
+        {!simple ? (
+          <span
+            className="pointer-events-none absolute inset-0 rounded-2xl opacity-40"
+            style={{
+              background:
+                align === "left"
+                  ? "radial-gradient(circle at 30% 30%, rgb(34 211 238 / 0.35), transparent 65%)"
+                  : "radial-gradient(circle at 70% 30%, rgb(217 70 239 / 0.35), transparent 65%)",
+            }}
+          />
+        ) : null}
       </div>
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45 sm:text-xs">
         {scoreLabel}
@@ -1028,6 +1224,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   /** Intersticial: só mostra a pergunta nova no mesmo painel depois que o jogador confirma o resultado. */
   const [quizRevealDismissedKey, setQuizRevealDismissedKey] = useState<string | null>(null);
   const [forfeitBusy, setForfeitBusy] = useState(false);
+  const [leaveIntent, setLeaveIntent] = useState<LeaveIntent | null>(null);
   const [highlightHand, setHighlightHand] = useState<PptHand | null>(null);
   const quizStartedAtRef = useRef<number>(Date.now());
   const reactionStartPerfRef = useRef<number | null>(null);
@@ -1042,7 +1239,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const quizMatchFinalScrollRef = useRef<HTMLDivElement>(null);
   const prevQuizMatchDoneRef = useRef(false);
   const timeoutResolveKeyRef = useRef("");
-  const pptLeaveGen = useRef(0);
   const [roundFlash, setRoundFlash] = useState<RoundFlashPayload | null>(null);
   const lastShownRoundFlashKeyRef = useRef<string | null>(null);
   const skipInitialRoundFlashRef = useRef(true);
@@ -1092,6 +1288,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
     setPptErr(null);
     setQuizErr(null);
     setReactionErr(null);
+    setForfeitBusy(false);
+    setLeaveIntent(null);
     setPptSending(false);
     setQuizSending(false);
     setReactionSending(false);
@@ -1194,7 +1392,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
   const submitQuiz = useCallback(
     async (answerIndex: number) => {
-      if (!uid || quizSending) return;
+      if (!uid || quizSending || quizTimeoutAnswer) return;
       setQuizSelected(answerIndex);
       setQuizErr(null);
       setQuizSending(true);
@@ -1224,11 +1422,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
         setQuizSending(false);
       }
     },
-    [uid, roomId, quizSending],
+    [uid, roomId, quizSending, quizTimeoutAnswer],
   );
-
-  const submitQuizRef = useRef(submitQuiz);
-  submitQuizRef.current = submitQuiz;
 
   const submitReaction = useCallback(
     async (input: { falseStart: boolean; reactionMs: number }) => {
@@ -1357,7 +1552,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const myReactionAnswered = !!(uid && reactionAnswered.has(uid));
   const oppReactionAnswered = !!(uid && reactionAnswered.size === 1 && !reactionAnswered.has(uid));
   const showReactionPlay = !!(isReaction && !matchDone && uid);
-  const quizOptionCount = room?.quizOptions?.length ?? 0;
   const reactionGoLiveAtMs =
     room?.reactionGoLiveAt && typeof room.reactionGoLiveAt.toMillis === "function"
       ? room.reactionGoLiveAt.toMillis()
@@ -1458,10 +1652,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
       if (remainingMs <= 0 && !quizTimeoutFiredRef.current) {
         quizTimeoutFiredRef.current = true;
         setQuizTimeoutAnswer(true);
-        if (quizOptionCount > 0) {
-          const answerIndex = Math.floor(Math.random() * quizOptionCount);
-          void submitQuizRef.current(answerIndex);
-        }
       }
     };
 
@@ -1481,7 +1671,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
     matchDone,
     quizInterstitialForTimer,
     actionDeadlineAtMs,
-    quizOptionCount,
     pvpChoiceSec.quiz,
   ]);
 
@@ -1557,88 +1746,42 @@ export function SalaClient({ roomId }: { roomId: string }) {
     room.gameId === "reaction_tap" &&
     !matchDone;
 
+  const liveMatchActive = inLivePptMatch || inLiveQuizMatch || inLiveReactionMatch;
+
   useEffect(() => {
     if (!inLivePptMatch) {
       return;
     }
-    pptLeaveGen.current += 1;
-    const gen = pptLeaveGen.current;
     const ping = () =>
       void callFunction<{ roomId: string }, { ok?: boolean }>("pvpPptPresence", { roomId }).catch(
         () => undefined,
       );
     ping();
     const id = window.setInterval(ping, 25_000);
-
-    const onPageHide = () => {
-      if (matchDoneRef.current) return;
-      void callFunction<{ roomId: string }, { ok?: boolean }>("forfeitPvpRoom", { roomId }).catch(
-        () => undefined,
-      );
-    };
-    window.addEventListener("pagehide", onPageHide);
-
     return () => {
       window.clearInterval(id);
-      window.removeEventListener("pagehide", onPageHide);
-      const g = gen;
-      queueMicrotask(() => {
-        if (pptLeaveGen.current !== g) return;
-        if (matchDoneRef.current) return;
-        void callFunction<{ roomId: string }, { ok?: boolean }>("forfeitPvpRoom", { roomId }).catch(
-          () => undefined,
-        );
-      });
     };
   }, [inLivePptMatch, roomId, uid]);
 
   useEffect(() => {
-    if (!inLiveQuizMatch) {
-      return;
-    }
+    if (!liveMatchActive) return;
 
-    const onPageHide = () => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (matchDoneRef.current) return;
-      void callFunction<{ roomId: string }, { ok?: boolean }>("forfeitPvpRoom", { roomId }).catch(
-        () => undefined,
-      );
+      event.preventDefault();
+      event.returnValue = "";
     };
-    window.addEventListener("pagehide", onPageHide);
 
+    window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      queueMicrotask(() => {
-        if (matchDoneRef.current) return;
-        void callFunction<{ roomId: string }, { ok?: boolean }>("forfeitPvpRoom", { roomId }).catch(
-          () => undefined,
-        );
-      });
+      window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [inLiveQuizMatch, roomId]);
+  }, [liveMatchActive]);
 
   useEffect(() => {
-    if (!inLiveReactionMatch) {
-      return;
-    }
-
-    const onPageHide = () => {
-      if (matchDoneRef.current) return;
-      void callFunction<{ roomId: string }, { ok?: boolean }>("forfeitPvpRoom", { roomId }).catch(
-        () => undefined,
-      );
-    };
-    window.addEventListener("pagehide", onPageHide);
-
-    return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      queueMicrotask(() => {
-        if (matchDoneRef.current) return;
-        void callFunction<{ roomId: string }, { ok?: boolean }>("forfeitPvpRoom", { roomId }).catch(
-          () => undefined,
-        );
-      });
-    };
-  }, [inLiveReactionMatch, roomId]);
+    if (!matchDone) return;
+    setLeaveIntent(null);
+  }, [matchDone]);
 
   useEffect(() => {
     if (quizRevealGateKey == null) {
@@ -1652,23 +1795,58 @@ export function SalaClient({ roomId }: { roomId: string }) {
     return () => window.clearTimeout(id);
   }, [quizRevealGateKey]);
 
+  const queueGameId: GameId =
+    room?.gameId && isAutoQueueGame(room.gameId) ? room.gameId : "ppt";
+
+  const requestLeave = useCallback(
+    (intent: LeaveIntent) => {
+      if (forfeitBusy || matchDoneRef.current) return;
+      setLeaveIntent(intent);
+    },
+    [forfeitBusy],
+  );
+
+  const closeLeaveDialog = useCallback(() => {
+    if (forfeitBusy) return;
+    setLeaveIntent(null);
+  }, [forfeitBusy]);
+
   const confirmForfeit = useCallback(async () => {
     if (!uid || forfeitBusy || matchDoneRef.current) return;
-    if (!window.confirm("Desistir? Você perde a partida e o oponente vence.")) return;
+    const destination = leaveIntent === "rematch" ? routeJogosFilaBuscar(queueGameId) : ROUTES.jogos;
     setForfeitBusy(true);
     try {
       await callFunction<{ roomId: string }, { ok?: boolean; applied?: boolean }>("forfeitPvpRoom", {
         roomId,
       });
-      router.push(ROUTES.jogos);
+      setLeaveIntent(null);
+      router.push(destination);
     } catch (e: unknown) {
       const msg = formatFirebaseError(e);
+      setLeaveIntent(null);
       if (room?.gameId === "quiz") setQuizErr(msg);
       else if (room?.gameId === "reaction_tap") setReactionErr(msg);
       else setPptErr(msg);
       setForfeitBusy(false);
     }
-  }, [uid, forfeitBusy, roomId, router, room?.gameId]);
+  }, [uid, forfeitBusy, leaveIntent, queueGameId, roomId, router, room?.gameId]);
+
+  const handleLobbyAction = useCallback(() => {
+    if (!liveMatchActive || matchDoneRef.current) {
+      router.push(ROUTES.jogos);
+      return;
+    }
+    requestLeave("lobby");
+  }, [liveMatchActive, requestLeave, router]);
+
+  const handleRematchAction = useCallback(() => {
+    const nextHref = routeJogosFilaBuscar(queueGameId);
+    if (!liveMatchActive || matchDoneRef.current) {
+      router.push(nextHref);
+      return;
+    }
+    requestLeave("rematch");
+  }, [liveMatchActive, queueGameId, requestLeave, router]);
 
   if (room === undefined) {
     return (
@@ -1703,8 +1881,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
   const isHost = uid === room.hostUid;
   const opponentNome = isHost ? room.guestNome : room.hostNome;
-  const filaGameId: GameId =
-    room.gameId && isAutoQueueGame(room.gameId) ? room.gameId : "ppt";
 
   const target = room.pptTargetScore ?? 5;
   const hostPts = room.pptHostScore ?? 0;
@@ -1740,6 +1916,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
   /** Ninguém respondeu a rodada atual ainda — não mostrar “Em espera” para o oponente. */
   const oppQuizStatusLabel = oppQuizAnswered
     ? "Ja respondeu"
+    : quizTimeoutAnswer
+      ? "Fechando rodada"
     : quizAnswered.size === 0
       ? "Ainda decidindo"
       : "Em espera";
@@ -1829,6 +2007,24 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const timerProgress = timerActive ? secondsLeft / Math.max(pvpChoiceSec.ppt, 1) : 0;
   const timerAccent =
     secondsLeft <= 3 ? "rgb(248 113 113)" : secondsLeft <= 6 ? "rgb(251 191 36)" : "rgb(34 211 238)";
+  const roomShellClass = cn(
+    "relative overflow-hidden rounded-[1.6rem] border sm:rounded-3xl",
+    simplifiedAndroidPptFx
+      ? "border-white/10 bg-slate-950 shadow-none"
+      : "border-cyan-500/20 bg-gradient-to-b from-slate-950/95 via-violet-950/25 to-slate-950 shadow-[0_0_60px_-14px_rgba(34,211,238,0.22)]",
+  );
+  const faceoffSectionClass = cn(
+    "relative overflow-hidden rounded-[1.35rem] border p-3 sm:rounded-[1.8rem] sm:p-5",
+    simplifiedAndroidPptFx
+      ? "border-white/10 bg-slate-950 shadow-none"
+      : "border-white/10 bg-gradient-to-r from-cyan-950/45 via-slate-950/85 to-fuchsia-950/45 shadow-[0_0_46px_-16px_rgba(34,211,238,0.26)]",
+  );
+  const pptSectionClass = cn(
+    "relative space-y-3 overflow-hidden rounded-[1.35rem] border p-3 sm:space-y-5 sm:rounded-[1.9rem] sm:p-6",
+    simplifiedAndroidPptFx
+      ? "border-violet-400/18 bg-slate-950 shadow-none"
+      : "border-violet-400/25 bg-gradient-to-b from-violet-950/55 via-slate-950/95 to-cyan-950/25 shadow-[0_0_48px_-14px_rgba(139,92,246,0.3)]",
+  );
   const battleCopy = isQuiz
     ? matchDone
       ? quizEndedNoWinner
@@ -1842,6 +2038,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
             subtitle: quizYouWonMatch
               ? "Você fechou a partida no conhecimento."
               : "A disputa terminou. Da próxima, busque mais precisão.",
+          }
+      : quizTimeoutAnswer
+        ? {
+            title: "Tempo esgotado",
+            subtitle: "Sua resposta nao foi enviada. O servidor esta fechando a rodada sem chute aleatorio.",
           }
       : myQuizAnswered
         ? {
@@ -1903,22 +2104,32 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
   return (
     <div className="relative">
+      {!simplifiedAndroidPptFx ? (
+        <div
+          className="pointer-events-none absolute -inset-px rounded-[1.75rem] opacity-70 blur-xl"
+          style={{
+            background:
+              "linear-gradient(135deg, rgb(34 211 238 / 0.15), rgb(139 92 246 / 0.2), rgb(217 70 239 / 0.12))",
+          }}
+        />
+      ) : null}
       <div
-        className="pointer-events-none absolute -inset-px rounded-[1.75rem] opacity-70 blur-xl"
-        style={{
-          background:
-            "linear-gradient(135deg, rgb(34 211 238 / 0.15), rgb(139 92 246 / 0.2), rgb(217 70 239 / 0.12))",
-        }}
-      />
-      <div className="relative overflow-hidden rounded-[1.6rem] border border-cyan-500/20 bg-gradient-to-b from-slate-950/95 via-violet-950/25 to-slate-950 shadow-[0_0_60px_-14px_rgba(34,211,238,0.22)] sm:rounded-3xl">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(255,255,255,0.07),transparent_28%),radial-gradient(circle_at_18%_24%,rgba(34,211,238,0.12),transparent_24%),radial-gradient(circle_at_82%_24%,rgba(217,70,239,0.12),transparent_24%),radial-gradient(circle_at_50%_100%,rgba(251,191,36,0.08),transparent_28%)]" />
-        {simplifiedAndroidPptFx ? (
+        className={roomShellClass}
+        style={
+          simplifiedAndroidPptFx
+            ? {
+                transform: "translate3d(0,0,0)",
+                contain: "layout paint",
+                isolation: "isolate",
+                WebkitBackfaceVisibility: "hidden",
+                backfaceVisibility: "hidden",
+              }
+            : undefined
+        }
+      >
+        {!simplifiedAndroidPptFx ? (
           <>
-            <div className="pointer-events-none absolute -left-12 top-16 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl" />
-            <div className="pointer-events-none absolute -right-12 top-20 h-40 w-40 rounded-full bg-fuchsia-400/10 blur-3xl" />
-          </>
-        ) : (
-          <>
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(255,255,255,0.07),transparent_28%),radial-gradient(circle_at_18%_24%,rgba(34,211,238,0.12),transparent_24%),radial-gradient(circle_at_82%_24%,rgba(217,70,239,0.12),transparent_24%),radial-gradient(circle_at_50%_100%,rgba(251,191,36,0.08),transparent_28%)]" />
             <motion.div
               className="pointer-events-none absolute -left-12 top-16 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl"
               animate={{ x: [0, 24, 0], y: [0, -10, 0], opacity: [0.35, 0.6, 0.35] }}
@@ -1929,22 +2140,29 @@ export function SalaClient({ roomId }: { roomId: string }) {
               animate={{ x: [0, -24, 0], y: [0, 10, 0], opacity: [0.35, 0.6, 0.35] }}
               transition={{ duration: 7.4, repeat: Infinity, ease: "easeInOut" }}
             />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[radial-gradient(ellipse_at_center,rgba(251,191,36,0.12),transparent_65%)]" />
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.04]"
+              style={{
+                backgroundImage:
+                  "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+                backgroundSize: "32px 32px",
+              }}
+            />
           </>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[radial-gradient(ellipse_at_center,rgba(251,191,36,0.12),transparent_65%)]" />
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.04]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
-            backgroundSize: "32px 32px",
-          }}
-        />
+        ) : null}
         <div className="relative space-y-3.5 p-3 sm:space-y-5 sm:p-6">
           {/* HUD cabeçalho */}
           <header className="flex flex-col gap-2 border-b border-white/10 pb-3 sm:gap-3 sm:pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-2xl">
+              <h1
+                className={cn(
+                  "text-lg font-black tracking-tight sm:text-2xl",
+                  simplifiedAndroidPptFx
+                    ? "text-white"
+                    : "bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-transparent",
+                )}
+              >
                 {gameDisplayName(room.gameId)}
               </h1>
               <p className="mt-1 text-[11px] leading-relaxed text-white/50 sm:text-sm">
@@ -1959,19 +2177,32 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
           {/* Duelo VS */}
           {!matchDone && !showReactionPlay && !showQuizPlay ? (
-          <section className="relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-gradient-to-r from-cyan-950/45 via-slate-950/85 to-fuchsia-950/45 p-3 shadow-[0_0_46px_-16px_rgba(34,211,238,0.26)] sm:rounded-[1.8rem] sm:p-5">
-            <div className="pointer-events-none absolute -left-10 top-0 h-32 w-32 rounded-full bg-cyan-500/15 blur-3xl" />
-            <div className="pointer-events-none absolute -right-8 bottom-0 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
-            <div className="pointer-events-none absolute inset-x-[20%] top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
-            {simplifiedAndroidPptFx ? (
-              <div className="pointer-events-none absolute inset-x-8 bottom-2 h-16 rounded-full bg-gradient-to-r from-cyan-500/10 via-amber-400/12 to-fuchsia-500/10 blur-2xl" />
-            ) : (
+          <section
+            className={faceoffSectionClass}
+            style={
+              simplifiedAndroidPptFx
+                ? {
+                    transform: "translate3d(0,0,0)",
+                    contain: "layout paint",
+                    isolation: "isolate",
+                  }
+                : undefined
+            }
+          >
+            {!simplifiedAndroidPptFx ? (
+              <>
+                <div className="pointer-events-none absolute -left-10 top-0 h-32 w-32 rounded-full bg-cyan-500/15 blur-3xl" />
+                <div className="pointer-events-none absolute -right-8 bottom-0 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
+                <div className="pointer-events-none absolute inset-x-[20%] top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+              </>
+            ) : null}
+            {!simplifiedAndroidPptFx ? (
               <motion.div
                 className="pointer-events-none absolute inset-x-8 bottom-2 h-16 rounded-full bg-gradient-to-r from-cyan-500/10 via-amber-400/12 to-fuchsia-500/10 blur-2xl"
                 animate={{ opacity: [0.35, 0.7, 0.35], scaleX: [0.96, 1.04, 0.96] }}
                 transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
               />
-            )}
+            ) : null}
             <div className="mb-1 text-center sm:mb-4">
               <p className="text-[9px] font-bold uppercase tracking-[0.28em] text-white/35 sm:text-[10px] sm:tracking-[0.35em]">
                 {battleCopy.title}
@@ -1982,12 +2213,26 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 nome={myDisplayName}
                 score={duelMyPts}
                 align="left"
-                ringClass="border-cyan-400/60 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(34,211,238,0.45)]"
+                ringClass={
+                  simplifiedAndroidPptFx
+                    ? "border-cyan-400/28 bg-slate-950"
+                    : "border-cyan-400/60 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(34,211,238,0.45)]"
+                }
                 progressRatio={duelMyPts / Math.max(1, duelTarget)}
+                simple={simplifiedAndroidPptFx}
               />
               <div className="relative flex shrink-0 flex-col items-center gap-0.5 px-1 sm:gap-1">
-                <div className="pointer-events-none absolute inset-0 rounded-full bg-amber-300/10 blur-xl" />
-                <span className="select-none bg-gradient-to-b from-amber-300 via-orange-400 to-red-500 bg-clip-text text-2xl font-black italic tracking-tighter text-transparent drop-shadow-[0_0_20px_rgba(251,191,36,0.4)] sm:text-4xl">
+                {!simplifiedAndroidPptFx ? (
+                  <div className="pointer-events-none absolute inset-0 rounded-full bg-amber-300/10 blur-xl" />
+                ) : null}
+                <span
+                  className={cn(
+                    "select-none text-2xl font-black italic tracking-tighter sm:text-4xl",
+                    simplifiedAndroidPptFx
+                      ? "text-amber-200"
+                      : "bg-gradient-to-b from-amber-300 via-orange-400 to-red-500 bg-clip-text text-transparent drop-shadow-[0_0_20px_rgba(251,191,36,0.4)]",
+                  )}
+                >
                   VS
                 </span>
                 <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-white/35 sm:text-[9px] sm:tracking-[0.3em]">
@@ -2017,8 +2262,13 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 nome={opponentNome}
                 score={duelOppPts}
                 align="right"
-                ringClass="border-fuchsia-400/55 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]"
+                ringClass={
+                  simplifiedAndroidPptFx
+                    ? "border-fuchsia-400/24 bg-slate-950"
+                    : "border-fuchsia-400/55 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]"
+                }
                 progressRatio={duelOppPts / Math.max(1, duelTarget)}
+                simple={simplifiedAndroidPptFx}
               />
             </div>
             <div className="mt-3 flex flex-col items-center gap-2 rounded-xl border border-white/8 bg-black/20 p-2 sm:hidden">
@@ -2045,7 +2295,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 type="button"
                 className="rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-red-100"
                 disabled={forfeitBusy}
-                onClick={() => void confirmForfeit()}
+                onClick={() => requestLeave("forfeit")}
               >
                 {forfeitBusy ? "..." : "Desistir"}
               </button>
@@ -2060,7 +2310,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     Tempo desempata
                   </span>
                   <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-100/85">
-                    Resposta automatica ao zerar
+                    Timeout fecha sem resposta
                   </span>
                 </>
               ) : isReaction ? (
@@ -2072,7 +2322,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     Menor ms vence
                   </span>
                   <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-100/85">
-                    Falso start pune
+                    Toque liberado no sinal
                   </span>
                 </>
               ) : (
@@ -2203,13 +2453,29 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
           {showPptPlay ? (
             <section
-              className="relative space-y-3 overflow-hidden rounded-[1.35rem] border border-violet-400/25 bg-gradient-to-b from-violet-950/55 via-slate-950/95 to-cyan-950/25 p-3 shadow-[0_0_48px_-14px_rgba(139,92,246,0.3)] sm:space-y-5 sm:rounded-[1.9rem] sm:p-6"
+              className={pptSectionClass}
               aria-label="Pedra, papel e tesoura"
               title="Toque numa carta antes do tempo acabar. Se o tempo expirar, o servidor encerra a rodada."
+              style={
+                simplifiedAndroidPptFx
+                  ? {
+                      transform: "translate3d(0,0,0)",
+                      willChange: "transform, opacity",
+                      contain: "layout paint",
+                      isolation: "isolate",
+                      WebkitBackfaceVisibility: "hidden",
+                      backfaceVisibility: "hidden",
+                    }
+                  : undefined
+              }
             >
-              <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-violet-500/15 blur-3xl" />
-              <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
-              <div className="pointer-events-none absolute inset-x-8 bottom-0 h-16 bg-gradient-to-r from-cyan-500/8 via-violet-500/12 to-fuchsia-500/8 blur-2xl" />
+              {!simplifiedAndroidPptFx ? (
+                <>
+                  <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-violet-500/15 blur-3xl" />
+                  <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
+                  <div className="pointer-events-none absolute inset-x-8 bottom-0 h-16 bg-gradient-to-r from-cyan-500/8 via-violet-500/12 to-fuchsia-500/8 blur-2xl" />
+                </>
+              ) : null}
               {roundHint ? <span className="sr-only">{roundHint}</span> : null}
 
               <div className="relative flex items-start justify-between gap-2 sm:gap-3">
@@ -2264,30 +2530,45 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     </div>
                   </div>
                 ) : myPickDone ? (
-                  <motion.div
-                    className="flex items-center gap-1.5 rounded-full border border-cyan-500/25 bg-cyan-950/20 px-2.5 py-1 sm:gap-2 sm:px-3 sm:py-1.5"
-                    initial={{ opacity: 0, scale: 0.94 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ type: "spring", stiffness: 320, damping: 24 }}
-                    aria-hidden
-                  >
-                    <span className="relative flex h-2 w-2">
-                      {!isNativeAndroid ? (
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400/60 opacity-75" />
-                      ) : null}
+                  isNativeAndroid ? (
+                    <div
+                      className="flex items-center gap-1.5 rounded-full border border-cyan-500/25 bg-cyan-950/20 px-2.5 py-1 sm:gap-2 sm:px-3 sm:py-1.5"
+                      aria-hidden
+                    >
                       <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-400" />
-                    </span>
-                    <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-cyan-200/85">
-                      Oponente
-                    </span>
-                  </motion.div>
+                      <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-cyan-200/85">
+                        Oponente
+                      </span>
+                    </div>
+                  ) : (
+                    <motion.div
+                      className="flex items-center gap-1.5 rounded-full border border-cyan-500/25 bg-cyan-950/20 px-2.5 py-1 sm:gap-2 sm:px-3 sm:py-1.5"
+                      initial={{ opacity: 0, scale: 0.94 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 320, damping: 24 }}
+                      aria-hidden
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400/60 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-400" />
+                      </span>
+                      <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-cyan-200/85">
+                        Oponente
+                      </span>
+                    </motion.div>
+                  )
                 ) : null}
               </div>
 
               {oppLockedIn ? (
                 <div className="-mt-1 flex justify-end sm:-mt-2">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-fuchsia-500/30 bg-fuchsia-950/25 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-fuchsia-200/85">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-fuchsia-400 shadow-[0_0_8px_rgba(217,70,239,0.6)]" />
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_8px_rgba(217,70,239,0.6)]",
+                        !isNativeAndroid && "animate-pulse",
+                      )}
+                    />
                     Oponente pronto
                   </span>
                 </div>
@@ -2295,7 +2576,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
               {timeoutPick ? (
                 <p className="text-center text-[10px] font-bold uppercase tracking-widest text-amber-300/90">
-                  Tempo esgotado
+                  Tempo esgotado: aguardando o servidor fechar a rodada
                 </p>
               ) : null}
               {pptErr ? (
@@ -2305,71 +2586,99 @@ export function SalaClient({ roomId }: { roomId: string }) {
               ) : null}
 
               {myPickDone ? (
-                <div
-                  className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1"
-                  style={isNativeAndroid ? undefined : { perspective: 1000 }}
-                >
-                  <PptPlayCardFrame tone="you" label="Você">
-                    <motion.div
-                      className="flex flex-col items-center gap-1 py-0.5 sm:gap-2 sm:py-1"
-                      initial={isNativeAndroid ? { opacity: 0, y: 8 } : { rotateY: -25, opacity: 0.5 }}
-                      animate={isNativeAndroid ? { opacity: 1, y: 0 } : { rotateY: 0, opacity: 1 }}
-                      transition={
-                        isNativeAndroid
-                          ? { duration: 0.18, ease: "easeOut" }
-                          : { type: "spring", stiffness: 280, damping: 22 }
-                      }
-                      style={isNativeAndroid ? undefined : { transformStyle: "preserve-3d" }}
-                    >
-                      {myLockedHand ? (
-                        <>
-                          <HandIcon
-                            hand={myLockedHand}
-                            className="h-10 w-10 text-cyan-200 sm:h-16 sm:w-16"
-                          />
-                          <span className="text-[9px] font-bold uppercase tracking-wide text-white/50 sm:text-[10px]">
-                            {handLabel(myLockedHand)}
-                          </span>
-                        </>
-                      ) : (
-                        <div className="flex min-h-[3.5rem] flex-col items-center justify-center gap-1 text-white/35 sm:min-h-[5.5rem] sm:gap-2">
-                          <motion.span
-                            className="h-2 w-2 rounded-full bg-white/25"
-                            animate={{ opacity: [0.3, 1, 0.3] }}
-                            transition={{ duration: 1.2, repeat: Infinity }}
-                          />
-                          <span className="text-[10px] font-semibold uppercase tracking-widest">…</span>
-                        </div>
-                      )}
-                    </motion.div>
-                  </PptPlayCardFrame>
+                isNativeAndroid ? (
+                  <div
+                    className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1"
+                    style={{ transform: "translate3d(0,0,0)", contain: "paint", isolation: "isolate" }}
+                  >
+                    <PptPlayCardFrame tone="you" label="Você" simple>
+                      <div className="flex flex-col items-center gap-1 py-0.5 sm:gap-2 sm:py-1">
+                        {myLockedHand ? (
+                          <>
+                            <HandIcon hand={myLockedHand} className="h-10 w-10 text-cyan-200 sm:h-16 sm:w-16" />
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-white/50 sm:text-[10px]">
+                              {handLabel(myLockedHand)}
+                            </span>
+                          </>
+                        ) : (
+                          <div className="flex min-h-[3.5rem] flex-col items-center justify-center gap-1 text-white/35 sm:min-h-[5.5rem] sm:gap-2">
+                            <span className="h-2 w-2 rounded-full bg-white/25" />
+                            <span className="text-[10px] font-semibold uppercase tracking-widest">…</span>
+                          </div>
+                        )}
+                      </div>
+                    </PptPlayCardFrame>
 
-                  <div className="flex w-6 shrink-0 flex-col items-center justify-center self-center sm:w-12">
-                    <span className="select-none bg-gradient-to-b from-amber-300 to-orange-500 bg-clip-text text-lg font-black italic text-transparent drop-shadow-[0_0_12px_rgba(251,191,36,0.35)] sm:text-xl">
-                      VS
-                    </span>
+                    <div className="flex w-6 shrink-0 flex-col items-center justify-center self-center sm:w-12">
+                      <span className="select-none text-lg font-black italic text-amber-200 sm:text-xl">VS</span>
+                    </div>
+
+                    <PptPlayCardFrame tone="opp" label="Oponente" simple>
+                      <div className="py-0.5 sm:py-1">
+                        <CardBackFace
+                          className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]"
+                          nativeAndroid={isNativeAndroid}
+                        />
+                        <p className="sr-only">Carta do oponente oculta até ambos jogarem</p>
+                      </div>
+                    </PptPlayCardFrame>
                   </div>
+                ) : (
+                  <div
+                    className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1"
+                    style={{ perspective: 1000 }}
+                  >
+                    <PptPlayCardFrame tone="you" label="Você">
+                      <motion.div
+                        className="flex flex-col items-center gap-1 py-0.5 sm:gap-2 sm:py-1"
+                        initial={{ rotateY: -25, opacity: 0.5 }}
+                        animate={{ rotateY: 0, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 280, damping: 22 }}
+                        style={{ transformStyle: "preserve-3d" }}
+                      >
+                        {myLockedHand ? (
+                          <>
+                            <HandIcon
+                              hand={myLockedHand}
+                              className="h-10 w-10 text-cyan-200 sm:h-16 sm:w-16"
+                            />
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-white/50 sm:text-[10px]">
+                              {handLabel(myLockedHand)}
+                            </span>
+                          </>
+                        ) : (
+                          <div className="flex min-h-[3.5rem] flex-col items-center justify-center gap-1 text-white/35 sm:min-h-[5.5rem] sm:gap-2">
+                            <motion.span
+                              className="h-2 w-2 rounded-full bg-white/25"
+                              animate={{ opacity: [0.3, 1, 0.3] }}
+                              transition={{ duration: 1.2, repeat: Infinity }}
+                            />
+                            <span className="text-[10px] font-semibold uppercase tracking-widest">…</span>
+                          </div>
+                        )}
+                      </motion.div>
+                    </PptPlayCardFrame>
 
-                  <PptPlayCardFrame tone="opp" label="Oponente">
-                    <motion.div
-                      className="py-0.5 sm:py-1"
-                      initial={isNativeAndroid ? { opacity: 0, y: 8 } : { rotateY: 25, opacity: 0.35 }}
-                      animate={isNativeAndroid ? { opacity: 1, y: 0 } : { rotateY: 0, opacity: 1 }}
-                      transition={
-                        isNativeAndroid
-                          ? { duration: 0.18, ease: "easeOut", delay: 0.04 }
-                          : { type: "spring", stiffness: 260, damping: 20, delay: 0.08 }
-                      }
-                      style={isNativeAndroid ? undefined : { transformStyle: "preserve-3d" }}
-                    >
-                      <CardBackFace
-                        className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]"
-                        nativeAndroid={isNativeAndroid}
-                      />
-                      <p className="sr-only">Carta do oponente oculta até ambos jogarem</p>
-                    </motion.div>
-                  </PptPlayCardFrame>
-                </div>
+                    <div className="flex w-6 shrink-0 flex-col items-center justify-center self-center sm:w-12">
+                      <span className="select-none bg-gradient-to-b from-amber-300 to-orange-500 bg-clip-text text-lg font-black italic text-transparent drop-shadow-[0_0_12px_rgba(251,191,36,0.35)] sm:text-xl">
+                        VS
+                      </span>
+                    </div>
+
+                    <PptPlayCardFrame tone="opp" label="Oponente">
+                      <motion.div
+                        className="py-0.5 sm:py-1"
+                        initial={{ rotateY: 25, opacity: 0.35 }}
+                        animate={{ rotateY: 0, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.08 }}
+                        style={{ transformStyle: "preserve-3d" }}
+                      >
+                        <CardBackFace className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]" />
+                        <p className="sr-only">Carta do oponente oculta até ambos jogarem</p>
+                      </motion.div>
+                    </PptPlayCardFrame>
+                  </div>
+                )
               ) : (
                 <div className="grid grid-cols-3 gap-2 sm:gap-4">
                   {PPT_HANDS.map((h) => {
@@ -2379,33 +2688,58 @@ export function SalaClient({ roomId }: { roomId: string }) {
                       <button
                         key={h}
                         type="button"
-                        disabled={pptSending}
+                        disabled={pptSending || timeoutPick || myPickDone || matchDone}
                         onClick={() => void submitPpt(h)}
                         className={cn(
                           "group relative flex min-h-[8.6rem] flex-col items-center justify-between gap-1.5 overflow-hidden rounded-[1.1rem] border-2 p-2.5 transition-all duration-200 sm:min-h-[13rem] sm:gap-3 sm:rounded-[1.45rem] sm:p-4",
-                          "bg-gradient-to-b from-white/[0.08] to-slate-950/90",
-                          "hover:-translate-y-1 hover:shadow-[0_12px_40px_-12px_rgba(34,211,238,0.35)]",
-                          "active:scale-[0.97] active:brightness-95",
+                          simplifiedAndroidPptFx
+                            ? "bg-slate-950 text-white shadow-none active:bg-white/[0.04]"
+                            : "bg-gradient-to-b from-white/[0.08] to-slate-950/90",
+                          !simplifiedAndroidPptFx &&
+                            "hover:-translate-y-1 hover:shadow-[0_12px_40px_-12px_rgba(34,211,238,0.35)] active:scale-[0.97] active:brightness-95",
                           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400",
                           "disabled:pointer-events-none disabled:opacity-40",
                           selected &&
-                            "border-cyan-400/80 shadow-[0_0_28px_-4px_rgba(34,211,238,0.55)] ring-2 ring-cyan-400/40",
-                          !selected && cn("border-white/15", theme.ring),
+                            (simplifiedAndroidPptFx
+                              ? "border-cyan-400/60 bg-cyan-950/20 ring-1 ring-cyan-400/30"
+                              : "border-cyan-400/80 shadow-[0_0_28px_-4px_rgba(34,211,238,0.55)] ring-2 ring-cyan-400/40"),
+                          !selected &&
+                            (simplifiedAndroidPptFx ? "border-white/12" : cn("border-white/15", theme.ring)),
                         )}
+                        style={
+                          simplifiedAndroidPptFx
+                            ? { transform: "translate3d(0,0,0)", contain: "paint" }
+                            : undefined
+                        }
                       >
-                        <div className={cn("pointer-events-none absolute inset-0 bg-gradient-to-br opacity-75", theme.glow)} />
+                        {!simplifiedAndroidPptFx ? (
+                          <div
+                            className={cn(
+                              "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-75",
+                              theme.glow,
+                            )}
+                          />
+                        ) : null}
                         <div
                           className={cn(
-                            "relative rounded-lg bg-gradient-to-br from-white/10 to-transparent p-2 ring-1 transition-all duration-200 sm:rounded-xl sm:p-3",
-                            "ring-white/10 group-hover:ring-white/25",
-                            selected && "from-cyan-500/20 ring-cyan-400/50",
+                            simplifiedAndroidPptFx
+                              ? "relative rounded-lg bg-white/[0.03] p-2 ring-1 ring-white/10 sm:rounded-xl sm:p-3"
+                              : "relative rounded-lg bg-gradient-to-br from-white/10 to-transparent p-2 ring-1 transition-all duration-200 ring-white/10 group-hover:ring-white/25 sm:rounded-xl sm:p-3",
+                            selected &&
+                              (simplifiedAndroidPptFx ? "bg-cyan-500/10 ring-cyan-400/30" : "from-cyan-500/20 ring-cyan-400/50"),
                           )}
                         >
                           <HandIcon
                             hand={h}
                             className={cn(
-                              "h-9 w-9 transition-transform duration-200 group-hover:scale-110 sm:h-16 sm:w-16",
-                              selected ? "text-cyan-200" : cn(theme.icon, "group-hover:text-white"),
+                              simplifiedAndroidPptFx
+                                ? "h-9 w-9 sm:h-16 sm:w-16"
+                                : "h-9 w-9 transition-transform duration-200 group-hover:scale-110 sm:h-16 sm:w-16",
+                              selected
+                                ? "text-cyan-200"
+                                : simplifiedAndroidPptFx
+                                  ? theme.icon
+                                  : cn(theme.icon, "group-hover:text-white"),
                             )}
                           />
                         </div>
@@ -2426,7 +2760,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
                           </p>
                         </div>
                         {selected ? (
-                          <span className="absolute right-2 top-2 h-2 w-2 animate-pulse rounded-full bg-cyan-400 shadow-[0_0_10px_rgb(34,211,238)]" />
+                          <span
+                            className={cn(
+                              "absolute right-2 top-2 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_rgb(34,211,238)]",
+                              !simplifiedAndroidPptFx && "animate-pulse",
+                            )}
+                          />
                         ) : null}
                       </button>
                     );
@@ -2502,18 +2841,28 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   >
                     <div className="absolute inset-1.5 flex flex-col items-center justify-center rounded-full bg-slate-950/95 ring-1 ring-white/10 sm:inset-2.5">
                       <span className="text-[8px] font-bold uppercase tracking-widest text-white/30">
-                        {quizRevealBlocking ? "Rodada" : "Tempo"}
+                        {quizRevealBlocking ? "Rodada" : quizTimeoutAnswer ? "Status" : "Tempo"}
                       </span>
                       <span
                         className={cn(
                           "font-mono text-xl font-black tabular-nums sm:text-3xl",
-                          quizRevealBlocking ? "text-emerald-200" : "text-cyan-200",
+                          quizRevealBlocking
+                            ? "text-emerald-200"
+                            : quizTimeoutAnswer
+                              ? "text-amber-200"
+                              : "text-cyan-200",
                         )}
                       >
-                        {quizRevealBlocking ? "OK" : myQuizAnswered ? "OK" : quizSecondsLeft}
+                        {quizRevealBlocking ? "OK" : myQuizAnswered ? "OK" : quizTimeoutAnswer ? "0" : quizSecondsLeft}
                       </span>
                       <span className="text-[9px] text-white/25">
-                        {quizRevealBlocking ? "resolv." : myQuizAnswered ? "env." : "s"}
+                        {quizRevealBlocking
+                          ? "resolv."
+                          : myQuizAnswered
+                            ? "env."
+                            : quizTimeoutAnswer
+                              ? "timeout"
+                              : "s"}
                       </span>
                     </div>
                   </div>
@@ -2526,12 +2875,20 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 myScore={myQuizPts}
                 oppScore={oppQuizPts}
                 target={quizTarget}
-                myDetail={myQuizAnswered ? "Resposta enviada" : "Ainda decidindo"}
+                myDetail={
+                  quizTimeoutAnswer
+                    ? "Sem resposta"
+                    : myQuizAnswered
+                      ? "Resposta enviada"
+                      : "Ainda decidindo"
+                }
                 oppDetail={oppQuizStatusLabel}
-                centerCaption={quizRevealBlocking ? "rodada resolvida" : "quiz ao vivo"}
+                centerCaption={
+                  quizRevealBlocking ? "rodada resolvida" : quizTimeoutAnswer ? "fechando rodada" : "quiz ao vivo"
+                }
                 actionLabel="Desistir"
                 actionBusy={forfeitBusy}
-                onAction={() => void confirmForfeit()}
+                onAction={() => requestLeave("forfeit")}
               />
 
               <div className="space-y-4 border-t border-white/10 pt-3 sm:space-y-4 sm:pt-4">
@@ -2583,7 +2940,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     ) : null}
                     {quizTimeoutAnswer ? (
                       <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-widest text-amber-300/90">
-                        Tempo zerado: resposta automatica enviada
+                        Tempo zerado: sem resposta. Aguardando o servidor fechar a rodada.
                       </p>
                     ) : null}
 
@@ -2594,7 +2951,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                           <button
                             key={`${room.quizQuestionId}-${index}`}
                             type="button"
-                            disabled={quizSending || myQuizAnswered || matchDone}
+                            disabled={quizSending || myQuizAnswered || quizTimeoutAnswer || matchDone}
                             onClick={() => void submitQuiz(index)}
                             className={cn(
                               "group relative overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold transition-all duration-200 sm:rounded-[1.35rem] sm:px-5 sm:py-4",
@@ -2659,7 +3016,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 centerCaption={reactionSignalLive ? "sinal aberto" : "aguarde o verde"}
                 actionLabel="Desistir"
                 actionBusy={forfeitBusy}
-                onAction={() => void confirmForfeit()}
+                onAction={() => requestLeave("forfeit")}
               />
 
               {reactionHint ? (
@@ -2764,31 +3121,56 @@ export function SalaClient({ roomId }: { roomId: string }) {
             </AlertBanner>
           ) : null}
 
-          <footer className="grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <Link href={ROUTES.jogos} className="min-w-0">
+          <footer className="space-y-3 border-t border-white/10 pt-4">
+            {liveMatchActive ? (
+              <p className="text-center text-[11px] leading-relaxed text-white/45">
+                Partida ao vivo: use os botoes abaixo para sair com seguranca. Fechar ou abandonar a tela
+                pode resultar em derrota por tempo.
+              </p>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
               <Button
-                variant="secondary"
+                variant={liveMatchActive ? "danger" : "secondary"}
                 size="lg"
-                className="w-full border border-white/15 bg-white/[0.06] font-bold shadow-[0_0_24px_-12px_rgba(255,255,255,0.2)]"
+                className={cn(
+                  "w-full font-bold",
+                  !liveMatchActive &&
+                    "border border-white/15 bg-white/[0.06] shadow-[0_0_24px_-12px_rgba(255,255,255,0.2)]",
+                )}
+                disabled={forfeitBusy}
+                onClick={() => void handleLobbyAction()}
               >
-                Voltar ao lobby
+                {liveMatchActive ? "Desistir e sair" : "Voltar ao lobby"}
               </Button>
-            </Link>
-            <Link
-              href={routeJogosFilaBuscar(filaGameId)}
-              className={cn(
-                "flex min-h-[52px] items-center justify-center rounded-2xl border border-fuchsia-500/35",
-                "bg-gradient-to-r from-fuchsia-950/40 to-violet-950/40 text-center text-base font-bold text-fuchsia-100",
-                "shadow-[0_0_24px_-8px_rgba(217,70,239,0.35)] transition hover:border-fuchsia-400/50 hover:brightness-110 active:scale-[0.99]",
-              )}
-            >
-              Nova partida
-            </Link>
+              <Button
+                variant={liveMatchActive ? "secondary" : "arena"}
+                size="lg"
+                className={cn(
+                  "w-full font-bold",
+                  liveMatchActive &&
+                    "border-fuchsia-500/35 bg-gradient-to-r from-fuchsia-950/40 to-violet-950/40 text-fuchsia-100 shadow-[0_0_24px_-8px_rgba(217,70,239,0.35)] hover:border-fuchsia-400/50",
+                )}
+                disabled={forfeitBusy}
+                onClick={() => void handleRematchAction()}
+              >
+                {liveMatchActive ? "Desistir e buscar nova" : "Nova partida"}
+              </Button>
+            </div>
           </footer>
         </div>
       </div>
 
       <AnimatePresence>
+        {leaveIntent ? (
+          <LeaveRoomDialog
+            open={leaveIntent != null}
+            intent={leaveIntent}
+            gameLabel={gameDisplayName(room.gameId)}
+            busy={forfeitBusy}
+            onCancel={closeLeaveDialog}
+            onConfirm={() => void confirmForfeit()}
+          />
+        ) : null}
         {roundFlash ? (
           <RoundRevealOverlay key={roundFlash.key} flash={roundFlash} nativeAndroid={isNativeAndroid} />
         ) : null}

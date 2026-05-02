@@ -9,12 +9,21 @@ import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
-import type { SystemEconomyConfig } from "@/types/systemConfig";
+import type { SystemEconomyConfig, WeightedPrizeConfig } from "@/types/systemConfig";
+import type { ChestRarity } from "@/types/chest";
 import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { cashPointsToBrl, formatBrl } from "@/services/economy/cashEconomyConfig";
+import { DEFAULT_ROULETTE_TABLE, normalizeRouletteTableFromFirestore } from "@/lib/games/gameEconomy";
 
 const ECONOMY_ID = "economy";
+
+const ROULETTE_CHEST_OPTIONS: { value: ChestRarity; label: string }[] = [
+  { value: "comum", label: "Baú comum" },
+  { value: "raro", label: "Baú raro" },
+  { value: "epico", label: "Baú épico" },
+  { value: "lendario", label: "Baú lendário" },
+];
 
 export default function AdminConfigPage() {
   const [rewardAd, setRewardAd] = useState("25");
@@ -31,6 +40,9 @@ export default function AdminConfigPage() {
   const [convBuy, setConvBuy] = useState("500");
   const [convSell, setConvSell] = useState("0");
   const [cashPointsPerReal, setCashPointsPerReal] = useState("100");
+  const [rouletteRows, setRouletteRows] = useState<WeightedPrizeConfig[]>(DEFAULT_ROULETTE_TABLE);
+  const [rouletteSpinCostAmount, setRouletteSpinCostAmount] = useState("1");
+  const [rouletteSpinCostCurrency, setRouletteSpinCostCurrency] = useState<"coins" | "gems" | "rewardBalance">("gems");
   const [grantLookup, setGrantLookup] = useState<"username" | "uid">("username");
   const [grantValue, setGrantValue] = useState("");
   const [grantKind, setGrantKind] = useState<"coins" | "gems" | "rewardBalance">("coins");
@@ -69,6 +81,19 @@ export default function AdminConfigPage() {
         if (typeof d.cashPointsPerReal === "number" && d.cashPointsPerReal >= 1) {
           setCashPointsPerReal(String(Math.floor(d.cashPointsPerReal)));
         }
+        if (Array.isArray(d.rouletteTable)) {
+          setRouletteRows(normalizePrizeRows(d.rouletteTable));
+        }
+        if (typeof d.rouletteSpinCostAmount === "number") {
+          setRouletteSpinCostAmount(String(d.rouletteSpinCostAmount));
+        }
+        if (
+          d.rouletteSpinCostCurrency === "coins" ||
+          d.rouletteSpinCostCurrency === "gems" ||
+          d.rouletteSpinCostCurrency === "rewardBalance"
+        ) {
+          setRouletteSpinCostCurrency(d.rouletteSpinCostCurrency);
+        }
       } catch {
         /* ignore */
       }
@@ -100,6 +125,9 @@ export default function AdminConfigPage() {
           conversionCoinsPerGemBuy: Math.max(1, Math.floor(Number(convBuy)) || 500),
           conversionCoinsPerGemSell: Math.max(0, Math.floor(Number(convSell)) || 0),
           cashPointsPerReal: Math.max(1, Math.floor(Number(cashPointsPerReal)) || 100),
+          rouletteTable: normalizePrizeRows(rouletteRows),
+          rouletteSpinCostAmount: Math.max(0, Math.floor(Number(rouletteSpinCostAmount)) || 0),
+          rouletteSpinCostCurrency,
         },
         { merge: true },
       );
@@ -261,6 +289,212 @@ export default function AdminConfigPage() {
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Roleta da sorte</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Por fatia: <strong className="text-white">PR</strong>,{" "}
+              <strong className="text-white">TICKET</strong>, <strong className="text-white">CASH</strong> ou{" "}
+              <strong className="text-white">baú</strong>. Peso maior = mais chance na roleta (servidor).
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setRouletteRows((current) => [...current, { coins: 50, weight: 10 }])}
+          >
+            + Fatia PR
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() =>
+              setRouletteRows((current) => [...current, { kind: "gems", coins: 1, weight: 8 }])
+            }
+          >
+            + TICKET
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() =>
+              setRouletteRows((current) => [...current, { kind: "rewardBalance", coins: 10, weight: 6 }])
+            }
+          >
+            + CASH
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() =>
+              setRouletteRows((current) => [
+                ...current,
+                { kind: "chest", coins: 0, chestRarity: "comum", weight: 8 },
+              ])
+            }
+          >
+            + Fatia baú
+          </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Custo do giro pago"
+            value={rouletteSpinCostAmount}
+            onChange={setRouletteSpinCostAmount}
+          />
+          <div>
+            <label className="text-xs text-slate-400">Moeda do giro pago</label>
+            <select
+              className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white"
+              value={rouletteSpinCostCurrency}
+              onChange={(e) =>
+                setRouletteSpinCostCurrency(e.target.value as "coins" | "gems" | "rewardBalance")
+              }
+            >
+              <option value="coins">PR</option>
+              <option value="gems">TICKET</option>
+              <option value="rewardBalance">CASH</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {rouletteRows.map((row, index) => (
+            <div
+              key={index}
+              className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+            >
+              <div>
+                <label className="text-xs text-slate-400">Tipo</label>
+                <select
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white"
+                  value={
+                    row.kind === "chest"
+                      ? "chest"
+                      : row.kind === "gems"
+                        ? "gems"
+                        : row.kind === "rewardBalance"
+                          ? "rewardBalance"
+                          : "coins"
+                  }
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setRouletteRows((current) =>
+                      current.map((item, itemIndex) => {
+                        if (itemIndex !== index) return item;
+                        const amt =
+                          item.kind !== "chest" ? Math.max(0, Math.floor(Number(item.coins) || 0)) : 0;
+                        if (next === "chest") {
+                          return {
+                            kind: "chest",
+                            coins: 0,
+                            chestRarity: item.chestRarity ?? "comum",
+                            weight: item.weight,
+                          };
+                        }
+                        if (next === "gems") {
+                          return { kind: "gems", coins: amt || 1, weight: item.weight };
+                        }
+                        if (next === "rewardBalance") {
+                          return { kind: "rewardBalance", coins: amt || 10, weight: item.weight };
+                        }
+                        return { kind: "coins", coins: amt || 50, weight: item.weight };
+                      }),
+                    );
+                  }}
+                >
+                  <option value="coins">Moedas (PR)</option>
+                  <option value="gems">Tickets (gems)</option>
+                  <option value="rewardBalance">Pontos CASH</option>
+                  <option value="chest">Baú</option>
+                </select>
+              </div>
+              {row.kind === "chest" ? (
+                <div>
+                  <label className="text-xs text-slate-400">Raridade do baú</label>
+                  <select
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white"
+                    value={row.chestRarity ?? "comum"}
+                    onChange={(e) =>
+                      setRouletteRows((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index && item.kind === "chest"
+                            ? {
+                                ...item,
+                                chestRarity: e.target.value as ChestRarity,
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {ROULETTE_CHEST_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <Field
+                  label={
+                    row.kind === "gems"
+                      ? "Tickets na fatia"
+                      : row.kind === "rewardBalance"
+                        ? "Pontos CASH na fatia"
+                        : "PR na fatia"
+                  }
+                  value={String(row.coins)}
+                  onChange={(value) =>
+                    setRouletteRows((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index && item.kind !== "chest"
+                          ? { ...item, coins: Math.max(0, Math.floor(Number(value)) || 0) }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+              )}
+              <Field
+                label="Peso / chance"
+                value={String(row.weight)}
+                onChange={(value) =>
+                  setRouletteRows((current) =>
+                    current.map((item, itemIndex) =>
+                      itemIndex === index
+                        ? { ...item, weight: Math.max(0, Math.floor(Number(value)) || 0) }
+                        : item,
+                    ),
+                  )
+                }
+              />
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-red-300"
+                  onClick={() =>
+                    setRouletteRows((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                  }
+                >
+                  Remover
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <AlertBanner tone="info">
+          O prêmio real vem do servidor (PR, TICKET, CASH e/ou baú). Baús dependem dos slots da fila; se não
+          couber, avise para ajuste na aba Baús.
+        </AlertBanner>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
         <h2 className="text-lg font-semibold text-white">Conversão PR ↔ TICKET (carteira)</h2>
         <p className="text-xs text-slate-400">
           <strong className="text-white">Comprar TICKET:</strong> quanto PR o jogador paga por cada ticket.{" "}
@@ -395,4 +629,8 @@ function Field({
       />
     </div>
   );
+}
+
+function normalizePrizeRows(rows: unknown): WeightedPrizeConfig[] {
+  return normalizeRouletteTableFromFirestore(rows);
 }

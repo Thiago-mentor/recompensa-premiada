@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils/cn";
 import { getRankingPrizeForPosition, formatRankingPrize } from "@/lib/ranking/prizes";
-import { resolveAvatarUrl } from "@/lib/users/avatar";
+import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import type { RankingEntry } from "@/types/ranking";
 import type { RankingPrizeTier } from "@/types/systemConfig";
 import { Crown, Medal, Sparkles } from "lucide-react";
@@ -62,12 +62,12 @@ export function TopPodium({
                 isFirst && "h-20 w-20 rounded-[30px]",
               )}
               style={{
-                backgroundImage: `url(${resolveAvatarUrl({
+                backgroundImage: resolveAvatarBackgroundCssValue({
                   photoUrl: e.foto,
                   name: e.nome,
                   username: e.username,
                   uid: e.uid,
-                })})`,
+                }),
               }}
             />
 

@@ -154,7 +154,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button type="submit" variant="gold" className="w-full" disabled={loading}>
           {loading ? "Entrando…" : "Entrar"}
         </Button>
         <button
@@ -174,6 +174,7 @@ export default function LoginPage() {
 
       <Button
         type="button"
+        variant="gold"
         className="w-full"
         onClick={handleGoogle}
         disabled={loading}

@@ -61,7 +61,25 @@ export function resolveAvatarUrl(input: {
   username?: string | null;
   uid?: string | null;
 }): string {
-  if (input.photoUrl && input.photoUrl.trim()) return input.photoUrl;
+  const raw = typeof input.photoUrl === "string" ? input.photoUrl.trim() : "";
+
+  if (raw.length > 0) return raw;
+
   const seed = input.username || input.uid || input.name || "user";
   return buildDefaultAvatarDataUrl(seed, input.name ?? input.username ?? input.uid);
+}
+
+/** Para `backgroundImage`: URLs `data:...charset=UTF-8,...` contêm `;`; em `url(` sem aspas o CSS corta antes da vírgula. */
+export function avatarBackgroundImageCssValue(resolvedUrl: string): string {
+  const safe = resolvedUrl.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `url("${safe}")`;
+}
+
+export function resolveAvatarBackgroundCssValue(input: {
+  photoUrl?: string | null;
+  name?: string | null;
+  username?: string | null;
+  uid?: string | null;
+}): string {
+  return avatarBackgroundImageCssValue(resolveAvatarUrl(input));
 }

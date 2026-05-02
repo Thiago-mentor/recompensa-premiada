@@ -16,7 +16,7 @@ import {
   getActiveRaffleCallable,
 } from "@/services/raffle/raffleService";
 import { uploadRafflePrizeImage } from "@/services/raffle/prizeImageUpload";
-import type { RaffleScheduleMode, RaffleView } from "@/types/raffle";
+import type { RaffleEntryMode, RaffleScheduleMode, RaffleView } from "@/types/raffle";
 import type { RaffleSystemConfig } from "@/types/systemConfig";
 import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
 import {
@@ -148,6 +148,8 @@ export default function AdminSorteiosPage() {
   const [status, setStatus] = useState<"draft" | "active">("draft");
   const [releasedCount, setReleasedCount] = useState(String(RAFFLE_DEFAULT_RELEASED_COUNT));
   const [ticketPrice, setTicketPrice] = useState(String(RAFFLE_DEFAULT_TICKET_PRICE));
+  const [entryMode, setEntryMode] = useState<RaffleEntryMode>("ticket");
+  const [rewardedAdCooldownSeconds, setRewardedAdCooldownSeconds] = useState("120");
   const [maxPerPurchase, setMaxPerPurchase] = useState(String(RAFFLE_DEFAULT_MAX_PER_PURCHASE));
   const [prizeCurrency, setPrizeCurrency] = useState<"coins" | "gems" | "rewardBalance">("coins");
   const [prizeAmount, setPrizeAmount] = useState("1000");
@@ -203,6 +205,14 @@ export default function AdminSorteiosPage() {
             setStatus(r.status);
             setReleasedCount(String(r.releasedCount));
             setTicketPrice(String(r.ticketPrice));
+            setEntryMode(r.entryMode === "rewarded_ad" ? "rewarded_ad" : "ticket");
+            setRewardedAdCooldownSeconds(
+              String(
+                r.rewardedAdCooldownSeconds != null && r.rewardedAdCooldownSeconds >= 0
+                  ? r.rewardedAdCooldownSeconds
+                  : 120,
+              ),
+            );
             setMaxPerPurchase(String(r.maxPerPurchase));
             setPrizeCurrency(r.prizeCurrency);
             setPrizeAmount(String(r.prizeAmount));
@@ -289,6 +299,14 @@ export default function AdminSorteiosPage() {
     setStatus(r.status === "draft" || r.status === "active" ? r.status : "draft");
     setReleasedCount(String(r.releasedCount));
     setTicketPrice(String(r.ticketPrice));
+    setEntryMode(r.entryMode === "rewarded_ad" ? "rewarded_ad" : "ticket");
+    setRewardedAdCooldownSeconds(
+      String(
+        r.rewardedAdCooldownSeconds != null && r.rewardedAdCooldownSeconds >= 0
+          ? r.rewardedAdCooldownSeconds
+          : 120,
+      ),
+    );
     setMaxPerPurchase(String(r.maxPerPurchase));
     setPrizeCurrency(r.prizeCurrency);
     setPrizeAmount(String(r.prizeAmount));
@@ -313,6 +331,8 @@ export default function AdminSorteiosPage() {
     setStatus("draft");
     setReleasedCount(String(clampRaffleReleasedCount(defaultReleasedCount)));
     setTicketPrice(String(clampRaffleTicketPrice(defaultTicketPrice)));
+    setEntryMode("ticket");
+    setRewardedAdCooldownSeconds("120");
     setMaxPerPurchase(String(clampRaffleMaxPerPurchase(defaultMaxPerPurchase)));
     setPrizeCurrency(defaultPrizeCurrency);
     setPrizeAmount(defaultPrizeAmount);
@@ -375,6 +395,11 @@ export default function AdminSorteiosPage() {
         status,
         releasedCount: clampRaffleReleasedCount(releasedCount),
         ticketPrice: clampRaffleTicketPrice(ticketPrice),
+        entryMode,
+        rewardedAdCooldownSeconds: Math.max(
+          0,
+          Math.min(86_400, Math.floor(Number(rewardedAdCooldownSeconds) || 0)),
+        ),
         maxPerPurchase: clampRaffleMaxPerPurchase(maxPerPurchase),
         prizeCurrency,
         prizeAmount: Math.max(0, Math.floor(Number(prizeAmount) || 0)),
@@ -766,6 +791,34 @@ export default function AdminSorteiosPage() {
             </select>
           </div>
           <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-white/60">Como o jogador obtém números</span>
+            <select
+              value={entryMode}
+              onChange={(e) => {
+                const m = e.target.value as RaffleEntryMode;
+                setEntryMode(m);
+                if (m === "rewarded_ad") setMaxPerPurchase("1");
+              }}
+              className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white"
+            >
+              <option value="ticket">Paga com TICKET (preço por número)</option>
+              <option value="rewarded_ad">Anúncio recompensado (1 anúncio = 1 número)</option>
+            </select>
+            <p className="text-[11px] text-white/45">
+              {entryMode === "rewarded_ad"
+                ? "Placement AdMob `raffle_number` + SSV. No app Android o bloco padrão é o rewarded de teste do Google até você definir NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_RAFFLE_ID. Máx. por compra = 1."
+                : "Modo clássico: desconto em TICKET (gems) por número."}
+            </p>
+          </div>
+          {entryMode === "rewarded_ad" ? (
+            <Field
+              label="Intervalo mínimo entre anúncios (segundos)"
+              value={rewardedAdCooldownSeconds}
+              onChange={setRewardedAdCooldownSeconds}
+              hint="0 = sem espera (só limite diário global). Máx. 86400 (24h)."
+            />
+          ) : null}
+          <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-white/60">Modo do sorteio</span>
             <select
               value={scheduleMode}
@@ -805,8 +858,18 @@ export default function AdminSorteiosPage() {
               Total liberado: <strong className="text-white">{previewReleasedCount.toLocaleString("pt-BR")}</strong>
             </div>
           )}
-          <Field label="Preço em TICKET / número" value={ticketPrice} onChange={setTicketPrice} />
-          <Field label="Máximo por compra" value={maxPerPurchase} onChange={setMaxPerPurchase} />
+          <Field
+            label="Preço em TICKET / número (só modo TICKET)"
+            value={ticketPrice}
+            onChange={setTicketPrice}
+            disabled={entryMode === "rewarded_ad"}
+          />
+          <Field
+            label="Máximo por compra (só modo TICKET; anúncio = 1)"
+            value={maxPerPurchase}
+            onChange={setMaxPerPurchase}
+            disabled={entryMode === "rewarded_ad"}
+          />
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-white/60">Prêmio (moeda)</span>
             <select
@@ -1128,19 +1191,25 @@ function Field({
   label,
   value,
   onChange,
+  disabled,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-semibold text-white/60">{label}</span>
       <input
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white outline-none ring-cyan-500/30 focus:ring-2"
+        className="h-11 rounded-xl border border-white/15 bg-black/30 px-3 text-sm text-white outline-none ring-cyan-500/30 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
       />
+      {hint ? <p className="text-[11px] text-white/40">{hint}</p> : null}
     </div>
   );
 }

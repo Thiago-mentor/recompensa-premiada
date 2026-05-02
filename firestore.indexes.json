@@ -109,6 +109,14 @@
       ]
     },
     {
+      "collectionGroup": "multiplayer_slots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "queueStatus", "order": "ASCENDING" },
+        { "fieldPath": "atualizadoEm", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "raffle_purchases",
       "queryScope": "COLLECTION",
       "fields": [

@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useChestHub } from "@/hooks/useChestHub";
 import { ROUTES } from "@/lib/constants/routes";
+import {
+  CHEST_ALREADY_OPENING_MESSAGE,
+  CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE,
+} from "@/lib/firebase/errors";
 import { cn } from "@/lib/utils/cn";
 import type { ResolvedChestItem } from "@/utils/chest";
 import {
@@ -342,6 +346,12 @@ export function BauGameScreen() {
                         ? `${CHEST_STATUS_LABEL[spotlightChest.resolvedStatus]} · ${formatChestDurationMs(spotlightChest.remainingMs)}`
                         : CHEST_STATUS_LABEL[spotlightChest.resolvedStatus]}
                     </p>
+                    {spotlightChest.resolvedStatus === "unlocking" &&
+                    spotlightChest.speedupCooldownRemainingMs <= 0 ? (
+                      <p className="mt-2 text-[11px] text-cyan-200/78">
+                        Pode usar outro anúncio já para reduzir o tempo outra vez.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {readyChest ? (
@@ -360,15 +370,39 @@ export function BauGameScreen() {
                       <Button
                         size="lg"
                         variant="secondary"
-                        className="flex-1 border-cyan-400/25"
-                        disabled={busyState != null}
+                        className={cn(
+                          "flex min-h-[3.35rem] flex-1 flex-col gap-1 border-cyan-400/25 py-3 leading-snug [&>svg]:shrink-0",
+                          activeUnlockChest.speedupCooldownRemainingMs > 0 && "opacity-90",
+                        )}
+                        disabled={
+                          busyState != null || activeUnlockChest.speedupCooldownRemainingMs > 0
+                        }
                         onClick={() => void speedUpChest(activeUnlockChest.id)}
                       >
-                        <Zap className="h-4 w-4" />
                         {busyState?.chestId === activeUnlockChest.id &&
-                        busyState?.action === "speed"
-                          ? "Validando..."
-                          : "Acelerar"}
+                        busyState?.action === "speed" ? (
+                          "Validando anúncio…"
+                        ) : activeUnlockChest.speedupCooldownRemainingMs > 0 ? (
+                          <>
+                            <span className="inline-flex items-center justify-center gap-2 text-[13px] font-bold uppercase tracking-wide">
+                              <Clock3 className="h-4 w-4 text-amber-200" aria-hidden />
+                              Aceleração em espera
+                            </span>
+                            <span className="text-[13px] font-mono font-bold tabular-nums text-amber-100">
+                              {formatChestDurationMs(activeUnlockChest.speedupCooldownRemainingMs)}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide">
+                              <Zap className="h-4 w-4" aria-hidden />
+                              Acelerar
+                            </span>
+                            <span className="text-[11px] font-normal capitalize text-white/75">
+                              com anúncio
+                            </span>
+                          </>
+                        )}
                       </Button>
                     ) : lockedChest ? (
                       <Button
@@ -649,7 +683,11 @@ function SlotCard({
           Liberação em {formatChestDurationMs(item.remainingMs)}.
         </p>
       ) : item.resolvedStatus === "locked" ? (
-        <p className="mt-3 text-sm text-white/55">Parado no slot, aguardando início manual.</p>
+        item.canStartUnlock ? (
+          <p className="mt-3 text-sm text-white/55">
+            Parado no slot, aguardando início manual.
+          </p>
+        ) : null
       ) : item.resolvedStatus === "ready" ? (
         <p className="mt-3 text-sm text-emerald-100/85">Já pronto para abrir e liberar espaço.</p>
       ) : null}
@@ -666,18 +704,54 @@ function SlotCard({
           </Button>
         ) : item.canSpeedUp ? (
           <Button
-            className="w-full"
+            className="flex min-h-[3rem] flex-col gap-1 py-2.5 leading-snug"
             variant="secondary"
-            disabled={isAnyBusy}
+            disabled={isAnyBusy || item.speedupCooldownRemainingMs > 0}
             onClick={() => void onSpeedUp(item.id)}
           >
-            <Zap className="h-4 w-4" />
-            {busy === "speed" ? "Validando..." : "Acelerar com anúncio"}
+            {busy === "speed" ? (
+              "Validando…"
+            ) : item.speedupCooldownRemainingMs > 0 ? (
+              <>
+                <span className="inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
+                  <Clock3 className="h-3.5 w-3.5 text-amber-200" aria-hidden />
+                  Esperar anúncio
+                </span>
+                <span className="font-mono text-xs font-bold tabular-nums text-amber-100">
+                  {formatChestDurationMs(item.speedupCooldownRemainingMs)}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 shrink-0" aria-hidden /> Acelerar
+                </span>
+                <span className="text-[10px] font-medium normal-case opacity-85">com anúncio</span>
+              </>
+            )}
           </Button>
         ) : item.canStartUnlock ? (
           <Button className="w-full" disabled={isAnyBusy} onClick={() => void onStartUnlock(item.id)}>
             {busy === "start" ? "Iniciando..." : "Iniciar abertura"}
           </Button>
+        ) : item.resolvedStatus === "locked" ? (
+          <div
+            className={cn(
+              "flex items-start gap-2.5 rounded-xl border px-3 py-3 text-left text-sm leading-relaxed",
+              "border-amber-500/25 bg-amber-500/[0.08] text-amber-100/90",
+            )}
+            role="status"
+          >
+            <Clock3
+              className="mt-0.5 size-5 shrink-0 text-amber-200/85"
+              aria-hidden
+            />
+            <span className="min-w-0">
+              {item.unlockStartBlockedReason === "prioritize_lower_slot"
+                ? CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE
+                : CHEST_ALREADY_OPENING_MESSAGE}
+            </span>
+          </div>
         ) : null}
       </div>
     </div>

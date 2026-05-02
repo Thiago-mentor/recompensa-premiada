@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils/cn";
 import { getRankingPrizeForPosition, formatRankingPrize } from "@/lib/ranking/prizes";
-import { resolveAvatarUrl } from "@/lib/users/avatar";
+import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import type { RankingEntry } from "@/types/ranking";
 import type { RankingPrizeTier } from "@/types/systemConfig";
 
@@ -58,12 +58,12 @@ export function RankingTable({
                     <div
                       className="h-9 w-9 shrink-0 rounded-[14px] border border-white/10 bg-cover bg-center sm:h-11 sm:w-11 sm:rounded-[18px]"
                       style={{
-                        backgroundImage: `url(${resolveAvatarUrl({
+                        backgroundImage: resolveAvatarBackgroundCssValue({
                           photoUrl: e.foto,
                           name: e.nome,
                           username: e.username,
                           uid: e.uid,
-                        })})`,
+                        }),
                       }}
                     />
                     <div className="min-w-0 flex-1">

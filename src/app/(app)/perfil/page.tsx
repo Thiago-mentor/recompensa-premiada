@@ -19,6 +19,12 @@ import Link from "next/link";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { resetUserAvatar, uploadUserAvatar } from "@/services/users/avatarService";
 import { formatFirebaseError } from "@/lib/firebase/errors";
+import {
+  canUploadCustomAvatar,
+  getAvatarUploadMissingRequirements,
+  getAvatarUploadProgress,
+  AVATAR_UPLOAD_REQUIREMENTS,
+} from "@/lib/users/avatarRequirements";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { Banknote, Coins, Crown, Flame, ShieldAlert, Sparkles, Ticket, Trophy, Wallet } from "lucide-react";
 
@@ -55,6 +61,9 @@ export default function PerfilPage() {
   const [msgTone, setMsgTone] = useState<"success" | "error">("success");
   const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
   const [activeSection, setActiveSection] = useState<ProfileSectionId>("conta");
+  const avatarUploadUnlocked = canUploadCustomAvatar(profile);
+  const avatarMissingRequirements = getAvatarUploadMissingRequirements(profile);
+  const avatarUploadProgress = getAvatarUploadProgress(profile);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +89,12 @@ export default function PerfilPage() {
 
   async function onSelectAvatar(file: File | null) {
     if (!file) return;
+    if (!avatarUploadUnlocked) {
+      setMsgTone("error");
+      setMsg(`Upload de avatar bloqueado. Ainda falta: ${avatarMissingRequirements.join(", ")}.`);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
     setAvatarBusy(true);
     setAvatarPreviewUrl(null);
     setMsg(null);
@@ -222,7 +237,7 @@ export default function PerfilPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Button
                 variant="secondary"
-                disabled={avatarBusy}
+                disabled={avatarBusy || !avatarUploadUnlocked}
                 onClick={() => inputRef.current?.click()}
               >
                 {avatarBusy ? "Enviando..." : "Trocar foto"}
@@ -235,6 +250,25 @@ export default function PerfilPage() {
                 Usar avatar padrão
               </Button>
             </div>
+            {!avatarUploadUnlocked ? (
+              <div className="game-panel-soft rounded-xl border-amber-400/20 bg-amber-500/10 px-3 py-3 text-sm text-amber-100/90">
+                <p className="font-semibold text-white">Upload de foto bloqueado por reputação.</p>
+                <p className="mt-1 text-xs leading-relaxed text-amber-100/75">
+                  Requisito: {AVATAR_UPLOAD_REQUIREMENTS.ads} anúncios,{" "}
+                  {AVATAR_UPLOAD_REQUIREMENTS.pptMatches} PPT,{" "}
+                  {AVATAR_UPLOAD_REQUIREMENTS.quizMatches} QUIZ e{" "}
+                  {AVATAR_UPLOAD_REQUIREMENTS.reactionMatches} REACTION.
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-amber-100/70">
+                  Seu progresso: {avatarUploadProgress.ads} anúncios · {avatarUploadProgress.pptMatches} PPT ·{" "}
+                  {avatarUploadProgress.quizMatches} QUIZ · {avatarUploadProgress.reactionMatches} REACTION.
+                </p>
+              </div>
+            ) : (
+              <div className="game-panel-soft rounded-xl border-emerald-400/20 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-100/85">
+                Upload liberado. Sua foto ainda será validada automaticamente pelo Google Cloud Vision.
+              </div>
+            )}
 
             <div className="grid gap-2 sm:grid-cols-2">
               <AccountRow label="Nome" value={profile?.nome || user?.displayName || "—"} />

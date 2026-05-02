@@ -5,6 +5,8 @@ import { REACTION_PVP_DUELS_PLACEMENT_ID } from "@/lib/constants/reactionPvp";
 import {
   CHEST_SPEEDUP_PLACEMENT_ID,
   HOME_REWARDED_PLACEMENT_ID,
+  RAFFLE_NUMBER_PLACEMENT_ID,
+  ROULETTE_DAILY_SPIN_PLACEMENT_ID,
   type RewardedAdPlacementId,
 } from "@/lib/constants/rewardedAds";
 
@@ -29,6 +31,8 @@ const admobAndroidRewardedDefaultUnitId =
 export const admobAndroidRewardedUnitIds: Record<RewardedAdPlacementId, string> = {
   [HOME_REWARDED_PLACEMENT_ID]:
     env("NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_HOME_ID") ?? admobAndroidRewardedDefaultUnitId,
+  [ROULETTE_DAILY_SPIN_PLACEMENT_ID]:
+    env("NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_ROULETTE_ID") ?? admobAndroidRewardedDefaultUnitId,
   [PPT_PVP_DUELS_PLACEMENT_ID]:
     env("NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_PPT_ID") ?? admobAndroidRewardedDefaultUnitId,
   [QUIZ_PVP_DUELS_PLACEMENT_ID]:
@@ -38,6 +42,9 @@ export const admobAndroidRewardedUnitIds: Record<RewardedAdPlacementId, string> 
   [CHEST_SPEEDUP_PLACEMENT_ID]:
     env("NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_CHEST_SPEEDUP_ID") ??
     admobAndroidRewardedDefaultUnitId,
+  /** Padrão: ID de rewarded de teste do Google; em produção defina NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_RAFFLE_ID. */
+  [RAFFLE_NUMBER_PLACEMENT_ID]:
+    env("NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_RAFFLE_ID") ?? ANDROID_TEST_REWARDED_AD_UNIT_ID,
 };
 
 export const admobAndroidSsvEnabled =

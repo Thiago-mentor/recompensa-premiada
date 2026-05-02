@@ -1,6 +1,7 @@
 import type { DocumentSnapshot } from "firebase/firestore";
 import type {
   RaffleAllocationMode,
+  RaffleEntryMode,
   RaffleInstantPrizeHitView,
   RaffleInstantPrizeTier,
   RaffleScheduleMode,
@@ -42,6 +43,17 @@ function tsToMs(v: unknown): number | null {
 
 function parseAllocationMode(raw: unknown): RaffleAllocationMode {
   return raw === "random" ? "random" : "sequential";
+}
+
+function parseEntryMode(raw: unknown): RaffleEntryMode {
+  return raw === "rewarded_ad" ? "rewarded_ad" : "ticket";
+}
+
+function parseRewardedAdCooldownSeconds(raw: unknown, entryMode: RaffleEntryMode): number {
+  if (entryMode !== "rewarded_ad") return 0;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return 120;
+  return Math.min(86_400, Math.max(0, n));
 }
 
 function parseScheduleMode(raw: unknown, endsAtMs: number | null): RaffleScheduleMode {
@@ -108,6 +120,7 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
       : "coins";
   const startsAtMs = tsToMs(d.startsAt);
   const endsAtMs = tsToMs(d.endsAt);
+  const entryModeParsed = parseEntryMode(d.entryMode);
   const closedAtMs = tsToMs(d.closedAt);
   const drawTimeZone = typeof d.drawTimeZone === "string" ? d.drawTimeZone : null;
   const resultScheduledAtMs =
@@ -124,6 +137,8 @@ export function mapRaffleSnapshotToView(snap: DocumentSnapshot): RaffleView | nu
     nextSequentialNumber: Math.max(0, Math.floor(Number(d.nextSequentialNumber) || 0)),
     soldCount: Math.max(0, Math.floor(Number(d.soldCount) || 0)),
     soldTicketsRevenue: Math.max(0, Math.floor(Number(d.soldTicketsRevenue) || 0)),
+    entryMode: entryModeParsed,
+    rewardedAdCooldownSeconds: parseRewardedAdCooldownSeconds(d.rewardedAdCooldownSeconds, entryModeParsed),
     ticketPrice: clampRaffleTicketPrice(d.ticketPrice),
     maxPerPurchase: clampRaffleMaxPerPurchase(d.maxPerPurchase),
     prizeCurrency,

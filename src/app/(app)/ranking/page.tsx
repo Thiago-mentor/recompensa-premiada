@@ -8,7 +8,7 @@ import { useExperienceCatalogBuckets } from "@/hooks/useExperienceCatalogBuckets
 import { RankingTable } from "@/modules/jogos";
 import { ROUTES, routeClaPublico } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
-import { resolveAvatarUrl } from "@/lib/users/avatar";
+import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import {
   formatClanTime,
   resolveClanDailyBreakdown,
@@ -42,6 +42,7 @@ import {
   Crown,
   Filter,
   Gift,
+  Medal,
   Swords,
   Trophy,
   Users,
@@ -868,12 +869,12 @@ function RankingSummaryCard({
               aria-label={entry.nome}
               className="h-12 w-12 rounded-[18px] border border-white/10 bg-cover bg-center shadow-[0_0_30px_-16px_rgba(34,211,238,0.45)]"
               style={{
-                backgroundImage: `url(${resolveAvatarUrl({
+                backgroundImage: resolveAvatarBackgroundCssValue({
                   photoUrl: entry.foto,
                   name: entry.nome,
                   username: entry.username,
                   uid: entry.uid,
-                })})`,
+                }),
               }}
             />
             <div className="min-w-0">
@@ -1158,23 +1159,51 @@ function PrizePeriodCard({
             <p className="mt-1 text-xs text-white/45">Melhor faixa deste período.</p>
           </div>
 
-          <div className="grid gap-3">
-            {tiers.slice(1).map((tier, index) => (
-              <div
-                key={`${title}-${tier.posicaoMax}-${index + 1}`}
-                className="game-panel-soft rounded-2xl px-4 py-3"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-white">
-                    {formatPrizeRangeLabel(tiers, index + 1)}
+          <div className="mt-4 grid gap-3.5">
+            {tiers.slice(1).map((tier, index) => {
+              const tierNumber = index + 2;
+              const premiumSecond =
+                tierNumber === 2
+                  ? "border-violet-400/28 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.16),transparent_52%),linear-gradient(180deg,rgba(46,37,71,0.92),rgba(15,23,42,0.97))] shadow-[0_0_28px_-16px_rgba(139,92,246,0.38)]"
+                  : "border-cyan-400/24 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.12),transparent_50%),linear-gradient(180deg,rgba(21,51,61,0.9),rgba(15,23,42,0.97))] shadow-[0_0_28px_-16px_rgba(34,211,238,0.28)]";
+              const badgeSecond =
+                tierNumber === 2
+                  ? "border-violet-400/35 bg-violet-500/14 text-violet-100/[0.93]"
+                  : "border-cyan-400/32 bg-cyan-500/12 text-cyan-100/[0.92]";
+              return (
+                <div
+                  key={`${title}-${tier.posicaoMax}-${index + 1}`}
+                  className={cn(
+                    "rounded-[1.35rem] border px-4 py-4 ring-1 ring-inset ring-white/[0.04]",
+                    premiumSecond,
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-2 text-sm font-bold text-white">
+                      <Medal
+                        className={cn(
+                          "h-4 w-4 shrink-0",
+                          tierNumber === 2 ? "text-violet-200/95" : "text-cyan-200/92",
+                        )}
+                        aria-hidden
+                      />
+                      {formatPrizeRangeLabel(tiers, index + 1)}
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+                        badgeSecond,
+                      )}
+                    >
+                      Faixa {tierNumber}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-lg font-black tracking-tight text-white sm:text-[1.15rem]">
+                    {formatRankingPrize(tier)}
                   </p>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/55">
-                    Faixa {index + 2}
-                  </span>
                 </div>
-                <p className="mt-2 text-sm text-cyan-100">{formatRankingPrize(tier)}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

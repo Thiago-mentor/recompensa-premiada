@@ -7,7 +7,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  where,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
@@ -282,21 +281,34 @@ export function subscribeClanJoinRequests(
   clanId: string,
   onNext: (requests: ClanJoinRequest[]) => void,
 ): Unsubscribe {
-  const requestsRef = collection(getFirebaseFirestore(), COLLECTIONS.clanJoinRequests);
-  const requestsQuery = query(
-    requestsRef,
-    where("clanId", "==", clanId),
-    where("status", "==", "pending"),
-    orderBy("requestedAt", "asc"),
-    limit(50),
+  const requestsRef = collection(
+    getFirebaseFirestore(),
+    COLLECTIONS.clans,
+    clanId,
+    SUBCOLLECTIONS.clanJoinRequests,
   );
-  return onSnapshot(requestsQuery, (snapshot) => {
+  return onSnapshot(requestsRef, (snapshot) => {
     onNext(
-      snapshot.docs.map((docSnap) =>
-        normalizeJoinRequest(docSnap.id, docSnap.data() as Record<string, unknown>),
-      ),
+      snapshot.docs
+        .map((docSnap) =>
+          normalizeJoinRequest(docSnap.id, docSnap.data() as Record<string, unknown>),
+        )
+        .filter((item) => item.status === "pending")
+        .sort((a, b) => timestampToMs(a.requestedAt) - timestampToMs(b.requestedAt))
+        .slice(0, 50),
     );
   });
+}
+
+function timestampToMs(value: unknown): number {
+  if (value && typeof value === "object" && "toMillis" in value) {
+    try {
+      return (value as { toMillis: () => number }).toMillis();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
 }
 
 async function callClanFunction<TReq extends Record<string, unknown>, TRes>(

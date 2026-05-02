@@ -173,6 +173,7 @@ const DEFAULT_CHEST_SYSTEM_CONFIG: Omit<ChestSystemConfig, "id" | "updatedAt"> =
     },
   },
   adSpeedupPercent: 0.33,
+  adSpeedupFixedMinutes: 0,
   maxAdsPerChest: 3,
   adCooldownSeconds: 3 * 60,
   dailyChestAdsLimit: 12,
@@ -204,6 +205,7 @@ type ChestSystemForm = {
   bonusWeightsByRarity: Record<ChestRarity, Record<ChestBonusRewardKind, string>>;
   bonusRewardTablesByRarity: Record<ChestRarity, Record<ChestBonusRewardKind, RewardRangeForm>>;
   adSpeedupPercent: string;
+  adSpeedupFixedMinutes: string;
   maxAdsPerChest: string;
   adCooldownSeconds: string;
   dailyChestAdsLimit: string;
@@ -302,6 +304,7 @@ function defaultForm(): ChestSystemForm {
       lendario: buildBonusRewardTable(DEFAULT_CHEST_SYSTEM_CONFIG.bonusRewardTablesByRarity.lendario),
     },
     adSpeedupPercent: String(Math.round(DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupPercent * 100)),
+    adSpeedupFixedMinutes: String(DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupFixedMinutes),
     maxAdsPerChest: String(DEFAULT_CHEST_SYSTEM_CONFIG.maxAdsPerChest),
     adCooldownSeconds: String(DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds),
     dailyChestAdsLimit: String(DEFAULT_CHEST_SYSTEM_CONFIG.dailyChestAdsLimit),
@@ -403,6 +406,11 @@ function toForm(raw?: Partial<ChestSystemConfig>): ChestSystemForm {
           ? raw.adSpeedupPercent
           : DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupPercent) || 0) * 100,
       ),
+    ),
+    adSpeedupFixedMinutes: String(
+      typeof raw.adSpeedupFixedMinutes === "number"
+        ? raw.adSpeedupFixedMinutes
+        : DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupFixedMinutes,
     ),
     maxAdsPerChest: String(raw.maxAdsPerChest ?? base.maxAdsPerChest),
     adCooldownSeconds: String(raw.adCooldownSeconds ?? base.adCooldownSeconds),
@@ -724,6 +732,14 @@ export function ChestSystemConfigPanel({
             form.adSpeedupPercent,
             DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupPercent * 100,
           ),
+          adSpeedupFixedMinutes: Math.min(
+            7 * 24 * 60,
+            readInt(
+              form.adSpeedupFixedMinutes,
+              DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupFixedMinutes,
+              0,
+            ),
+          ),
           maxAdsPerChest: readInt(form.maxAdsPerChest, DEFAULT_CHEST_SYSTEM_CONFIG.maxAdsPerChest, 0),
           adCooldownSeconds: readInt(
             form.adCooldownSeconds,
@@ -807,6 +823,13 @@ export function ChestSystemConfigPanel({
               onChange={(value) => setForm((current) => ({ ...current, adSpeedupPercent: value }))}
             />
             <ConfigField
+              label="Min. fixos cortados por anúncio"
+              value={form.adSpeedupFixedMinutes}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, adSpeedupFixedMinutes: value }))
+              }
+            />
+            <ConfigField
               label="Máx. anúncios por baú"
               value={form.maxAdsPerChest}
               onChange={(value) => setForm((current) => ({ ...current, maxAdsPerChest: value }))}
@@ -823,8 +846,11 @@ export function ChestSystemConfigPanel({
             />
           </div>
           <p className="text-xs text-slate-400">
-            O backend força o percentual entre <strong className="text-white">5%</strong> e{" "}
-            <strong className="text-white">95%</strong> por anúncio.
+            Use <strong className="text-white">minutos fixos &gt; 0</strong> para um corte prévisível
+            por anúncio (limitado ao que ainda falta). Com <strong className="text-white">0 min.</strong>,
+            só vale o percentual — o backend força esse percentual entre{" "}
+            <strong className="text-white">5%</strong> e <strong className="text-white">95%</strong> por
+            anúncio. Máx. configurável nos minutos fixos: uma semana.
           </p>
         </div>
 

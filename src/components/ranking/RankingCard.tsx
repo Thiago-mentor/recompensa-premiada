@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils/cn";
-import { resolveAvatarUrl } from "@/lib/users/avatar";
+import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import type { RankingEntry } from "@/types/ranking";
 import { Crown, Medal, Sparkles, TrendingUp } from "lucide-react";
 
@@ -36,11 +36,11 @@ export function RankingCard({
       <div
         className="h-9 w-9 shrink-0 rounded-full bg-cover bg-center"
         style={{
-          backgroundImage: `url(${resolveAvatarUrl({
+          backgroundImage: resolveAvatarBackgroundCssValue({
             photoUrl: entry.foto,
             name: entry.nome,
             uid: entry.uid,
-          })})`,
+          }),
         }}
       />
       <div className="min-w-0 flex-1">
@@ -55,8 +55,10 @@ export function RankingCard({
         </div>
       </div>
       <div className="text-right">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/58">PR</p>
-        <span className="text-sm font-black tabular-nums text-amber-200">{entry.score}</span>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200/70">PR</p>
+        <span className="bg-gradient-to-b from-amber-200 via-amber-300 to-amber-500 bg-clip-text text-sm font-black tabular-nums text-transparent drop-shadow-[0_0_10px_rgba(251,191,36,0.35)]">
+          {entry.score}
+        </span>
         {highlightUid && entry.uid === highlightUid ? (
           <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-amber-100/90">
             <Sparkles className="h-3 w-3" />

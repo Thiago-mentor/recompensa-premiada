@@ -43,6 +43,7 @@ export const COLLECTIONS = {
 export const SUBCOLLECTIONS = {
   clanMembers: "members",
   clanMessages: "messages",
+  clanJoinRequests: "join_requests",
   clanContributors: "contributors",
   userMissionsDaily: "daily",
   userMissionsWeekly: "weekly",

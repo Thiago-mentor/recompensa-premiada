@@ -1,6 +1,13 @@
 import { FirebaseError } from "firebase/app";
 import { firebaseEmulatorHost, firebaseEmulatorPorts, useFirebaseEmulators } from "./config";
 
+/** Deve coincidir com a mensagem de `HttpsError` em `startChestUnlock` nas Cloud Functions. */
+export const CHEST_ALREADY_OPENING_MESSAGE = "Já existe um baú em abertura.";
+
+/** Igual ao `HttpsError` de ordem dos slots em `startChestUnlock` nas Functions. */
+export const CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE =
+  "Abra primeiro o baú no slot de menor número (comece pelo slot 1).";
+
 const FUNCTION_MESSAGE_MAP: Record<string, string> = {
   "Perfil inexistente.": "Seu perfil ainda não foi carregado. Entre novamente e tente de novo.",
   "Perfil ausente.": "Seu perfil ainda não foi carregado. Tente novamente em instantes.",
@@ -16,7 +23,8 @@ const FUNCTION_MESSAGE_MAP: Record<string, string> = {
   "Sistema de baús desativado.": "O sistema de baús está desativado no momento.",
   "Baú não encontrado.": "Esse baú não foi encontrado. Atualize a tela e tente de novo.",
   "Este baú ainda está na fila de espera.": "Esse baú ainda está na fila de espera.",
-  "Já existe um baú em abertura.": "Já existe um baú em abertura.",
+  [CHEST_ALREADY_OPENING_MESSAGE]: CHEST_ALREADY_OPENING_MESSAGE,
+  [CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE]: CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE,
   "Este baú não está em abertura.": "Esse baú não está em abertura no momento.",
   "Este baú já atingiu o limite de anúncios.": "Esse baú já atingiu o limite de anúncios.",
   "Limite diário de aceleração de baús atingido.": "Você atingiu o limite diário de aceleração de baús.",

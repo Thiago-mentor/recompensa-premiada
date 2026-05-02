@@ -1,13 +1,35 @@
 apply plugin: 'com.android.application'
 
+import java.util.Properties
+
 def admobAppId = System.getenv("NEXT_PUBLIC_ADMOB_ANDROID_APP_ID")
 if (admobAppId == null || admobAppId.trim().isEmpty()) {
     admobAppId = "ca-app-pub-3940256099942544~3347511713"
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+
+if (hasReleaseKeystore) {
+    keystorePropertiesFile.withInputStream { stream ->
+        keystoreProperties.load(stream)
+    }
+}
+
 android {
     namespace = "com.recompensapremiada.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    signingConfigs {
+        release {
+            if (hasReleaseKeystore) {
+                storeFile rootProject.file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+            }
+        }
+    }
     defaultConfig {
         applicationId "com.recompensapremiada.app"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -24,6 +46,9 @@ android {
     }
     buildTypes {
         release {
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

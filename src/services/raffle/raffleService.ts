@@ -35,9 +35,17 @@ export async function purchaseRaffleNumbersCallable(input: {
   raffleId: string;
   quantity: number;
   clientRequestId: string;
+  rewardedAdSessionId?: string;
+  rewardedAdCompletionToken?: string;
 }): Promise<PurchaseRaffleNumbersResult> {
   const res = await callFunction<
-    { raffleId: string; quantity: number; clientRequestId: string },
+    {
+      raffleId: string;
+      quantity: number;
+      clientRequestId: string;
+      rewardedAdSessionId?: string;
+      rewardedAdCompletionToken?: string;
+    },
     PurchaseRaffleNumbersResult
   >("purchaseRaffleNumbers", input);
   return res.data;

@@ -83,6 +83,8 @@ const OPTIONS: { id: GameId; label: string; short: string }[] = [
 ];
 
 const MATCHMAKING_RETRY_MS = 1200;
+/** Tempo em segundo plano antes de sair da fila (alinhado ao stale no servidor, ~90s). */
+const MATCHMAKING_BACKGROUND_LEAVE_MS = 60_000;
 
 function queueCopy(gameId: GameId) {
   if (gameId === "ppt") {
@@ -317,6 +319,48 @@ export function FilaClient() {
     setPhase("form");
     router.replace(`${ROUTES.jogosFila}?gameId=${gameId}`);
   }, [router, gameId]);
+
+  /** App em segundo plano / aba oculta não renova o slot; sai da fila para não parecer “online” na arena. */
+  useEffect(() => {
+    if (phase !== "searching") return;
+
+    let backgroundLeaveTimer: number | null = null;
+
+    const clearBackgroundLeaveTimer = () => {
+      if (backgroundLeaveTimer !== null) {
+        window.clearTimeout(backgroundLeaveTimer);
+        backgroundLeaveTimer = null;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearBackgroundLeaveTimer();
+        backgroundLeaveTimer = window.setTimeout(() => {
+          backgroundLeaveTimer = null;
+          if (document.visibilityState !== "visible") {
+            void leaveAutoMatchQueue(gameId).catch(() => undefined);
+            stopSearch();
+          }
+        }, MATCHMAKING_BACKGROUND_LEAVE_MS);
+      } else {
+        clearBackgroundLeaveTimer();
+      }
+    };
+
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return;
+      void leaveAutoMatchQueue(gameId).catch(() => undefined);
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      clearBackgroundLeaveTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [phase, gameId, stopSearch]);
 
   useEffect(() => {
     if (phase !== "searching") return;
