@@ -1,9 +1,6 @@
 "use client";
 
-import { doc, getDoc } from "firebase/firestore";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
-import { COLLECTIONS } from "@/lib/constants/collections";
-import type { StreakRewardTier } from "@/types/systemConfig";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";import type { StreakRewardTier } from "@/types/systemConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
 
 export type EconomyStreakSlice = {
@@ -30,9 +27,8 @@ export const DEFAULT_ECONOMY_STREAK_SLICE: EconomyStreakSlice = {
 };
 
 export async function fetchEconomyStreakSlice(): Promise<EconomyStreakSlice> {
-  const db = getFirebaseFirestore();
-  const snap = await getDoc(doc(db, COLLECTIONS.systemConfigs, "economy"));
-  const d = snap.data() || {};
+  const raw = await fetchEconomyConfigDocument();
+  const d = raw ?? {};
   const dailyLoginBonus =
     typeof d.dailyLoginBonus === "number" && Number.isFinite(d.dailyLoginBonus)
       ? Math.max(0, Math.floor(d.dailyLoginBonus))

@@ -19,8 +19,8 @@ const tones = {
     panel:
       "casino-panel-soft !border-fuchsia-500/38 shadow-[0_0_38px_-14px_rgba(217,70,239,0.4),0_0_28px_-10px_rgba(244,114,182,0.25)]",
   },
-  /** CASH — ícone verde, valor ouro intenso */
-  cash: {
+  /** Saldo (pontos de resgate) — ícone verde, valor ouro intenso */
+  saldo: {
     label: "text-emerald-200/88",
     icon: "text-emerald-400 drop-shadow-[0_0_16px_rgba(52,211,153,0.6)]",
     value:

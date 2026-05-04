@@ -2,11 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { doc, getDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/Button";
 import { ROUTES } from "@/lib/constants/routes";
-import { COLLECTIONS } from "@/lib/constants/collections";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import type { SystemEconomyConfig, WeightedPrizeConfig } from "@/types/systemConfig";
 import {
   DEFAULT_ROULETTE_TABLE,
@@ -83,7 +81,7 @@ export function RoletaGameScreen() {
         rewardCoins: number;
         grantedChest: GrantedChestSummary | null;
         error: string | null;
-        /** Card “TICKET / CASH / PR · +valor” quando não for só moeda legacy “Coins”. */
+        /** Card “TICKET / Saldo / PR · +valor” quando não for só moeda legacy “Coins”. */
         rewardSummaryPrimary?: { label: string; amount: number };
         /** Sem card numérico (ex.: apenas baú). */
         hidePrimaryRewardCard?: boolean;
@@ -110,7 +108,7 @@ export function RoletaGameScreen() {
   const rouletteCostBalanceView = useMemo(() => {
     if (!paidSpinCurrencyConfig || !profile) return null;
     const cur = paidSpinCurrencyConfig;
-    const label = cur === "coins" ? "PR" : cur === "rewardBalance" ? "CASH" : "TICKET";
+    const label = cur === "coins" ? "PR" : cur === "rewardBalance" ? "Saldo" : "TICKET";
     const value =
       cur === "coins" ? profile.coins : cur === "rewardBalance" ? profile.rewardBalance : profile.gems;
     const n = Math.max(0, Math.floor(Number(value) || 0));
@@ -121,9 +119,9 @@ export function RoletaGameScreen() {
     let cancelled = false;
     void (async () => {
       try {
-        const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
-        if (!snap.exists() || cancelled) return;
-        const data = snap.data() as Partial<SystemEconomyConfig>;
+        const dataRaw = await fetchEconomyConfigDocument();
+        if (!dataRaw || cancelled) return;
+        const data = dataRaw as Partial<SystemEconomyConfig>;
         const amount = Math.max(0, Math.floor(Number(data.rouletteSpinCostAmount) || 0));
         const rawCur = data.rouletteSpinCostCurrency;
         const resolvedCur: "coins" | "gems" | "rewardBalance" =
@@ -133,7 +131,7 @@ export function RoletaGameScreen() {
           resolvedCur === "coins"
             ? "PR"
             : resolvedCur === "rewardBalance"
-              ? "CASH"
+              ? "Saldo"
               : "TICKET";
         setCostLabel(amount > 0 ? `${amount} ${currency}` : "grátis");
         setWheelSlices(normalizeRouletteTableFromFirestore(data.rouletteTable));
@@ -189,7 +187,7 @@ export function RoletaGameScreen() {
       chestRarity: result.chestRarity,
       rewardCoins: result.rewardCoins,
       rewardGems: result.rewardGems,
-      rewardCash: result.rewardCash,
+      rewardSaldo: result.rewardSaldo,
       rouletteRewardAmount: result.rouletteRewardAmount,
     });
     const angle = 360 / n;
@@ -224,7 +222,7 @@ export function RoletaGameScreen() {
           : result.roulettePrizeKind === "gems"
             ? `+${result.rewardGems ?? 0} TICKET · ${mode === "daily_ad" ? "giro por anúncio" : "giro pago"}`
             : result.roulettePrizeKind === "rewardBalance"
-              ? `+${result.rewardCash ?? 0} pontos CASH · ${mode === "daily_ad" ? "giro por anúncio" : "giro pago"}`
+              ? `+${result.rewardSaldo ?? 0} pontos Saldo · ${mode === "daily_ad" ? "giro por anúncio" : "giro pago"}`
               : (result.rewardCoins ?? 0) > 0
                 ? `+${result.rewardCoins} PR · ${mode === "daily_ad" ? "giro por anúncio" : "giro pago"}`
                 : mode === "daily_ad"
@@ -238,7 +236,7 @@ export function RoletaGameScreen() {
         result.roulettePrizeKind === "gems"
           ? { label: "TICKET", amount: result.rewardGems ?? 0 }
           : result.roulettePrizeKind === "rewardBalance"
-            ? { label: "CASH", amount: result.rewardCash ?? 0 }
+            ? { label: "Saldo", amount: result.rewardSaldo ?? 0 }
             : result.roulettePrizeKind === "coins" && (result.rewardCoins ?? 0) > 0
               ? { label: "PR", amount: result.rewardCoins ?? 0 }
               : undefined,
@@ -246,7 +244,7 @@ export function RoletaGameScreen() {
     const parts: string[] = [];
     if ((result.rewardCoins ?? 0) > 0) parts.push(`+${result.rewardCoins} PR`);
     if ((result.rewardGems ?? 0) > 0) parts.push(`+${result.rewardGems} TICKET`);
-    if ((result.rewardCash ?? 0) > 0) parts.push(`+${result.rewardCash} CASH`);
+    if ((result.rewardSaldo ?? 0) > 0) parts.push(`+${result.rewardSaldo} Saldo`);
     if (result.grantedChest) parts.push(`Baú ${CHEST_RARITY_PT[result.grantedChest.rarity]}`);
     if (result.roulettePrizeKind === "chest" && result.chestNotGranted && !result.grantedChest) {
       parts.push("Baú não adicionado (espaço/sistema)");
@@ -577,7 +575,7 @@ function WheelSlice({
               fontWeight="800"
               opacity={0.94}
             >
-              CASH
+              Saldo
             </text>
           </>
         ) : (

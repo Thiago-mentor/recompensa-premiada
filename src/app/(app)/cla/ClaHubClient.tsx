@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ClanAccessBadge } from "@/components/cla/ClanAccessBadge";
+import { ClaGameHeader } from "@/components/cla/ClaGameHeader";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
@@ -248,24 +249,19 @@ export function ClaHubClient() {
   }
 
   return (
-    <ArenaShell maxWidth="max-w-lg" padding="sm">
+    <ArenaShell maxWidth="max-w-lg" padding="sm" hudFrame={false}>
       <motion.div
         className="space-y-5"
         variants={staggerContainer}
         initial="hidden"
         animate="show"
       >
-        <motion.header variants={fadeUpItem} className="space-y-2 px-1 pt-1">
-          <p className="game-kicker text-fuchsia-300/75">
-            Lobby social
-          </p>
-          <h1 className="bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl">
-            Clã
-          </h1>
-          <p className="text-sm leading-relaxed text-white/58">
-            Organize o esquadrão, acompanhe atividade e fale com o time sem sair da arena.
-          </p>
-        </motion.header>
+        <ClaGameHeader
+          kicker="Lobby social"
+          title="Clã"
+          description="Organize o esquadrão, acompanhe atividade e fale com o time sem sair da arena."
+          accent="fuchsia"
+        />
 
         <ClaSectionNav />
 
@@ -282,15 +278,23 @@ export function ClaHubClient() {
           <>
             <motion.section
               variants={fadeUpItem}
-              className="game-panel overflow-hidden border-violet-400/20 p-4 shadow-[0_0_48px_-20px_rgba(139,92,246,0.35)]"
+              className="relative game-panel overflow-hidden border-violet-400/20 p-4 shadow-[0_0_48px_-20px_rgba(139,92,246,0.35)]"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -right-14 -top-20 h-40 w-40 rotate-12 bg-gradient-to-br from-cyan-400/30 via-fuchsia-500/15 to-transparent blur-2xl"
+              />
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -bottom-10 -left-10 h-32 w-32 rounded-full bg-violet-500/20 blur-3xl"
+              />
+              <div className="relative flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                <div className="min-w-0 sm:flex-1">
                   <p className="game-kicker">
                     Seu clã ativo
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <h2 className="text-2xl font-black text-white">{clan.name}</h2>
+                    <h2 className="text-xl font-black text-white sm:text-2xl">{clan.name}</h2>
                     <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-fuchsia-100">
                       {clan.tag}
                     </span>
@@ -299,7 +303,7 @@ export function ClaHubClient() {
                     {clan.description || "Sem descrição. Abra as configs para definir a identidade do esquadrão."}
                   </p>
                 </div>
-                <span className="game-chip">
+                <span className="game-chip w-fit shrink-0 sm:mt-0.5">
                   {formatClanRole(membership?.role)}
                 </span>
               </div>
@@ -343,7 +347,7 @@ export function ClaHubClient() {
               <motion.div variants={staggerItem}>
                 <Link
                   href={ROUTES.claMembros}
-                  className="game-panel-soft flex h-full min-h-[120px] flex-col justify-between rounded-2xl border-cyan-400/15 p-4 transition hover:border-cyan-400/25"
+                  className="game-panel-soft flex h-full min-h-[96px] flex-col justify-between rounded-2xl border-cyan-400/15 p-3 transition hover:border-cyan-400/25 sm:min-h-[120px] sm:p-4"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <Users className="h-5 w-5 text-cyan-200" />
@@ -367,7 +371,7 @@ export function ClaHubClient() {
               <motion.div variants={staggerItem}>
                 <Link
                   href={ROUTES.claChat}
-                  className="game-panel-soft flex h-full min-h-[120px] flex-col justify-between rounded-2xl border-fuchsia-400/15 p-4 transition hover:border-fuchsia-400/25"
+                  className="game-panel-soft flex h-full min-h-[96px] flex-col justify-between rounded-2xl border-fuchsia-400/15 p-3 transition hover:border-fuchsia-400/25 sm:min-h-[120px] sm:p-4"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <MessageCircle className="h-5 w-5 text-fuchsia-200" />
@@ -382,7 +386,7 @@ export function ClaHubClient() {
               <motion.div variants={staggerItem}>
                 <Link
                   href={ROUTES.claConfiguracoes}
-                  className="game-panel-soft flex h-full min-h-[120px] flex-col justify-between rounded-2xl border-violet-400/15 p-4 transition hover:border-violet-400/25"
+                  className="game-panel-soft flex h-full min-h-[96px] flex-col justify-between rounded-2xl border-violet-400/15 p-3 transition hover:border-violet-400/25 sm:min-h-[120px] sm:p-4"
                 >
                   <Shield className="h-5 w-5 text-violet-200" />
                   <div>

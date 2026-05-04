@@ -23,7 +23,7 @@ export interface UserProfile {
   coins: number;
   /** TICKET — sorteios / entradas (exibido como “TICKET”; campo Firestore legado `gems`). */
   gems: number;
-  /** CASH — pontos para saque; conversão em reais (R$) só no fluxo de resgate, via taxa definida por vocês. */
+  /** Saldo (pontos de resgate); conversão em reais (R$) só no fluxo de resgate, via taxa definida por vocês. */
   rewardBalance: number;
   xp: number;
   /** Fragmentos de crafting / upgrades futuros, concedidos por baús e eventos. */

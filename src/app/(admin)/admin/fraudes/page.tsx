@@ -17,7 +17,7 @@ import {
 import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES } from "@/lib/constants/routes";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { Button } from "@/components/ui/Button";
 import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
@@ -82,6 +82,7 @@ const EMPTY_STATS: FraudStats = {
 };
 
 export default function AdminFraudesPage() {
+  const { notify } = useAdminSaveFeedback();
   const [activeTab, setActiveTab] = useState<ActiveTab>("visao");
   const [rules, setRules] = useState<AntiFraudRules>(DEFAULT_RULES);
   const [stats, setStats] = useState<FraudStats>(EMPTY_STATS);
@@ -98,11 +99,10 @@ export default function AdminFraudesPage() {
   const [savingRules, setSavingRules] = useState(false);
   const [savingUserState, setSavingUserState] = useState(false);
   const [busyReferralAction, setBusyReferralAction] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ tone: "info" | "success" | "error"; text: string } | null>(null);
 
   const showMessage = useCallback((tone: "info" | "success" | "error", text: string) => {
-    setMsg({ tone, text });
-  }, []);
+    notify(tone, text);
+  }, [notify]);
 
   const ensureFreshAdminSession = useCallback(async () => {
     const currentUser = getFirebaseAuth().currentUser;
@@ -231,7 +231,6 @@ export default function AdminFraudesPage() {
 
   async function saveRules() {
     setSavingRules(true);
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       const db = getFirebaseFirestore();
@@ -259,7 +258,6 @@ export default function AdminFraudesPage() {
   }
 
   async function searchUser() {
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       const rawValue = lookupValue.trim();
@@ -301,7 +299,6 @@ export default function AdminFraudesPage() {
       return;
     }
     setSavingUserState(true);
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       await callFunction<
@@ -332,7 +329,6 @@ export default function AdminFraudesPage() {
 
   async function reviewReferral(referralId: string, action: "block" | "mark_valid") {
     setBusyReferralAction(`${referralId}:${action}`);
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       await callFunction("adminReviewReferral", { referralId, action });
@@ -347,7 +343,6 @@ export default function AdminFraudesPage() {
 
   async function reprocessReferral(referralId: string) {
     setBusyReferralAction(`${referralId}:reprocess`);
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       await callFunction("adminReprocessReferral", { referralId });
@@ -391,8 +386,6 @@ export default function AdminFraudesPage() {
           </div>
         </div>
       </section>
-
-      {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard

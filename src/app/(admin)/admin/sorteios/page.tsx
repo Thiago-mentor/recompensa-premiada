@@ -7,7 +7,7 @@ import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import {
   adminCloseRaffleCallable,
@@ -129,7 +129,7 @@ type InstantPrizeTierForm = {
 };
 
 export default function AdminSorteiosPage() {
-  const [msg, setMsg] = useState<string | null>(null);
+  const { notify } = useAdminSaveFeedback();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -172,7 +172,6 @@ export default function AdminSorteiosPage() {
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      setMsg(null);
       try {
         const db = getFirebaseFirestore();
         const sysSnap = await getDoc(doc(db, COLLECTIONS.systemConfigs, RAFFLE_SYSTEM_ID));
@@ -255,7 +254,7 @@ export default function AdminSorteiosPage() {
           setClearPrizeImage(false);
         }
       } catch (e) {
-        if (!cancelled) setMsg(formatFirebaseError(e));
+        if (!cancelled) notify("error", formatFirebaseError(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -351,11 +350,9 @@ export default function AdminSorteiosPage() {
     setWinningNumberInput(
       raffle.winningNumber != null ? formatRaffleScopedNumber(raffle.winningNumber, raffle.releasedCount) : "",
     );
-    setMsg(null);
   }
 
   async function saveSystemConfig() {
-    setMsg(null);
     setSaving(true);
     try {
       const db = getFirebaseFirestore();
@@ -373,16 +370,15 @@ export default function AdminSorteiosPage() {
         },
         { merge: true },
       );
-      setMsg("Configuração global do sorteio salva.");
+      notify("success", "Configuração global do sorteio salva.");
     } catch (e) {
-      setMsg(formatFirebaseError(e));
+      notify("error", formatFirebaseError(e));
     } finally {
       setSaving(false);
     }
   }
 
   async function saveRaffle() {
-    setMsg(null);
     setSaving(true);
     try {
       const startsAtMs = fromDatetimeLocal(startsAtLocal);
@@ -431,7 +427,7 @@ export default function AdminSorteiosPage() {
             setLiveRaffle(res0.raffle);
           }
           if (!id) {
-            setMsg("Não foi possível obter o ID do sorteio para enviar a imagem.");
+            notify("error", "Não foi possível obter o ID do sorteio para enviar a imagem.");
             return;
           }
         }
@@ -453,9 +449,9 @@ export default function AdminSorteiosPage() {
         setLiveRaffle(active.raffle);
       }
       setClearPrizeImage(false);
-      setMsg("Sorteio salvo.");
+      notify("success", "Sorteio salvo.");
     } catch (e) {
-      setMsg(formatFirebaseError(e));
+      notify("error", formatFirebaseError(e));
     } finally {
       setSaving(false);
     }
@@ -464,20 +460,21 @@ export default function AdminSorteiosPage() {
   async function closeRaffle() {
     const targetRaffleId = liveRaffle?.id?.trim() || raffleId.trim();
     if (!targetRaffleId) return;
-    setMsg(null);
     setClosing(true);
     try {
       const res = await adminCloseRaffleCallable(targetRaffleId);
       if (res.raffle) setLiveRaffle(res.raffle);
-      setMsg(
+      notify(
+        "success",
         res.raffle?.resultScheduledAtMs
           ? `Sorteio encerrado para compras. Resultado Federal programado para ${formatFederalResultWhen(
               res.raffle.resultScheduledAtMs,
             )}.`
           : "Sorteio encerrado para compras.",
+        { durationMs: 9000 },
       );
     } catch (e) {
-      setMsg(formatFirebaseError(e));
+      notify("error", formatFirebaseError(e));
     } finally {
       setClosing(false);
     }
@@ -488,10 +485,9 @@ export default function AdminSorteiosPage() {
     if (!targetRaffleId) return;
     const sanitizedWinningNumber = sanitizeWinningNumberInput(winningNumberInput, liveNumberDigits);
     if (!sanitizedWinningNumber) {
-      setMsg("Informe o número oficial para finalizar o sorteio.");
+      notify("error", "Informe o número oficial para finalizar o sorteio.");
       return;
     }
-    setMsg(null);
     setDrawing(true);
     try {
       const res = await adminDrawRaffleCallable({
@@ -506,9 +502,9 @@ export default function AdminSorteiosPage() {
           resetFormForNewRaffle();
         }
       }
-      setMsg("Número oficial lançado e sorteio finalizado.");
+      notify("success", "Número oficial lançado e sorteio finalizado.");
     } catch (e) {
-      setMsg(formatFirebaseError(e));
+      notify("error", formatFirebaseError(e));
     } finally {
       setDrawing(false);
     }
@@ -568,22 +564,6 @@ export default function AdminSorteiosPage() {
           para o sistema localizar automaticamente o ganhador.
         </p>
       </div>
-
-      {msg ? (
-        <AlertBanner
-          tone={
-            msg.includes("salva") ||
-            msg.includes("processado") ||
-            msg.includes("encerrado") ||
-            msg.includes("lançado") ||
-            msg.includes("finalizado")
-              ? "success"
-              : "error"
-          }
-        >
-          {msg}
-        </AlertBanner>
-      ) : null}
 
       {!loading ? (
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -650,7 +630,7 @@ export default function AdminSorteiosPage() {
             >
               <option value="coins">PR</option>
               <option value="gems">TICKET</option>
-              <option value="rewardBalance">CASH</option>
+              <option value="rewardBalance">Saldo</option>
             </select>
           </div>
           <Field label="Default valor do prêmio" value={defaultPrizeAmount} onChange={setDefaultPrizeAmount} />
@@ -879,7 +859,7 @@ export default function AdminSorteiosPage() {
             >
               <option value="coins">PR</option>
               <option value="gems">TICKET</option>
-              <option value="rewardBalance">CASH</option>
+              <option value="rewardBalance">Saldo</option>
             </select>
           </div>
           <Field label="Valor do prêmio" value={prizeAmount} onChange={setPrizeAmount} />
@@ -888,7 +868,7 @@ export default function AdminSorteiosPage() {
               <div>
                 <p className="text-xs font-semibold text-emerald-100/85">Números premiados automáticos</p>
                 <p className="mt-1 text-sm text-white/60">
-                  Configure faixas por <strong className="text-white">quantidade + valor em CASH</strong>. Os números
+                  Configure faixas por <strong className="text-white">quantidade + valor em Saldo</strong>. Os números
                   premiados saem aleatórios no momento da compra e o crédito entra automaticamente.
                 </p>
               </div>
@@ -914,7 +894,7 @@ export default function AdminSorteiosPage() {
                       onChange={(value) => updateInstantPrizeTier(index, "quantity", value)}
                     />
                     <Field
-                      label={`Faixa ${index + 1} · Valor em CASH`}
+                      label={`Faixa ${index + 1} · Valor em Saldo`}
                       value={tier.amount}
                       onChange={(value) => updateInstantPrizeTier(index, "amount", value)}
                     />
@@ -1150,7 +1130,7 @@ export default function AdminSorteiosPage() {
                       className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/70"
                     >
                       <p className="font-semibold text-white">
-                        Faixa {index + 1}: {tier.quantity} número(s) premiado(s) de {tier.amount} CASH
+                        Faixa {index + 1}: {tier.quantity} número(s) premiado(s) de {tier.amount} Saldo
                       </p>
                       <p className="mt-1 text-xs text-white/45">
                         Encontrados: {tier.awardedCount ?? 0} / {tier.quantity}
@@ -1173,7 +1153,7 @@ export default function AdminSorteiosPage() {
                           <strong className="text-emerald-200">
                             {formatRaffleScopedNumber(hit.number, liveRaffle.releasedCount)}
                           </strong>{" "}
-                          premiado com {hit.amount} CASH · {hit.winnerUsername ? `@${hit.winnerUsername}` : hit.winnerName || "Jogador"}
+                          premiado com {hit.amount} Saldo · {hit.winnerUsername ? `@${hit.winnerUsername}` : hit.winnerName || "Jogador"}
                         </div>
                       ))}
                   </div>

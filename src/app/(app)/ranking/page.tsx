@@ -292,13 +292,25 @@ export default function RankingPage() {
     };
   }, []);
 
+  const needsClanRankingBoard =
+    activeRankingSelection === "total_clan" ||
+    activeRankingSelection === "daily_clan" ||
+    activeRankingSelection === "weekly_clan" ||
+    activeRankingSelection === "monthly_clan";
+
   useEffect(() => {
+    if (!needsClanRankingBoard) {
+      setClanBoard([]);
+      setClanLoading(false);
+      return;
+    }
+    setClanLoading(true);
     const unsubscribe = subscribeClanRankingBoard((nextBoard) => {
       setClanBoard(nextBoard);
       setClanLoading(false);
     });
     return unsubscribe;
-  }, []);
+  }, [needsClanRankingBoard]);
 
   const activeRankingGameSelection = useMemo(
     () => parseArenaSelection(activeRankingSelection),

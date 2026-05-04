@@ -36,7 +36,7 @@ export function AdminPageHero({
   return (
     <header
       className={cn(
-        "template-3d-lift overflow-hidden rounded-[1.9rem] border border-white/10 p-5 shadow-[0_10px_0_-6px_rgba(2,6,23,0.95),0_28px_58px_-28px_rgba(0,0,0,0.76),inset_0_1px_0_rgba(255,255,255,0.06),inset_0_-12px_24px_rgba(0,0,0,0.22)]",
+        "admin-panel-surface overflow-hidden rounded-[1.9rem] border border-white/10 p-5 shadow-[0_10px_0_-6px_rgba(2,6,23,0.95),0_28px_58px_-28px_rgba(0,0,0,0.76),inset_0_1px_0_rgba(255,255,255,0.06),inset_0_-12px_24px_rgba(0,0,0,0.22)]",
         accentStyles[accent],
         className,
       )}

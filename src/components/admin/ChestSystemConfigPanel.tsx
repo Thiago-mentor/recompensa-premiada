@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
@@ -446,8 +447,8 @@ export function ChestSystemConfigPanel({
 }: {
   boostSystemEnabled?: boolean;
 }) {
+  const { notify } = useAdminSaveFeedback();
   const [form, setForm] = useState<ChestSystemForm>(() => defaultForm());
-  const [msg, setMsg] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const visibleBonusRewardKinds = useMemo(
     () =>
@@ -467,10 +468,11 @@ export function ChestSystemConfigPanel({
         setForm(toForm(snap.data() as Partial<ChestSystemConfig>));
       } catch {
         if (!cancelled) {
-          setMsg({
-            tone: "info",
-            text: "Usando o preset local do sistema de baús. Salve para publicar uma configuração explícita.",
-          });
+          notify(
+            "info",
+            "Usando o preset local do sistema de baús. Salve para publicar uma configuração explícita.",
+            { durationMs: 8000 },
+          );
         }
       }
     })();
@@ -508,25 +510,24 @@ export function ChestSystemConfigPanel({
   );
 
   async function saveChestSystem() {
-    setMsg(null);
     const zeroSources = CHEST_SOURCES.filter((source) => sourceTotals[source] <= 0);
     if (zeroSources.length > 0) {
-      setMsg({
-        tone: "error",
-        text: `Cada origem precisa ter pelo menos um peso acima de zero. Revise: ${zeroSources
+      notify(
+        "error",
+        `Cada origem precisa ter pelo menos um peso acima de zero. Revise: ${zeroSources
           .map((source) => SOURCE_LABEL[source])
           .join(", ")}.`,
-      });
+      );
       return;
     }
     const zeroBonusRarities = CHEST_RARITIES.filter((rarity) => bonusTotalsByRarity[rarity] <= 0);
     if (zeroBonusRarities.length > 0) {
-      setMsg({
-        tone: "error",
-        text: `Cada raridade precisa ter pelo menos um bônus extra configurado. Revise: ${zeroBonusRarities
+      notify(
+        "error",
+        `Cada raridade precisa ter pelo menos um bônus extra configurado. Revise: ${zeroBonusRarities
           .map((rarity) => RARITY_LABEL[rarity])
           .join(", ")}.`,
-      });
+      );
       return;
     }
 
@@ -539,10 +540,7 @@ export function ChestSystemConfigPanel({
     );
 
     if (!(rareAt < epicAt && epicAt < legendaryAt)) {
-      setMsg({
-        tone: "error",
-        text: "As regras de pity precisam seguir a ordem: raro < épico < lendário.",
-      });
+      notify("error", "As regras de pity precisam seguir a ordem: raro < épico < lendário.");
       return;
     }
 
@@ -760,15 +758,9 @@ export function ChestSystemConfigPanel({
         },
         { merge: true },
       );
-      setMsg({
-        tone: "success",
-        text: "Sistema de baús salvo em system_configs/chest_system.",
-      });
+      notify("success", "Sistema de baús salvo em system_configs/chest_system.");
     } catch (e) {
-      setMsg({
-        tone: "error",
-        text: e instanceof Error ? e.message : "Erro ao salvar o sistema de baús.",
-      });
+      notify("error", e instanceof Error ? e.message : "Erro ao salvar o sistema de baús.");
     } finally {
       setSaving(false);
     }
@@ -793,8 +785,6 @@ export function ChestSystemConfigPanel({
           Sistema ativo
         </label>
       </div>
-
-      {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
       {!boostSystemEnabled ? (
         <AlertBanner tone="info">

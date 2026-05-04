@@ -13,10 +13,10 @@ import type { RewardClaim, RewardClaimStatus } from "@/types/reward";
 import { callFunction } from "@/services/callables/client";
 import { ConfirmarPixRewardClaim } from "@/components/admin/ConfirmarPixRewardClaim";
 import {
-  cashPointsToBrl,
-  fetchCashPointsPerReal,
+  saldoPointsToBrl,
+  fetchSaldoPointsPerReal,
   formatBrl,
-} from "@/services/economy/cashEconomyConfig";
+} from "@/services/economy/saldoEconomyConfig";
 
 function tsToIso(v: unknown): string {
   if (v && typeof v === "object" && "toDate" in v && typeof (v as { toDate: () => Date }).toDate === "function") {
@@ -38,14 +38,14 @@ function csvEscape(s: string): string {
 function claimsToCsv(
   rows: RewardClaim[],
   nomeByUid: Record<string, string>,
-  cashPointsPerReal: number,
+  saldoPointsPerReal: number,
 ): string {
   const header = [
     "id",
     "nomeUsuario",
     "userId",
     "tipo",
-    "valorPontosCash",
+    "valorPontosSaldo",
     "valorReaisEstimado",
     "chavePix",
     "status",
@@ -58,7 +58,7 @@ function claimsToCsv(
     "confirmadoPor",
   ];
   const lines = rows.map((r) => {
-    const brl = cashPointsToBrl(r.valor, cashPointsPerReal);
+    const brl = saldoPointsToBrl(r.valor, saldoPointsPerReal);
     return [
       r.id,
       nomeByUid[r.userId] ?? "",
@@ -94,13 +94,13 @@ function downloadBlob(filename: string, content: string, mime: string) {
 
 async function fetchRewardClaimsDashboardData(): Promise<{
   rows: RewardClaim[];
-  cashPointsPerReal: number;
+  saldoPointsPerReal: number;
   nomeByUid: Record<string, string>;
 }> {
   const db = getFirebaseFirestore();
   const [snap, rate] = await Promise.all([
     getDocs(query(collection(db, COLLECTIONS.rewardClaims), orderBy("criadoEm", "desc"))),
-    fetchCashPointsPerReal().catch(() => 100),
+    fetchSaldoPointsPerReal().catch(() => 100),
   ]);
   const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim);
   const uids = [...new Set(rows.map((r) => r.userId))];
@@ -114,7 +114,7 @@ async function fetchRewardClaimsDashboardData(): Promise<{
 
   return {
     rows,
-    cashPointsPerReal: rate,
+    saldoPointsPerReal: rate,
     nomeByUid: Object.fromEntries(pairs),
   };
 }
@@ -148,15 +148,15 @@ function endOfLocalDay(ymd: string): number {
 function claimToExportRow(
   r: RewardClaim,
   nomeByUid: Record<string, string>,
-  cashPointsPerReal: number,
+  saldoPointsPerReal: number,
 ) {
-  const brl = cashPointsToBrl(r.valor, cashPointsPerReal);
+  const brl = saldoPointsToBrl(r.valor, saldoPointsPerReal);
   return {
     id: r.id,
     nomeUsuario: nomeByUid[r.userId] ?? null,
     userId: r.userId,
     tipo: r.tipo,
-    valorPontosCash: r.valor,
+    valorPontosSaldo: r.valor,
     valorReaisEstimado: Number(brl.toFixed(2)),
     chavePix: r.chavePix ?? null,
     status: r.status,
@@ -173,10 +173,10 @@ function claimToExportRow(
 function claimsToJson(
   rows: RewardClaim[],
   nomeByUid: Record<string, string>,
-  cashPointsPerReal: number,
+  saldoPointsPerReal: number,
 ): string {
   return JSON.stringify(
-    rows.map((r) => claimToExportRow(r, nomeByUid, cashPointsPerReal)),
+    rows.map((r) => claimToExportRow(r, nomeByUid, saldoPointsPerReal)),
     null,
     2,
   );
@@ -230,12 +230,12 @@ export default function AdminRecompensasPage() {
   const [dataAte, setDataAte] = useState("");
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [nomeByUid, setNomeByUid] = useState<Record<string, string>>({});
-  const [cashPointsPerReal, setCashPointsPerReal] = useState(100);
+  const [saldoPointsPerReal, setSaldoPointsPerReal] = useState(100);
 
   const applyRefreshData = useCallback(
     (data: Awaited<ReturnType<typeof fetchRewardClaimsDashboardData>>) => {
       setRows(data.rows);
-      setCashPointsPerReal(data.cashPointsPerReal);
+      setSaldoPointsPerReal(data.saldoPointsPerReal);
       setNomeByUid(data.nomeByUid);
     },
     [],
@@ -255,7 +255,7 @@ export default function AdminRecompensasPage() {
         if (cancelled) return;
         setRows([]);
         setNomeByUid({});
-        setCashPointsPerReal(100);
+        setSaldoPointsPerReal(100);
       }
     })();
     return () => {
@@ -296,7 +296,7 @@ export default function AdminRecompensasPage() {
     () => rows.filter((claim) => claim.status === "confirmado").length,
     [rows],
   );
-  const filteredCashPoints = useMemo(
+  const filteredSaldoPoints = useMemo(
     () => filtrados.reduce((sum, claim) => sum + Math.max(0, Number(claim.valor || 0)), 0),
     [filtrados],
   );
@@ -319,7 +319,7 @@ export default function AdminRecompensasPage() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     downloadBlob(
       `pedidos-recompensas-${stamp}.csv`,
-      claimsToCsv(filtrados, nomeByUid, cashPointsPerReal),
+      claimsToCsv(filtrados, nomeByUid, saldoPointsPerReal),
       "text/csv;charset=utf-8",
     );
   }
@@ -333,21 +333,21 @@ export default function AdminRecompensasPage() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     downloadBlob(
       `pedidos-recompensas-${stamp}.json`,
-      claimsToJson(filtrados, nomeByUid, cashPointsPerReal),
+      claimsToJson(filtrados, nomeByUid, saldoPointsPerReal),
       "application/json;charset=utf-8",
     );
   }
 
   async function copiarPedido(r: RewardClaim) {
-    const brl = cashPointsToBrl(r.valor, cashPointsPerReal);
+    const brl = saldoPointsToBrl(r.valor, saldoPointsPerReal);
     const nome = nomeByUid[r.userId] ?? "—";
     const texto = [
       `ID: ${r.id}`,
       `Nome: ${nome}`,
       `Usuário (UID): ${r.userId}`,
       `Tipo: ${r.tipo}`,
-      `Pontos CASH: ${r.valor}`,
-      `Estimativa em reais: ${formatBrl(brl)} (${cashPointsPerReal} pts ≈ R$ 1,00)`,
+      `Pontos Saldo: ${r.valor}`,
+      `Estimativa em reais: ${formatBrl(brl)} (${saldoPointsPerReal} pts ≈ R$ 1,00)`,
       `Chave PIX: ${r.chavePix ?? "(vazio)"}`,
       `Status: ${r.status}`,
       `Criado: ${tsToIso(r.criadoEm) || "—"}`,
@@ -376,7 +376,7 @@ export default function AdminRecompensasPage() {
         description={
           <>
             Dados completos dos pedidos de resgate para análise e pagamento manual. O valor em reais usa
-            a taxa de <code>{cashPointsPerReal}</code> pts CASH por R$ 1,00 em{" "}
+            a taxa de <code>{saldoPointsPerReal}</code> pts Saldo por R$ 1,00 em{" "}
             <code>system_configs/economy</code>.
           </>
         }
@@ -406,7 +406,7 @@ export default function AdminRecompensasPage() {
         />
         <AdminMetricCard
           title="Seleção atual"
-          value={formatBrl(cashPointsToBrl(filteredCashPoints, cashPointsPerReal))}
+          value={formatBrl(saldoPointsToBrl(filteredSaldoPoints, saldoPointsPerReal))}
           hint="Estimativa total em reais dos filtros"
           tone="violet"
           icon={<Filter className="h-4 w-4" />}
@@ -520,17 +520,17 @@ export default function AdminRecompensasPage() {
                 </p>
                 <p>
                   <span className="text-slate-500">Tipo</span> {r.tipo} ·{" "}
-                  <span className="text-slate-500">Pontos CASH</span>{" "}
+                  <span className="text-slate-500">Pontos Saldo</span>{" "}
                   <strong className="text-white">{r.valor}</strong>
                 </p>
                 <p>
                   <span className="text-slate-500">Estimativa em reais</span>{" "}
-                  <strong className="text-emerald-300">{formatBrl(cashPointsToBrl(r.valor, cashPointsPerReal))}</strong>
-                  <span className="text-slate-500"> ({cashPointsPerReal} pts ≈ R$ 1,00)</span>
+                  <strong className="text-emerald-300">{formatBrl(saldoPointsToBrl(r.valor, saldoPointsPerReal))}</strong>
+                  <span className="text-slate-500"> ({saldoPointsPerReal} pts ≈ R$ 1,00)</span>
                 </p>
                 {r.retencaoAplicada ? (
                   <p className="text-xs text-sky-200/80">
-                    CASH retido neste pedido — aprovar não debita de novo; recusar estorna ao usuário.
+                    Saldo retido neste pedido — aprovar não debita de novo; recusar estorna ao usuário.
                   </p>
                 ) : (
                   <p className="text-xs text-amber-200/75">

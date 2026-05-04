@@ -32,12 +32,12 @@ export interface GameRewardOverrideConfig {
   lossRankingPoints?: number;
 }
 
-/** Fatia da roleta: PR, TICKET, CASH ou baú (raridade fixa no servidor). */
+/** Fatia da roleta: PR, TICKET, Saldo (resgate) ou baú (raridade fixa no servidor). */
 export type RoulettePrizeKindConfig = "coins" | "gems" | "rewardBalance" | "chest";
 
 export interface WeightedPrizeConfig {
   kind?: RoulettePrizeKindConfig;
-  /** Para PR/TICKET/CASH: valor creditado quando a fatia sai (no Firestore TICKET/CASH também usam o campo `coins` como número). */
+  /** Para PR/TICKET/Saldo: valor creditado quando a fatia sai (no Firestore TICKET/Saldo também usam o campo `coins` como número). */
   coins: number;
   weight: number;
   chestRarity?: ChestRarity;
@@ -114,10 +114,23 @@ export interface RankingPrizeConfig extends Partial<RankingPrizePeriodConfig> {
   clans?: Partial<RankingPrizePeriodConfig>;
 }
 
+/** Recompensa monetária opcional por placement de anúncio (`system_configs/economy`). */
+export interface RewardedAdPlacementRewardConfig {
+  /** PR base antes do boost. Omitir = no modo genérico usa `rewardAdCoinAmount`; em duelos/sorteio = 0. */
+  coins?: number;
+  gems?: number;
+  rewardBalance?: number;
+}
+
 /** `system_configs/economy` (documento único ou id fixo) */
 export interface SystemEconomyConfig {
   id: "economy";
   rewardAdCoinAmount: number;
+  /**
+   * Créditos por placement ao concluir anúncio (callable/SSV). Chaves = `placementId`.
+   * PR: omitir `coins` no doc → home/genérico herda `rewardAdCoinAmount`; duelos/sorteio não herdam.
+   */
+  rewardedAdRewardsByPlacement?: Partial<Record<string, RewardedAdPlacementRewardConfig>>;
   dailyLoginBonus: number;
   /** Quantos dias o modal diário mostra na janela visual (1-30). */
   streakDisplayDays?: number;
@@ -146,7 +159,9 @@ export interface SystemEconomyConfig {
   conversionCoinsPerGemBuy?: number;
   /** PR pagos por cada TICKET na conversão TICKET → PR; `0` desativa a venda. */
   conversionCoinsPerGemSell?: number;
-  /** Quantos pontos CASH equivalem a R$ 1,00 no cálculo de saque (≥ 1). */
+  /** Quantos pontos de saldo equivalem a R$ 1,00 no cálculo de saque (≥ 1). Campo legado no Firestore: `cashPointsPerReal`. */
+  saldoPointsPerReal?: number;
+  /** @deprecated use `saldoPointsPerReal`; mantido para documentos antigos. */
   cashPointsPerReal?: number;
   /** Custo do giro pago da roleta. */
   rouletteSpinCostAmount?: number;

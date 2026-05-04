@@ -8,7 +8,7 @@ import { Trophy, Skull, Equal, X } from "lucide-react";
 
 export type MatchResultKind = "vitoria" | "derrota" | "empate";
 
-/** Substitui o par “Coins · +PR” quando o crédito é outra moeda (ex.: TICKET ou CASH na roleta). */
+/** Substitui o par “Coins · +PR” quando o crédito é outra moeda (ex.: TICKET ou Saldo na roleta). */
 export type MatchModalPrimaryRewardSummary = {
   label: string;
   amount: number;
@@ -58,12 +58,12 @@ export function MatchResultModal({
   const primaryValueClass = isRouletteLook
     ? rewardSummaryPrimary?.label === "TICKET"
       ? "text-fuchsia-200"
-      : rewardSummaryPrimary?.label === "CASH"
+      : rewardSummaryPrimary?.label === "Saldo"
         ? "text-amber-200"
         : "text-orange-300"
     : rewardSummaryPrimary?.label === "TICKET"
       ? "text-sky-200"
-      : rewardSummaryPrimary?.label === "CASH"
+      : rewardSummaryPrimary?.label === "Saldo"
         ? "text-emerald-200"
         : "text-amber-200";
   const showRewardsGrid = primaryVisible || showRanking;

@@ -131,7 +131,7 @@ export type RouletteWheelServerHint = {
   chestRarity?: string | null;
   rewardCoins?: number;
   rewardGems?: number;
-  rewardCash?: number;
+  rewardSaldo?: number;
   rouletteRewardAmount?: number;
 };
 
@@ -169,7 +169,7 @@ export function wheelSliceIndexForServerPrize(
   if (kind === "rewardBalance") {
     const amt = Math.max(
       0,
-      Math.floor(Number(resolved.rewardCash ?? resolved.rouletteRewardAmount ?? 0) || 0),
+      Math.floor(Number(resolved.rewardSaldo ?? resolved.rouletteRewardAmount ?? 0) || 0),
     );
     const i = table.findIndex((row) => rowEffectiveKind(row) === "rewardBalance" && row.coins === amt);
     if (i >= 0) return i;

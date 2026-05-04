@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
@@ -17,7 +17,7 @@ import {
 import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES } from "@/lib/constants/routes";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -168,7 +168,7 @@ function criteriaSummary(rules: ReferralQualificationRules): string[] {
 }
 
 function rewardCurrencyLabel(currency: ReferralRewardCurrency): string {
-  return currency === "coins" ? "PR" : currency === "gems" ? "TICKET" : "CASH";
+  return currency === "coins" ? "PR" : currency === "gems" ? "TICKET" : "Saldo";
 }
 
 function displayRewardAmount(amount: number | undefined, currency: ReferralRewardCurrency | null | undefined): string {
@@ -228,6 +228,7 @@ function getProgressItemIcon(item: ReferralQualificationStatusItem): LucideIcon 
 }
 
 export default function AdminIndicacoesPage() {
+  const { notify } = useAdminSaveFeedback();
   const [activeTab, setActiveTab] = useState<"overview" | "system" | "campaigns" | "queue">("overview");
   const [systemEditorTab, setSystemEditorTab] = useState<"geral" | "recompensas" | "ranking" | "requisitos">(
     "geral",
@@ -243,10 +244,8 @@ export default function AdminIndicacoesPage() {
   const [campaignForm, setCampaignForm] = useState(EMPTY_CAMPAIGN);
   const [rows, setRows] = useState<ReferralRecord[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | ReferralStatus>("all");
-  const [msg, setMsg] = useState<{ tone: "info" | "success" | "error"; text: string } | null>(null);
   const [closingPeriod, setClosingPeriod] = useState<"" | "daily" | "weekly" | "monthly">("");
   const [busyReferralAction, setBusyReferralAction] = useState<string | null>(null);
-  const topRef = useRef<HTMLDivElement | null>(null);
   const [stats, setStats] = useState<{
     total: number;
     pending: number;
@@ -261,19 +260,11 @@ export default function AdminIndicacoesPage() {
     blocked: 0,
   });
 
-  const scrollToTop = useCallback(() => {
-    if (typeof window === "undefined") return;
-    window.requestAnimationFrame(() => {
-      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, []);
-
   const showMessage = useCallback(
     (tone: "info" | "success" | "error", text: string) => {
-      setMsg({ tone, text });
-      scrollToTop();
+      notify(tone, text);
     },
-    [scrollToTop],
+    [notify],
   );
 
   const ensureFreshAdminSession = useCallback(async () => {
@@ -392,7 +383,6 @@ export default function AdminIndicacoesPage() {
   }, [stats.rewarded, stats.total]);
 
   async function saveConfig() {
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       const nextConfig: ReferralSystemConfig = {
@@ -429,7 +419,6 @@ export default function AdminIndicacoesPage() {
   }
 
   async function saveCampaign() {
-    setMsg(null);
     try {
       await ensureFreshAdminSession();
       const db = getFirebaseFirestore();
@@ -476,7 +465,6 @@ export default function AdminIndicacoesPage() {
   }
 
   async function review(referralId: string, action: "block" | "mark_valid" | "reward") {
-    setMsg(null);
     setBusyReferralAction(`${referralId}:${action}`);
     try {
       await ensureFreshAdminSession();
@@ -491,7 +479,6 @@ export default function AdminIndicacoesPage() {
   }
 
   async function reprocessReferral(referralId: string) {
-    setMsg(null);
     setBusyReferralAction(`${referralId}:reprocess`);
     try {
       await ensureFreshAdminSession();
@@ -506,7 +493,6 @@ export default function AdminIndicacoesPage() {
   }
 
   async function closeRanking(period: "daily" | "weekly" | "monthly") {
-    setMsg(null);
     setClosingPeriod(period);
     try {
       await ensureFreshAdminSession();
@@ -565,7 +551,6 @@ export default function AdminIndicacoesPage() {
 
   return (
     <div className="space-y-6 pb-8">
-      <div ref={topRef} />
       <section className="overflow-hidden rounded-[28px] border border-cyan-400/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_30%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_35%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.96))] p-6 shadow-[0_0_60px_-20px_rgba(34,211,238,0.28)]">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-3xl">
@@ -607,8 +592,6 @@ export default function AdminIndicacoesPage() {
           </div>
         </div>
       </section>
-
-      {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Stat title="Volume total" value={stats.total} subtitle="Indicacoes monitoradas" icon={Layers3} tone="slate" />
@@ -840,7 +823,7 @@ export default function AdminIndicacoesPage() {
                 options={[
                   { value: "coins", label: "PR" },
                   { value: "gems", label: "TICKET" },
-                  { value: "rewardBalance", label: "CASH" },
+                  { value: "rewardBalance", label: "Saldo" },
                 ]}
               />
               <Field
@@ -862,7 +845,7 @@ export default function AdminIndicacoesPage() {
                 options={[
                   { value: "coins", label: "PR" },
                   { value: "gems", label: "TICKET" },
-                  { value: "rewardBalance", label: "CASH" },
+                  { value: "rewardBalance", label: "Saldo" },
                 ]}
               />
             </div>
@@ -1082,7 +1065,7 @@ export default function AdminIndicacoesPage() {
                 options={[
                   { value: "coins", label: "PR" },
                   { value: "gems", label: "TICKET" },
-                  { value: "rewardBalance", label: "CASH" },
+                  { value: "rewardBalance", label: "Saldo" },
                 ]}
               />
               <Field
@@ -1102,7 +1085,7 @@ export default function AdminIndicacoesPage() {
                 options={[
                   { value: "coins", label: "PR" },
                   { value: "gems", label: "TICKET" },
-                  { value: "rewardBalance", label: "CASH" },
+                  { value: "rewardBalance", label: "Saldo" },
                 ]}
               />
               <ToggleRow label="Recompensa convidado" checked={campaignForm.invitedRewardEnabled} onChange={(checked) => setCampaignForm((current) => ({ ...current, invitedRewardEnabled: checked }))} />
@@ -1569,7 +1552,7 @@ function PrizeTierEditor({
                 options={[
                   { value: "coins", label: "PR" },
                   { value: "gems", label: "TICKET" },
-                  { value: "rewardBalance", label: "CASH" },
+                  { value: "rewardBalance", label: "Saldo" },
                 ]}
               />
               <div className="flex items-end">

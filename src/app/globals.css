@@ -146,8 +146,11 @@ body::after {
   opacity: 0.72;
 }
 
-.game-panel > *,
-.game-panel-soft > * {
+/* Só força empilhamento em filhos que não são overlays posicionados — senão `absolute` do Tailwind
+   perdia para esta regra (mesma especificidade, stylesheet acima dos utilities) e overlays viravam
+   blocos no fluxo (ex.: card "Seu clã ativo" com buraco enorme no mobile). */
+.game-panel > *:where(:not(.absolute, .fixed, .sticky)),
+.game-panel-soft > *:where(:not(.absolute, .fixed, .sticky)) {
   position: relative;
   z-index: 1;
 }
@@ -382,6 +385,34 @@ body::after {
 }
 
 /**
+ * Painel admin: dentro de `.template-3d-scene` o lift + perspective geram flicker ao mover o mouse.
+ * Superfícies estáveis: sem translate/rotate/filter no hover.
+ */
+.template-3d-scene .admin-panel-surface,
+.template-3d-scene .admin-shell-card {
+  transform: translateZ(0);
+  transform-style: flat;
+  isolation: isolate;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+/* Sombra “de chão” 3D do card cassino + perspective do shell → repintura / flicker */
+.template-3d-scene .admin-shell-card.casino-card-3d::after {
+  content: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .template-3d-scene .admin-panel-surface:hover,
+  .template-3d-scene .admin-shell-card:hover {
+    transform: translateZ(0);
+    filter: none;
+  }
+}
+
+/**
  * HUD 3D — palco principal (painel inclinado para a câmera, estilo jogo / cockpit).
  */
 .game-stage-3d {
@@ -414,7 +445,11 @@ body::after {
   .template-3d-nav,
   .template-3d-orb,
   .game-stage-3d-surface,
-  .game-stage-3d:hover .game-stage-3d-surface {
+  .game-stage-3d:hover .game-stage-3d-surface,
+  .template-3d-scene .admin-panel-surface,
+  .template-3d-scene .admin-panel-surface:hover,
+  .template-3d-scene .admin-shell-card,
+  .template-3d-scene .admin-shell-card:hover {
     transform: none;
     transition: none;
   }

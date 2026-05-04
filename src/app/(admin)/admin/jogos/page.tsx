@@ -7,7 +7,7 @@ import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { Button } from "@/components/ui/Button";
 import { clampPvpChoiceSeconds, parsePvpChoiceSeconds } from "@/lib/games/pvpTiming";
 import { GAME_CATALOG, normalizeGameCatalogConfig } from "@/modules/jogos";
@@ -17,6 +17,7 @@ import type {
   GameRewardOverrideConfig,
   SystemEconomyConfig,
 } from "@/types/systemConfig";
+import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
 
 const ECONOMY_ID = "economy";
 const GAME_KEYS = [
@@ -89,6 +90,7 @@ const EMPTY_EXPERIENCE_FORM = Object.fromEntries(
 >;
 
 export default function AdminJogosPage() {
+  const { notify } = useAdminSaveFeedback();
   const [form, setForm] = useState<RewardForm>(EMPTY_FORM);
   const [experienceForm, setExperienceForm] = useState(EMPTY_EXPERIENCE_FORM);
   const [pptEntryCost, setPptEntryCost] = useState("0");
@@ -97,7 +99,6 @@ export default function AdminJogosPage() {
   const [pvpSecPpt, setPvpSecPpt] = useState("10");
   const [pvpSecQuiz, setPvpSecQuiz] = useState("10");
   const [pvpSecReaction, setPvpSecReaction] = useState("10");
-  const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -162,7 +163,6 @@ export default function AdminJogosPage() {
   };
 
   async function save() {
-    setMsg(null);
     setSaving(true);
     try {
       const matchRewardOverrides = Object.fromEntries(
@@ -197,13 +197,14 @@ export default function AdminJogosPage() {
         },
         { merge: true },
       );
+      invalidateEconomyConfigCache();
       const confirmed = await getDoc(doc(db, COLLECTIONS.systemConfigs, ECONOMY_ID));
       if (confirmed.exists()) {
         hydrateFormFromEconomyDoc(confirmed.data() as Partial<SystemEconomyConfig>);
       }
-      setMsg("Configuração da arena salva e confirmada no Firestore.");
+      notify("success", "Configuração da arena salva e confirmada no Firestore.");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao salvar configurações da arena.");
+      notify("error", e instanceof Error ? e.message : "Erro ao salvar configurações da arena.");
     } finally {
       setSaving(false);
     }
@@ -256,8 +257,6 @@ export default function AdminJogosPage() {
           </Button>
         }
       />
-
-      {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AdminMetricCard

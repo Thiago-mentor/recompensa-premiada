@@ -3,7 +3,7 @@
 import { CheckCircle2, Circle, FileCheck2, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { RewardClaim, RewardClaimStatus } from "@/types/reward";
-import { cashPointsToBrl, formatBrl } from "@/services/economy/cashEconomyConfig";
+import { saldoPointsToBrl, formatBrl } from "@/services/economy/saldoEconomyConfig";
 
 function formatPedidoData(criadoEm: unknown): string {
   if (
@@ -155,10 +155,10 @@ function StatusBadge({ status }: { status: RewardClaimStatus }) {
 
 export function PedidosSaquePanel({
   pedidos,
-  cashPointsPerReal,
+  saldoPointsPerReal,
 }: {
   pedidos: RewardClaim[];
-  cashPointsPerReal: number;
+  saldoPointsPerReal: number;
 }) {
   if (pedidos.length === 0) {
     return (
@@ -180,7 +180,7 @@ export function PedidosSaquePanel({
       </div>
       <ul className="divide-y divide-white/[0.06]">
         {pedidos.map((p) => {
-          const brl = cashPointsToBrl(p.valor, cashPointsPerReal);
+          const brl = saldoPointsToBrl(p.valor, saldoPointsPerReal);
           return (
             <li key={p.id} className="px-4 py-4 sm:px-5 sm:py-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -188,7 +188,7 @@ export function PedidosSaquePanel({
                   <p className="font-mono text-[10px] text-white/35">ID {p.id}</p>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <span className="text-lg font-bold tabular-nums text-white">{p.valor}</span>
-                    <span className="text-sm text-white/45">pts CASH</span>
+                    <span className="text-sm text-white/45">pts saldo</span>
                     <span className="text-sm font-semibold tabular-nums text-emerald-200/90">≈ {formatBrl(brl)}</span>
                   </div>
                   <p className="text-xs text-white/40">{formatPedidoData(p.criadoEm)}</p>

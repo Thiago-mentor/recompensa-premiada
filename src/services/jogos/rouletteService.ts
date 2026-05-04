@@ -24,7 +24,7 @@ export type RouletteSpinResult = {
   grantedChest?: GrantedChestSummary | null;
   chestNotGranted?: boolean;
   rewardGems?: number;
-  rewardCash?: number;
+  rewardSaldo?: number;
   rouletteRewardAmount?: number;
   error?: string;
 };
@@ -34,7 +34,7 @@ type ProcessRouletteSpinResponse = {
   matchId: string;
   rewardCoins: number;
   rewardGems: number;
-  rewardCash: number;
+  rewardSaldo: number;
   rouletteRewardAmount: number;
   rankingPoints: number;
   normalizedScore: number;
@@ -74,7 +74,7 @@ async function processRouletteSpinOnServer(input: {
       grantedChest: d.grantedChest ?? null,
       chestNotGranted: d.chestNotGranted,
       rewardGems: d.rewardGems,
-      rewardCash: d.rewardCash,
+      rewardSaldo: d.rewardSaldo,
       rouletteRewardAmount: d.rouletteRewardAmount,
     };
   } catch (error) {

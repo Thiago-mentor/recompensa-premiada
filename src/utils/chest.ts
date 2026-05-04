@@ -241,6 +241,61 @@ export function formatChestRewardSummary(rewards: ChestRewardSnapshot): string {
   return parts.length > 0 ? parts.join(" · ") : "Recompensa surpresa";
 }
 
+/**
+ * Copy do card “Abrir o baú” na home: mesma prioridade do hub (coletar → timer → iniciar → fila).
+ */
+export function getBauHomeTileLines(opts: {
+  loading: boolean;
+  slotItems: Array<ResolvedChestItem | null>;
+  queueItems: ResolvedChestItem[];
+  activeUnlockChest: ResolvedChestItem | null;
+}): { title: string; subline: string | null } {
+  const { loading, slotItems, queueItems, activeUnlockChest } = opts;
+  if (loading) {
+    return { title: "Abrir o baú", subline: null };
+  }
+
+  const readyChest = slotItems.find((item) => item?.canClaim) ?? null;
+  const lockedChest = slotItems.find((item) => item?.canStartUnlock) ?? null;
+  const queuedChest = queueItems[0] ?? null;
+
+  if (readyChest) {
+    const rarity = CHEST_RARITY_LABEL[readyChest.rarity];
+    const reward = formatChestRewardSummary(readyChest.rewardsSnapshot);
+    return {
+      title: "Abrir o baú",
+      subline: `Pronto · ${rarity} · ${reward}`,
+    };
+  }
+  if (activeUnlockChest) {
+    const rarity = CHEST_RARITY_LABEL[activeUnlockChest.rarity];
+    return {
+      title: "Abrir o baú",
+      subline: `${rarity} · libera em ${formatChestDurationMs(activeUnlockChest.remainingMs)}`,
+    };
+  }
+  if (lockedChest) {
+    const rarity = CHEST_RARITY_LABEL[lockedChest.rarity];
+    const reward = formatChestRewardSummary(lockedChest.rewardsSnapshot);
+    return {
+      title: "Abrir o baú",
+      subline: `Próximo: ${rarity} · ${reward}`,
+    };
+  }
+  if (queuedChest) {
+    const rarity = CHEST_RARITY_LABEL[queuedChest.rarity];
+    const pos = Number(queuedChest.queuePosition ?? 0) + 1;
+    return {
+      title: "Abrir o baú",
+      subline: `Próximo na fila: ${rarity} (${pos}º)`,
+    };
+  }
+  return {
+    title: "Abrir o baú",
+    subline: "Sem baús — jogue para ganhar",
+  };
+}
+
 export function listChestRewardSummaryParts(rewards: ChestRewardSnapshot): string[] {
   return [
     rewards.coins > 0 ? `+${rewards.coins} PR` : null,

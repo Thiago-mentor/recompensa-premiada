@@ -123,7 +123,7 @@ function wheelSliceIndexForServerPrize(table, resolved) {
         return j >= 0 ? j : 0;
     }
     if (kind === "rewardBalance") {
-        const amt = Math.max(0, Math.floor(Number(resolved.rewardCash ?? resolved.rouletteRewardAmount ?? 0) || 0));
+        const amt = Math.max(0, Math.floor(Number(resolved.rewardSaldo ?? resolved.rouletteRewardAmount ?? 0) || 0));
         const i = table.findIndex((row) => rowEffectiveKind(row) === "rewardBalance" && row.coins === amt);
         if (i >= 0)
             return i;

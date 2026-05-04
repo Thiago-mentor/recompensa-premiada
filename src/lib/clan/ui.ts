@@ -1,5 +1,7 @@
 import type {
+  Clan,
   ClanJoinRequestStatus,
+  ClanMembership,
   ClanPrivacy,
   ClanRole,
   ClanWeeklyContributor,
@@ -231,4 +233,125 @@ export function distributeClanWeeklyRewards(
       (item) =>
         item.rewards.coins > 0 || item.rewards.gems > 0 || item.rewards.rewardBalance > 0,
     );
+}
+
+function clanTimestampToMs(value: unknown): number {
+  if (value && typeof value === "object" && "toMillis" in value) {
+    try {
+      return (value as { toMillis: () => number }).toMillis();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+/** Atividade recente do clã (mesmo tie-break de `membros` / vitrine pública). */
+export function clanBoardActivityMs(item: Clan): number {
+  return clanTimestampToMs(item.lastMessageAt ?? item.updatedAt);
+}
+
+/** Comparação por pontos da semana em ordem crescente (critério do backend para ranking). */
+export function compareClanWeeklyScoreAscending(a: Clan, b: Clan): number {
+  const scoreA = resolveClanWeeklyBreakdown(a);
+  const scoreB = resolveClanWeeklyBreakdown(b);
+  if (scoreA.score !== scoreB.score) return scoreA.score - scoreB.score;
+  if (scoreA.wins !== scoreB.wins) return scoreA.wins - scoreB.wins;
+  if (scoreA.ads !== scoreB.ads) return scoreA.ads - scoreB.ads;
+  return a.memberCount - b.memberCount;
+}
+
+/** Lista ordenada como o quadro de ranking semanal de clãs (maior pontuação primeiro). */
+export function sortClanBoardByWeeklyPoints(board: Clan[]): Clan[] {
+  return [...board].sort(
+    (a, b) =>
+      compareClanWeeklyScoreAscending(b, a) || clanBoardActivityMs(b) - clanBoardActivityMs(a),
+  );
+}
+
+export type HomeClanCardModel = {
+  loading: boolean;
+  eyebrow: string;
+  title: string;
+  description: string | null;
+  ctaLabel: string;
+  ariaLabel: string;
+};
+
+export function buildHomeClanCardModel(opts: {
+  membershipLoading: boolean;
+  clanLoading: boolean;
+  membership: Pick<ClanMembership, "clanId"> | null;
+  clan: Clan | null;
+  board: Clan[];
+}): HomeClanCardModel {
+  const { membershipLoading, clanLoading, membership, clan, board } = opts;
+
+  if (membershipLoading || (Boolean(membership?.clanId) && clanLoading)) {
+    return {
+      loading: true,
+      eyebrow: "Arena social",
+      title: "Carregando clã…",
+      description: null,
+      ctaLabel: "…",
+      ariaLabel: "Arena social, carregando estado do clã",
+    };
+  }
+
+  if (membership?.clanId && !clan) {
+    return {
+      loading: false,
+      eyebrow: "Arena social",
+      title: "Sincronize no hub do clã",
+      description: "Não encontramos os dados do clã. Abra a área social para atualizar.",
+      ctaLabel: "Abrir",
+      ariaLabel: "Clã: sincronize no hub",
+    };
+  }
+
+  if (!membership?.clanId || !clan) {
+    const title = "Entre em um clã e jogue em time";
+    const description = "Ranking semanal em time, chat e metas conjuntas.";
+    return {
+      loading: false,
+      eyebrow: "Arena social",
+      title,
+      description,
+      ctaLabel: "Entrar",
+      ariaLabel:
+        "Entre em um clã: ranking semanal em time, chat e recompensas conjuntas.",
+    };
+  }
+
+  const sorted = sortClanBoardByWeeklyPoints(board);
+  const idx = sorted.findIndex((c) => c.id === clan.id);
+  const rank = idx >= 0 ? idx + 1 : null;
+  const title =
+    rank != null ? `Seu clã está em #${rank}` : `${clan.name} · fora do ranking deste painel`;
+
+  let description: string;
+  if (rank == null || idx < 0) {
+    description = `${resolveClanWeeklyScore(clan).toLocaleString("pt-BR")} pts nesta semana`;
+  } else if (idx === 0) {
+    description = "Liderando o ranking da semana";
+  } else {
+    const above = sorted[idx - 1]!;
+    const meB = resolveClanWeeklyBreakdown(clan);
+    const aboveB = resolveClanWeeklyBreakdown(above);
+    const scoreGap = aboveB.score - meB.score;
+    if (scoreGap > 0) {
+      description = `Faltam ${scoreGap.toLocaleString("pt-BR")} pts para subir`;
+    } else {
+      description = "Empate no placar — vitórias e anúncios desempatam";
+    }
+  }
+
+  return {
+    loading: false,
+    eyebrow: "Seu clã",
+    title,
+    description,
+    ctaLabel: "Acessar",
+    ariaLabel: `${title}. ${description}`,
+  };
 }

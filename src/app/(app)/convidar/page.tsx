@@ -101,7 +101,7 @@ function getProgressSummaryBadge(
 }
 
 function rewardCurrencyLabel(currency: ReferralRewardCurrency | null | undefined): string {
-  return currency === "gems" ? "TICKET" : currency === "rewardBalance" ? "CASH" : "PR";
+  return currency === "gems" ? "TICKET" : currency === "rewardBalance" ? "Saldo" : "PR";
 }
 
 function formatRewardLabel(

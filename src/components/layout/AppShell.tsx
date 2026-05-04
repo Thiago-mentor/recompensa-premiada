@@ -17,6 +17,7 @@ import {
 import type { ReactNode } from "react";
 import { DailyRewardModalHost } from "@/components/dailyReward/DailyRewardModalHost";
 import { CasinoCard } from "@/components/cards/CasinoCard";
+import { CenterScreenFeedbackProvider } from "@/components/feedback/CenterScreenFeedback";
 import { premiumHeroLinkClassName } from "@/components/ui/Button";
 
 const nav = [
@@ -34,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const showBackButton = pathname !== ROUTES.home;
 
   return (
-    <>
+    <CenterScreenFeedbackProvider>
       <div className="template-3d-scene relative flex min-h-dvh flex-col overflow-x-hidden bg-[linear-gradient(180deg,#070B1A_0%,#0a1022_45%,#0F172A_100%)] text-white">
         <div
           aria-hidden
@@ -106,6 +107,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-    </>
+    </CenterScreenFeedbackProvider>
   );
 }

@@ -34,9 +34,10 @@ export function BackButton({ fallbackHref, label = "Voltar", className }: BackBu
       </button>
       <Link
         href={fallbackHref}
-        className="ml-2 hidden text-xs font-medium text-cyan-100/55 transition hover:text-cyan-100/80 sm:inline"
+        aria-label="Ir para início"
+        className="ml-2 hidden items-center rounded-lg border border-white/12 bg-white/[0.04] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100/72 shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] transition hover:border-cyan-400/28 hover:bg-cyan-500/12 hover:text-cyan-50 sm:inline-flex"
       >
-        ir para início
+        Início
       </Link>
     </div>
   );

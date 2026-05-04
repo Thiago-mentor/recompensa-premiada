@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { BackButton } from "@/components/navigation/BackButton";
 import { CasinoCard } from "@/components/cards/CasinoCard";
 import { goldButtonLinkClassName } from "@/components/ui/Button";
+import { AdminSaveFeedbackProvider } from "@/components/admin/AdminSaveFeedback";
 
 const links = [
   { href: ROUTES.admin.dashboard, label: "Dashboard" },
@@ -29,6 +30,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const showBackButton = pathname !== ROUTES.admin.dashboard;
 
   return (
+    <AdminSaveFeedbackProvider>
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_top,rgba(88,28,135,0.22),transparent_45%),linear-gradient(180deg,#020617,#0f172a)] text-slate-100">
       <header className="sticky top-0 z-[100] border-b border-violet-400/20 bg-slate-950/95 shadow-[0_18px_44px_-28px_rgba(0,0,0,0.75),inset_0_-1px_0_rgba(255,255,255,0.06)] backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 py-3">
@@ -77,5 +79,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </CasinoCard>
       </div>
     </div>
+    </AdminSaveFeedbackProvider>
   );
 }

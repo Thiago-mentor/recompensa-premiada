@@ -1,6 +1,17 @@
 {
   "indexes": [
     {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "vitorias", "order": "DESCENDING" },
+        { "fieldPath": "score", "order": "DESCENDING" },
+        { "fieldPath": "partidas", "order": "DESCENDING" },
+        { "fieldPath": "atualizadoEm", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "wallet_transactions",
       "queryScope": "COLLECTION",
       "fields": [

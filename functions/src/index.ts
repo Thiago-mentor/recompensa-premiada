@@ -707,7 +707,12 @@ async function getEconomy() {
       : {};
   const rawBuy = Math.floor(Number(d.conversionCoinsPerGemBuy));
   const rawSell = Math.floor(Number(d.conversionCoinsPerGemSell));
-  const rawCash = Math.floor(Number(d.cashPointsPerReal));
+  const rawSaldoPointsPerReal = Math.floor(
+    Number(
+      (d as { saldoPointsPerReal?: unknown }).saldoPointsPerReal ??
+        (d as { cashPointsPerReal?: unknown }).cashPointsPerReal,
+    ),
+  );
   const rawBoostPercent = Math.floor(Number(d.boostRewardPercent));
   const rawFragmentsPerCraft = Math.floor(Number(d.fragmentsPerBoostCraft));
   const rawBoostMinutesPerCraft = Math.floor(Number(d.boostMinutesPerCraft));
@@ -749,9 +754,60 @@ async function getEconomy() {
     conversionCoinsPerGemBuy: Number.isFinite(rawBuy) && rawBuy >= 1 ? rawBuy : 500,
     /** PR por ticket ao vender TICKET; 0 = desligado. */
     conversionCoinsPerGemSell: Number.isFinite(rawSell) && rawSell >= 0 ? rawSell : 0,
-    /** Pontos CASH por R$ 1,00 (ex.: 100 → 100 pts = R$ 1). */
-    cashPointsPerReal: Number.isFinite(rawCash) && rawCash >= 1 ? rawCash : 100,
+    /** Pontos de saldo (resgate) por R$ 1,00 (ex.: 100 → 100 pts = R$ 1). */
+    saldoPointsPerReal:
+      Number.isFinite(rawSaldoPointsPerReal) && rawSaldoPointsPerReal >= 1 ? rawSaldoPointsPerReal : 100,
+    rewardedAdRewardsByPlacement: normalizeRewardedAdRewardsByPlacement(d.rewardedAdRewardsByPlacement),
   };
+}
+
+function normalizeRewardedAdRewardsByPlacement(raw: unknown): Record<
+  string,
+  { coins?: number; gems: number; rewardBalance: number }
+> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, { coins?: number; gems: number; rewardBalance: number }> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = String(key || "").trim();
+    if (!id || !value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const gems = Math.max(0, Math.floor(Number(v.gems) || 0));
+    const rewardBalance = Math.max(0, Math.floor(Number(v.rewardBalance) || 0));
+    if (v.coins !== undefined && v.coins !== null && Number.isFinite(Number(v.coins))) {
+      out[id] = {
+        coins: Math.max(0, Math.floor(Number(v.coins))),
+        gems,
+        rewardBalance,
+      };
+    } else if (gems > 0 || rewardBalance > 0) {
+      out[id] = { gems, rewardBalance };
+    }
+  }
+  return out;
+}
+
+type RewardedAdMonetaryKind = "generic" | "duel_or_raffle";
+
+function resolveRewardedAdMonetaryParts(
+  economy: Awaited<ReturnType<typeof getEconomy>>,
+  placementId: string,
+  kind: RewardedAdMonetaryKind,
+): { baseCoins: number; gems: number; rewardBalance: number } {
+  const row = economy.rewardedAdRewardsByPlacement[placementId];
+  const gems = row?.gems ?? 0;
+  const rewardBalance = row?.rewardBalance ?? 0;
+  if (kind === "generic") {
+    const baseCoins =
+      row && typeof row.coins === "number" && Number.isFinite(row.coins)
+        ? Math.max(0, Math.floor(row.coins))
+        : economy.rewardAdCoinAmount;
+    return { baseCoins, gems, rewardBalance };
+  }
+  const baseCoins =
+    row && typeof row.coins === "number" && Number.isFinite(row.coins)
+      ? Math.max(0, Math.floor(row.coins))
+      : 0;
+  return { baseCoins, gems, rewardBalance };
 }
 
 function normalizeRaffleReleasedCount(raw: unknown): number {
@@ -1356,6 +1412,72 @@ function resolveBoostedCoins(
 
 function withBoostDescription(description: string, boostCoins: number) {
   return boostCoins > 0 ? `${description} · boost +${boostCoins} PR` : description;
+}
+
+function applyRewardedAdMonetaryGrantInTx(input: {
+  tx: Transaction;
+  userRef: DocumentReference;
+  uid: string;
+  adEventId: string;
+  adDocId: string;
+  u: FirebaseFirestore.DocumentData;
+  economy: Awaited<ReturnType<typeof getEconomy>>;
+  monetary: { baseCoins: number; gems: number; rewardBalance: number };
+  userPatch: admin.firestore.UpdateData<admin.firestore.DocumentData>;
+}): { coins: number; boostCoins: number; gems: number; rewardBalance: number } {
+  const { baseCoins, gems, rewardBalance } = input.monetary;
+  const boosted = resolveBoostedCoins(
+    baseCoins,
+    input.u as Record<string, unknown>,
+    input.economy,
+  );
+  let coinsOut = 0;
+  let boostOut = 0;
+  if (boosted.totalCoins > 0) {
+    coinsOut = boosted.totalCoins;
+    boostOut = boosted.boostCoins;
+    input.userPatch.coins = FieldValue.increment(boosted.totalCoins);
+    const newCoins = Number(input.u.coins ?? 0) + boosted.totalCoins;
+    addWalletTxInTx(input.tx, {
+      id: `ad_${input.adEventId}_coins`,
+      userId: input.uid,
+      tipo: "anuncio",
+      moeda: "coins",
+      valor: boosted.totalCoins,
+      saldoApos: newCoins,
+      descricao: withBoostDescription("Anúncio recompensado", boosted.boostCoins),
+      referenciaId: input.adDocId,
+    });
+  }
+  if (gems > 0) {
+    input.userPatch.gems = FieldValue.increment(gems);
+    const newGems = Number(input.u.gems ?? 0) + gems;
+    addWalletTxInTx(input.tx, {
+      id: `ad_${input.adEventId}_gems`,
+      userId: input.uid,
+      tipo: "anuncio",
+      moeda: "gems",
+      valor: gems,
+      saldoApos: newGems,
+      descricao: "Anúncio recompensado (TICKET)",
+      referenciaId: input.adDocId,
+    });
+  }
+  if (rewardBalance > 0) {
+    input.userPatch.rewardBalance = FieldValue.increment(rewardBalance);
+    const newSaldoBalance = Number(input.u.rewardBalance ?? 0) + rewardBalance;
+    addWalletTxInTx(input.tx, {
+      id: `ad_${input.adEventId}_cash`,
+      userId: input.uid,
+      tipo: "anuncio",
+      moeda: "rewardBalance",
+      valor: rewardBalance,
+      saldoApos: newSaldoBalance,
+      descricao: "Anúncio recompensado (CASH)",
+      referenciaId: input.adDocId,
+    });
+  }
+  return { coins: coinsOut, boostCoins: boostOut, gems, rewardBalance };
 }
 
 function isChestRarity(value: unknown): value is ChestRarity {
@@ -3457,6 +3579,8 @@ function parseRewardedAdCompletionToken(raw: unknown): { token: string; isMock: 
 type RewardedAdGrantResult = {
   coins: number;
   boostCoins: number;
+  gems: number;
+  rewardBalance: number;
   pptPvPDuelsAdded?: number;
   pptPvPDuelsRemaining?: number;
   quizPvPDuelsAdded?: number;
@@ -3534,6 +3658,12 @@ async function grantRewardedAdPlacement(input: {
   rewardMetadata?: Record<string, unknown>;
 }): Promise<RewardedAdGrantResult> {
   const economy = await getEconomy();
+  if (input.placementId === CHEST_SPEEDUP_PLACEMENT_ID) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Este placement só pode ser usado pela função speedUpChestUnlock.",
+    );
+  }
   const userRef = db.doc(`${COL.users}/${input.uid}`);
   const adRef = db.doc(`${COL.adEvents}/${input.adEventId}`);
   const today = dailyKey();
@@ -3598,10 +3728,24 @@ async function grantRewardedAdPlacement(input: {
       const addedDuels = cappedNext - cur;
       userPatch.pptPvPDuelsRemaining = cappedNext;
       userPatch.pptPvpDuelsRefillAvailableAt = FieldValue.delete();
+      const monetary = resolveRewardedAdMonetaryParts(economy, input.placementId, "duel_or_raffle");
+      const m = applyRewardedAdMonetaryGrantInTx({
+        tx,
+        userRef,
+        uid: input.uid,
+        adEventId: input.adEventId,
+        adDocId: adRef.id,
+        u,
+        economy,
+        monetary,
+        userPatch,
+      });
       tx.update(userRef, userPatch);
       return {
-        coins: 0,
-        boostCoins: 0,
+        coins: m.coins,
+        boostCoins: m.boostCoins,
+        gems: m.gems,
+        rewardBalance: m.rewardBalance,
         pptPvPDuelsAdded: addedDuels,
         pptPvPDuelsRemaining: cappedNext,
       } satisfies RewardedAdGrantResult;
@@ -3613,10 +3757,24 @@ async function grantRewardedAdPlacement(input: {
       const addedDuels = cappedNext - cur;
       userPatch.quizPvPDuelsRemaining = cappedNext;
       userPatch.quizPvpDuelsRefillAvailableAt = FieldValue.delete();
+      const monetary = resolveRewardedAdMonetaryParts(economy, input.placementId, "duel_or_raffle");
+      const m = applyRewardedAdMonetaryGrantInTx({
+        tx,
+        userRef,
+        uid: input.uid,
+        adEventId: input.adEventId,
+        adDocId: adRef.id,
+        u,
+        economy,
+        monetary,
+        userPatch,
+      });
       tx.update(userRef, userPatch);
       return {
-        coins: 0,
-        boostCoins: 0,
+        coins: m.coins,
+        boostCoins: m.boostCoins,
+        gems: m.gems,
+        rewardBalance: m.rewardBalance,
         quizPvPDuelsAdded: addedDuels,
         quizPvPDuelsRemaining: cappedNext,
       } satisfies RewardedAdGrantResult;
@@ -3628,41 +3786,69 @@ async function grantRewardedAdPlacement(input: {
       const addedDuels = cappedNext - cur;
       userPatch.reactionPvPDuelsRemaining = cappedNext;
       userPatch.reactionPvpDuelsRefillAvailableAt = FieldValue.delete();
+      const monetary = resolveRewardedAdMonetaryParts(economy, input.placementId, "duel_or_raffle");
+      const m = applyRewardedAdMonetaryGrantInTx({
+        tx,
+        userRef,
+        uid: input.uid,
+        adEventId: input.adEventId,
+        adDocId: adRef.id,
+        u,
+        economy,
+        monetary,
+        userPatch,
+      });
       tx.update(userRef, userPatch);
       return {
-        coins: 0,
-        boostCoins: 0,
+        coins: m.coins,
+        boostCoins: m.boostCoins,
+        gems: m.gems,
+        rewardBalance: m.rewardBalance,
         reactionPvPDuelsAdded: addedDuels,
         reactionPvPDuelsRemaining: cappedNext,
       } satisfies RewardedAdGrantResult;
     }
 
     if (isRaffleNumber) {
+      const monetary = resolveRewardedAdMonetaryParts(economy, input.placementId, "duel_or_raffle");
+      const m = applyRewardedAdMonetaryGrantInTx({
+        tx,
+        userRef,
+        uid: input.uid,
+        adEventId: input.adEventId,
+        adDocId: adRef.id,
+        u,
+        economy,
+        monetary,
+        userPatch,
+      });
       tx.update(userRef, userPatch);
-      return { coins: 0, boostCoins: 0 } satisfies RewardedAdGrantResult;
+      return {
+        coins: m.coins,
+        boostCoins: m.boostCoins,
+        gems: m.gems,
+        rewardBalance: m.rewardBalance,
+      } satisfies RewardedAdGrantResult;
     }
 
-    const boostedCoins = resolveBoostedCoins(
-      economy.rewardAdCoinAmount,
-      u as Record<string, unknown>,
+    const monetary = resolveRewardedAdMonetaryParts(economy, input.placementId, "generic");
+    const m = applyRewardedAdMonetaryGrantInTx({
+      tx,
+      userRef,
+      uid: input.uid,
+      adEventId: input.adEventId,
+      adDocId: adRef.id,
+      u,
       economy,
-    );
-    const newCoins = Number(u.coins ?? 0) + boostedCoins.totalCoins;
-    userPatch.coins = FieldValue.increment(boostedCoins.totalCoins);
-    tx.update(userRef, userPatch);
-    addWalletTxInTx(tx, {
-      id: `ad_${input.adEventId}_coins`,
-      userId: input.uid,
-      tipo: "anuncio",
-      moeda: "coins",
-      valor: boostedCoins.totalCoins,
-      saldoApos: newCoins,
-      descricao: withBoostDescription("Anúncio recompensado", boostedCoins.boostCoins),
-      referenciaId: adRef.id,
+      monetary,
+      userPatch,
     });
+    tx.update(userRef, userPatch);
     return {
-      coins: boostedCoins.totalCoins,
-      boostCoins: boostedCoins.boostCoins,
+      coins: m.coins,
+      boostCoins: m.boostCoins,
+      gems: m.gems,
+      rewardBalance: m.rewardBalance,
     } satisfies RewardedAdGrantResult;
   });
 
@@ -6071,7 +6257,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
     const rewardCoins = roulettePrizeKind === "coins" ? grantAmt : 0;
     const coinsBefore = Number(u.coins ?? 0);
     const gemsBefore = Number(u.gems ?? 0);
-    const cashBefore = Number(u.rewardBalance ?? 0);
+    const saldoBefore = Number(u.rewardBalance ?? 0);
 
     if (roulettePrizeKind === "coins" && grantAmt > 0) {
       userPatch.coins = FieldValue.increment(grantAmt);
@@ -6149,8 +6335,8 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
         tipo: "roleta",
         moeda: "rewardBalance",
         valor: grantAmt,
-        saldoApos: cashBefore + grantAmt,
-        descricao: mode === "daily_ad" ? "Giro diário por anúncio (CASH)" : "Giro pago da roleta (CASH)",
+        saldoApos: saldoBefore + grantAmt,
+        descricao: mode === "daily_ad" ? "Giro diário por anúncio (Saldo)" : "Giro pago da roleta (Saldo)",
         referenciaId: matchRef.id,
       });
     }
@@ -6160,7 +6346,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
       matchId: matchRef.id,
       rewardCoins,
       rewardGems: roulettePrizeKind === "gems" ? grantAmt : 0,
-      rewardCash: roulettePrizeKind === "rewardBalance" ? grantAmt : 0,
+      rewardSaldo: roulettePrizeKind === "rewardBalance" ? grantAmt : 0,
       rouletteRewardAmount: grantAmt,
       rankingPoints: economy.rankingPoints,
       normalizedScore: economy.normalizedScore,
@@ -6188,7 +6374,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
     matchId: result.matchId,
     rewardCoins: result.rewardCoins,
     rewardGems: result.rewardGems ?? 0,
-    rewardCash: result.rewardCash ?? 0,
+    rewardSaldo: result.rewardSaldo ?? 0,
     rouletteRewardAmount: result.rouletteRewardAmount ?? 0,
     rankingPoints: result.rankingPoints,
     normalizedScore: result.normalizedScore,
@@ -6328,6 +6514,8 @@ export const getRewardedAdSessionStatus = onCall(DEFAULT_CALLABLE_OPTS, async (r
     errorReason: typeof session.errorReason === "string" ? session.errorReason : null,
     coins: Math.max(0, Math.floor(Number(result.coins) || 0)),
     boostCoins: Math.max(0, Math.floor(Number(result.boostCoins) || 0)),
+    gems: Math.max(0, Math.floor(Number(result.gems) || 0)),
+    rewardBalance: Math.max(0, Math.floor(Number(result.rewardBalance) || 0)),
     pptPvPDuelsAdded: Math.max(0, Math.floor(Number(result.pptPvPDuelsAdded) || 0)),
     pptPvPDuelsRemaining: Math.max(0, Math.floor(Number(result.pptPvPDuelsRemaining) || 0)),
     quizPvPDuelsAdded: Math.max(0, Math.floor(Number(result.quizPvPDuelsAdded) || 0)),
@@ -12677,11 +12865,74 @@ export const leaveClan = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   if (!clanId) {
     throw new HttpsError("failed-precondition", "Sua associação com o clã está inválida.");
   }
+
+  /** Fundador sozinho: encerra o clã e libera a conta (sem transferir liderança). */
   if (role === "owner") {
-    throw new HttpsError(
-      "failed-precondition",
-      "O fundador ainda não pode sair do clã sem transferir a liderança.",
-    );
+    const clanSnap = await clanRef(clanId).get();
+    if (!clanSnap.exists) {
+      await clanMembershipRef(uid).delete().catch(() => undefined);
+      return { ok: true, dissolved: true };
+    }
+    const clanData = clanSnap.data() || {};
+    const ownerUid = String(clanData.ownerUid || "").trim();
+    if (ownerUid !== uid) {
+      throw new HttpsError("permission-denied", "Dados do clã inconsistentes. Contate o suporte.");
+    }
+
+    /** Fonte de verdade: subcoleção `members` (memberCount do doc pode estar dessincronizado). */
+    const rosterSnap = await db.collection(`${COL.clans}/${clanId}/members`).limit(2).get();
+    if (rosterSnap.size > 1) {
+      throw new HttpsError(
+        "failed-precondition",
+        "O fundador ainda não pode sair do clã sem transferir a liderança.",
+      );
+    }
+    if (rosterSnap.size === 1 && rosterSnap.docs[0].id !== uid) {
+      throw new HttpsError("permission-denied", "Dados do membro do clã inconsistentes.");
+    }
+
+    const avatarUrl = clanData.avatarUrl;
+    const coverUrl = clanData.coverUrl;
+
+    await db.runTransaction(async (tx) => {
+      const [mSnap, cSnap] = await Promise.all([tx.get(clanMembershipRef(uid)), tx.get(clanRef(clanId))]);
+      if (!mSnap.exists) {
+        throw new HttpsError("failed-precondition", "Você não faz parte de um clã.");
+      }
+      if (!cSnap.exists) {
+        tx.delete(clanMembershipRef(uid));
+        return;
+      }
+      const mData = (mSnap.data() || {}) as Record<string, unknown>;
+      const cData = (cSnap.data() || {}) as Record<string, unknown>;
+      if (String(mData.clanId || "") !== clanId || String(mData.role || "") !== "owner") {
+        throw new HttpsError("permission-denied", "Somente o fundador pode encerrar o clã.");
+      }
+      if (String(cData.ownerUid || "").trim() !== uid) {
+        throw new HttpsError("permission-denied", "Operação não permitida.");
+      }
+      tx.delete(clanMembershipRef(uid));
+    });
+
+    await Promise.all([deleteClanAssetIfExists(avatarUrl), deleteClanAssetIfExists(coverUrl)]);
+
+    const clanStill = await clanRef(clanId).get();
+    if (clanStill.exists) {
+      await db.recursiveDelete(clanRef(clanId));
+    }
+
+    const pendingForClan = await db
+      .collection(COL.clanJoinRequests)
+      .where("clanId", "==", clanId)
+      .limit(500)
+      .get();
+    if (!pendingForClan.empty) {
+      const batch = db.batch();
+      pendingForClan.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    return { ok: true, dissolved: true };
   }
 
   const leaveMessageRef = clanMessagesCollection(clanId).doc();

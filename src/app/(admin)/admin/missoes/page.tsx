@@ -10,7 +10,7 @@ import {
   query,
   setDoc,
 } from "firebase/firestore";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
@@ -65,10 +65,10 @@ const emptyForm = () => ({
 });
 
 export default function AdminMissoesPage() {
+  const { notify } = useAdminSaveFeedback();
   const [templates, setTemplates] = useState<MissionTemplate[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -81,7 +81,7 @@ export default function AdminMissoesPage() {
           snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as MissionTemplate),
         );
       },
-      (error) => setMsg({ tone: "error", text: error.message }),
+      (error) => notify("error", error.message),
     );
   }, []);
 
@@ -112,14 +112,13 @@ export default function AdminMissoesPage() {
       categoria: mission.categoria,
       eventKey: mission.eventKey,
     });
-    setMsg({ tone: "info", text: `Editando missão: ${mission.titulo}` });
+    notify("info", `Editando missão: ${mission.titulo}`, { durationMs: 3200 });
   }
 
   async function saveMission() {
-    setMsg(null);
     const id = (editingId || form.id || slugify(form.titulo)).trim();
     if (!id || form.titulo.trim().length < 3) {
-      setMsg({ tone: "error", text: "Informe um título válido para a missão." });
+      notify("error", "Informe um título válido para a missão.");
       return;
     }
     setSaving(true);
@@ -142,9 +141,9 @@ export default function AdminMissoesPage() {
       await setDoc(doc(getFirebaseFirestore(), COLLECTIONS.missions, id), payload, { merge: true });
       setEditingId(null);
       setForm(emptyForm());
-      setMsg({ tone: "success", text: "Missão salva com sucesso." });
+      notify("success", "Missão salva com sucesso.");
     } catch (error) {
-      setMsg({ tone: "error", text: error instanceof Error ? error.message : "Erro ao salvar missão." });
+      notify("error", error instanceof Error ? error.message : "Erro ao salvar missão.");
     } finally {
       setSaving(false);
     }
@@ -157,7 +156,7 @@ export default function AdminMissoesPage() {
       setEditingId(null);
       setForm(emptyForm());
     }
-    setMsg({ tone: "success", text: "Missão removida do catálogo." });
+    notify("success", "Missão removida do catálogo.");
   }
 
   return (
@@ -173,8 +172,6 @@ export default function AdminMissoesPage() {
           </>
         }
       />
-
-      {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AdminMetricCard

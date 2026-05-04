@@ -182,7 +182,7 @@ export function formatRankingPrize(
   const parts: string[] = [];
   if ((reward.coins ?? 0) > 0) parts.push(`${reward.coins} PR`);
   if ((reward.gems ?? 0) > 0) parts.push(`${reward.gems} TICKET`);
-  if ((reward.rewardBalance ?? 0) > 0) parts.push(`${reward.rewardBalance} CASH`);
+  if ((reward.rewardBalance ?? 0) > 0) parts.push(`${reward.rewardBalance} Saldo`);
   return parts.length > 0 ? parts.join(" · ") : "Sem prêmio";
 }
 

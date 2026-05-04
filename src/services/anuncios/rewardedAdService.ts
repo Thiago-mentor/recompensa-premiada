@@ -84,6 +84,8 @@ async function runRewardedAdSsvFlow(
       pending?: boolean;
       coins: number;
       boostCoins: number;
+      gems: number;
+      rewardBalance: number;
       pptPvPDuelsAdded: number;
       pptPvPDuelsRemaining: number;
       quizPvPDuelsAdded: number;
@@ -129,6 +131,8 @@ async function runRewardedAdSsvFlow(
       pending: true,
       coins: 0,
       boostCoins: 0,
+      gems: 0,
+      rewardBalance: 0,
       pptPvPDuelsAdded: 0,
       pptPvPDuelsRemaining: 0,
       quizPvPDuelsAdded: 0,
@@ -143,6 +147,8 @@ async function runRewardedAdSsvFlow(
     ok: true,
     coins: sessionStatus.coins,
     boostCoins: sessionStatus.boostCoins,
+    gems: sessionStatus.gems,
+    rewardBalance: sessionStatus.rewardBalance,
     pptPvPDuelsAdded: sessionStatus.pptPvPDuelsAdded,
     pptPvPDuelsRemaining: sessionStatus.pptPvPDuelsRemaining,
     quizPvPDuelsAdded: sessionStatus.quizPvPDuelsAdded,
@@ -165,6 +171,8 @@ export type ProcessRewardedAdServerResult = {
   ok: boolean;
   coins?: number;
   boostCoins?: number;
+  gems?: number;
+  rewardBalance?: number;
   pptPvPDuelsAdded?: number;
   pptPvPDuelsRemaining?: number;
   quizPvPDuelsAdded?: number;
@@ -187,6 +195,8 @@ export async function processRewardedAdOnServer(input: {
       {
         coins?: number;
         boostCoins?: number;
+        gems?: number;
+        rewardBalance?: number;
         pptPvPDuelsAdded?: number;
         pptPvPDuelsRemaining?: number;
         quizPvPDuelsAdded?: number;
@@ -203,6 +213,8 @@ export async function processRewardedAdOnServer(input: {
       ok: true,
       coins: d?.coins,
       boostCoins: d?.boostCoins,
+      gems: d?.gems,
+      rewardBalance: d?.rewardBalance,
       pptPvPDuelsAdded: d?.pptPvPDuelsAdded,
       pptPvPDuelsRemaining: d?.pptPvPDuelsRemaining,
       quizPvPDuelsAdded: d?.quizPvPDuelsAdded,
@@ -213,6 +225,25 @@ export async function processRewardedAdOnServer(input: {
   } catch (e: unknown) {
     return { ok: false, error: formatFirebaseError(e) };
   }
+}
+
+function formatRewardedAdCreditMessage(input: {
+  coins?: number;
+  boostCoins?: number;
+  gems?: number;
+  rewardBalance?: number;
+}): string {
+  const parts: string[] = [];
+  const c = input.coins ?? 0;
+  const b = input.boostCoins ?? 0;
+  const g = input.gems ?? 0;
+  const saldo = input.rewardBalance ?? 0;
+  if (c > 0 && b > 0) parts.push(`+${c} PR (inclui boost +${b} PR)`);
+  else if (c > 0) parts.push(`+${c} PR`);
+  else if (b > 0) parts.push(`Boost +${b} PR`);
+  if (g > 0) parts.push(`+${g} TICKET`);
+  if (saldo > 0) parts.push(`+${saldo} Saldo`);
+  return parts.length > 0 ? `${parts.join(" · ")} creditados!` : "Recompensa registrada.";
 }
 
 export async function runRewardedAdFlow(): Promise<{
@@ -233,10 +264,12 @@ export async function runRewardedAdFlow(): Promise<{
       ok: true,
       coins: ssvResult.coins,
       boostCoins: ssvResult.boostCoins,
-      message:
-        ssvResult.boostCoins > 0
-          ? `+${ssvResult.coins} PR creditados! Boost +${ssvResult.boostCoins} PR.`
-          : `+${ssvResult.coins} PR creditados!`,
+      message: formatRewardedAdCreditMessage({
+        coins: ssvResult.coins,
+        boostCoins: ssvResult.boostCoins,
+        gems: ssvResult.gems,
+        rewardBalance: ssvResult.rewardBalance,
+      }),
     };
   }
 
@@ -259,10 +292,12 @@ export async function runRewardedAdFlow(): Promise<{
     ok: true,
     coins: server.coins,
     boostCoins: server.boostCoins,
-    message:
-      server.boostCoins && server.boostCoins > 0
-        ? `+${server.coins ?? 0} PR creditados! Boost +${server.boostCoins} PR.`
-        : `+${server.coins ?? 0} PR creditados!`,
+    message: formatRewardedAdCreditMessage({
+      coins: server.coins,
+      boostCoins: server.boostCoins,
+      gems: server.gems,
+      rewardBalance: server.rewardBalance,
+    }),
   };
 }
 

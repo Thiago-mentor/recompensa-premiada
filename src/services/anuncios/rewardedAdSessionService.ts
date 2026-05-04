@@ -13,6 +13,8 @@ export type RewardedAdSessionStatusResult =
       errorReason: string | null;
       coins: number;
       boostCoins: number;
+      gems: number;
+      rewardBalance: number;
       pptPvPDuelsAdded: number;
       pptPvPDuelsRemaining: number;
       quizPvPDuelsAdded: number;
@@ -67,6 +69,8 @@ export async function getRewardedAdSessionStatusCallable(
         errorReason: string | null;
         coins: number;
         boostCoins: number;
+        gems: number;
+        rewardBalance: number;
         pptPvPDuelsAdded: number;
         pptPvPDuelsRemaining: number;
         quizPvPDuelsAdded: number;

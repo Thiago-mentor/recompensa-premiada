@@ -2,21 +2,44 @@
 
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { Coins, Gift, Sparkles, Wallet } from "lucide-react";
+import { Coins, Gift, Megaphone, Sparkles, Wallet } from "lucide-react";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import type { SystemEconomyConfig, WeightedPrizeConfig } from "@/types/systemConfig";
 import type { ChestRarity } from "@/types/chest";
 import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
-import { cashPointsToBrl, formatBrl } from "@/services/economy/cashEconomyConfig";
+import { saldoPointsToBrl, formatBrl } from "@/services/economy/saldoEconomyConfig";
 import { DEFAULT_ROULETTE_TABLE, normalizeRouletteTableFromFirestore } from "@/lib/games/gameEconomy";
+import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
+import {
+  CHEST_SPEEDUP_PLACEMENT_ID,
+  HOME_REWARDED_PLACEMENT_ID,
+  REWARDED_AD_PLACEMENTS,
+  REWARDED_AD_PLACEMENT_LABELS,
+  ROULETTE_DAILY_SPIN_PLACEMENT_ID,
+  type RewardedAdPlacementId,
+} from "@/lib/constants/rewardedAds";
 
 const ECONOMY_ID = "economy";
+
+const GENERIC_REWARDED_AD_PLACEMENTS = new Set<RewardedAdPlacementId>([
+  HOME_REWARDED_PLACEMENT_ID,
+  ROULETTE_DAILY_SPIN_PLACEMENT_ID,
+]);
+
+const emptyPlacementRewardRows = (): Record<
+  RewardedAdPlacementId,
+  { coins: string; gems: string; saldo: string }
+> =>
+  Object.fromEntries(
+    REWARDED_AD_PLACEMENTS.map((id) => [id, { coins: "", gems: "0", saldo: "0" }]),
+  ) as Record<RewardedAdPlacementId, { coins: string; gems: string; saldo: string }>;
 
 const ROULETTE_CHEST_OPTIONS: { value: ChestRarity; label: string }[] = [
   { value: "comum", label: "Baú comum" },
@@ -26,6 +49,7 @@ const ROULETTE_CHEST_OPTIONS: { value: ChestRarity; label: string }[] = [
 ];
 
 export default function AdminConfigPage() {
+  const { notify: adminNotify } = useAdminSaveFeedback();
   const [rewardAd, setRewardAd] = useState("25");
   const [dailyBonus, setDailyBonus] = useState("50");
   const [limiteAds, setLimiteAds] = useState("20");
@@ -39,7 +63,7 @@ export default function AdminConfigPage() {
   const [boostActivationMinutes, setBoostActivationMinutes] = useState("15");
   const [convBuy, setConvBuy] = useState("500");
   const [convSell, setConvSell] = useState("0");
-  const [cashPointsPerReal, setCashPointsPerReal] = useState("100");
+  const [saldoPointsPerReal, setSaldoPointsPerReal] = useState("100");
   const [rouletteRows, setRouletteRows] = useState<WeightedPrizeConfig[]>(DEFAULT_ROULETTE_TABLE);
   const [rouletteSpinCostAmount, setRouletteSpinCostAmount] = useState("1");
   const [rouletteSpinCostCurrency, setRouletteSpinCostCurrency] = useState<"coins" | "gems" | "rewardBalance">("gems");
@@ -47,9 +71,8 @@ export default function AdminConfigPage() {
   const [grantValue, setGrantValue] = useState("");
   const [grantKind, setGrantKind] = useState<"coins" | "gems" | "rewardBalance">("coins");
   const [grantAmount, setGrantAmount] = useState("");
-  const [grantMsg, setGrantMsg] = useState<string | null>(null);
   const [grantLoading, setGrantLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [placementRewards, setPlacementRewards] = useState(emptyPlacementRewardRows);
 
   useEffect(() => {
     let c = false;
@@ -78,8 +101,9 @@ export default function AdminConfigPage() {
         }
         if (typeof d.conversionCoinsPerGemBuy === "number") setConvBuy(String(d.conversionCoinsPerGemBuy));
         if (typeof d.conversionCoinsPerGemSell === "number") setConvSell(String(d.conversionCoinsPerGemSell));
-        if (typeof d.cashPointsPerReal === "number" && d.cashPointsPerReal >= 1) {
-          setCashPointsPerReal(String(Math.floor(d.cashPointsPerReal)));
+        const saldoRate = d.saldoPointsPerReal ?? d.cashPointsPerReal;
+        if (typeof saldoRate === "number" && saldoRate >= 1) {
+          setSaldoPointsPerReal(String(Math.floor(saldoRate)));
         }
         if (Array.isArray(d.rouletteTable)) {
           setRouletteRows(normalizePrizeRows(d.rouletteTable));
@@ -94,6 +118,31 @@ export default function AdminConfigPage() {
         ) {
           setRouletteSpinCostCurrency(d.rouletteSpinCostCurrency);
         }
+        const byP = d.rewardedAdRewardsByPlacement;
+        if (byP && typeof byP === "object") {
+          setPlacementRewards(
+            Object.fromEntries(
+              REWARDED_AD_PLACEMENTS.map((id) => {
+                const row = byP[id as keyof typeof byP] as
+                  | { coins?: number; gems?: number; rewardBalance?: number }
+                  | undefined;
+                const coins =
+                  row && typeof row.coins === "number" && Number.isFinite(row.coins)
+                    ? String(Math.max(0, Math.floor(row.coins)))
+                    : "";
+                const gems =
+                  row && typeof row.gems === "number" && Number.isFinite(row.gems)
+                    ? String(Math.max(0, Math.floor(row.gems)))
+                    : "0";
+                const saldo =
+                  row && typeof row.rewardBalance === "number" && Number.isFinite(row.rewardBalance)
+                    ? String(Math.max(0, Math.floor(row.rewardBalance)))
+                    : "0";
+                return [id, { coins, gems, saldo }];
+              }),
+            ) as Record<RewardedAdPlacementId, { coins: string; gems: string; saldo: string }>,
+          );
+        }
       } catch {
         /* ignore */
       }
@@ -104,7 +153,6 @@ export default function AdminConfigPage() {
   }, []);
 
   async function save() {
-    setMsg(null);
     try {
       const db = getFirebaseFirestore();
       await setDoc(
@@ -124,30 +172,50 @@ export default function AdminConfigPage() {
           boostActivationMinutes: Math.max(1, Math.floor(Number(boostActivationMinutes)) || 15),
           conversionCoinsPerGemBuy: Math.max(1, Math.floor(Number(convBuy)) || 500),
           conversionCoinsPerGemSell: Math.max(0, Math.floor(Number(convSell)) || 0),
-          cashPointsPerReal: Math.max(1, Math.floor(Number(cashPointsPerReal)) || 100),
+          saldoPointsPerReal: Math.max(1, Math.floor(Number(saldoPointsPerReal)) || 100),
           rouletteTable: normalizePrizeRows(rouletteRows),
           rouletteSpinCostAmount: Math.max(0, Math.floor(Number(rouletteSpinCostAmount)) || 0),
           rouletteSpinCostCurrency,
+          rewardedAdRewardsByPlacement: Object.fromEntries(
+            REWARDED_AD_PLACEMENTS.map((id) => {
+              const row = placementRewards[id];
+              const gems = Math.max(0, Math.floor(Number(row.gems) || 0));
+              const rewardBalance = Math.max(0, Math.floor(Number(row.saldo) || 0));
+              const entry: { coins?: number; gems: number; rewardBalance: number } = {
+                gems,
+                rewardBalance,
+              };
+              const coinsTrim = row.coins.trim();
+              if (coinsTrim !== "") {
+                entry.coins = Math.max(0, Math.floor(Number(coinsTrim) || 0));
+              } else if (!GENERIC_REWARDED_AD_PLACEMENTS.has(id)) {
+                entry.coins = 0;
+              }
+              return [id, entry];
+            }),
+          ),
         },
         { merge: true },
       );
-      setMsg(
+      invalidateEconomyConfigCache();
+      adminNotify(
+        "info",
         "Economia salva. Premiações de ranking ficam na aba Rankings. Em produção: se o tempo do quiz ou a lógica do servidor não mudarem, publique as Cloud Functions (firebase deploy --only functions) e as regras do Firestore (firebase deploy --only firestore:rules). Com emuladores, reinicie-os após npm run build em functions/.",
+        { durationMs: 12_000 },
       );
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao salvar");
+      adminNotify("error", e instanceof Error ? e.message : "Erro ao salvar");
     }
   }
 
   async function grantSubmit() {
-    setGrantMsg(null);
     const amt = Math.floor(Number(grantAmount));
     if (!grantValue.trim()) {
-      setGrantMsg("Informe o username ou o UID.");
+      adminNotify("error", "Informe o username ou o UID.");
       return;
     }
     if (!Number.isFinite(amt) || amt <= 0) {
-      setGrantMsg("Quantidade inválida.");
+      adminNotify("error", "Quantidade inválida.");
       return;
     }
     setGrantLoading(true);
@@ -163,10 +231,13 @@ export default function AdminConfigPage() {
       });
       const d = res.data;
       const label =
-        grantKind === "coins" ? "PR" : grantKind === "gems" ? "TICKET" : "CASH";
-      setGrantMsg(`Crédito aplicado — ${label} novo saldo: ${d.newBalance} (uid: ${d.targetUid}).`);
+        grantKind === "coins" ? "PR" : grantKind === "gems" ? "TICKET" : "Saldo";
+      adminNotify(
+        "success",
+        `Crédito aplicado — ${label} novo saldo: ${d.newBalance} (uid: ${d.targetUid}).`,
+      );
     } catch (e) {
-      setGrantMsg(formatFirebaseError(e));
+      adminNotify("error", formatFirebaseError(e));
     } finally {
       setGrantLoading(false);
     }
@@ -174,10 +245,10 @@ export default function AdminConfigPage() {
 
   const buyN = Math.max(1, Math.floor(Number(convBuy)) || 500);
   const sellN = Math.max(0, Math.floor(Number(convSell)) || 0);
-  const cashN = Math.max(1, Math.floor(Number(cashPointsPerReal)) || 100);
+  const saldoN = Math.max(1, Math.floor(Number(saldoPointsPerReal)) || 100);
   const ticketPerPrBuy = 1 / buyN;
   const ticketPerPrSell = sellN > 0 ? 1 / sellN : null;
-  const brlPerCashPoint = cashPointsToBrl(1, cashN);
+  const brlPerSaldoPoint = saldoPointsToBrl(1, saldoN);
 
   return (
     <div className="space-y-6">
@@ -188,13 +259,12 @@ export default function AdminConfigPage() {
         description="Ajuste recompensas básicas, limites diários, referral, boost, conversões e operações manuais da economia. As regras de confronto agora ficam na aba Arena e as de baú na aba Baús."
         actions={<Button onClick={save}>Salvar economia</Button>}
       />
-      {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AdminMetricCard
           title="PR por anúncio"
           value={rewardAd}
-          hint="Recompensa base por ad"
+          hint="Padrão home/genérico se o PR do placement estiver vazio"
           tone="cyan"
           icon={<Coins className="h-4 w-4" />}
         />
@@ -213,8 +283,8 @@ export default function AdminConfigPage() {
           icon={<Sparkles className="h-4 w-4" />}
         />
         <AdminMetricCard
-          title="CASH por R$ 1"
-          value={cashPointsPerReal}
+          title="Saldo por R$ 1"
+          value={saldoPointsPerReal}
           hint="Taxa atual de resgate"
           tone="violet"
           icon={<Wallet className="h-4 w-4" />}
@@ -224,7 +294,7 @@ export default function AdminConfigPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
           <h2 className="text-lg font-semibold text-white">Recompensas e limites</h2>
-          <Field label="PR por anúncio" value={rewardAd} onChange={setRewardAd} />
+          <Field label="PR por anúncio (global)" value={rewardAd} onChange={setRewardAd} />
           <Field label="Bônus login diário" value={dailyBonus} onChange={setDailyBonus} />
           <Field label="Limite diário de ads" value={limiteAds} onChange={setLimiteAds} />
           <Field label="Limite diário de PR" value={limiteCoins} onChange={setLimiteCoins} />
@@ -234,6 +304,76 @@ export default function AdminConfigPage() {
           <h2 className="text-lg font-semibold text-white">Referral</h2>
           <Field label="Bônus do indicador" value={refIndicador} onChange={setRefIndicador} />
           <Field label="Bônus do convidado" value={refConvidado} onChange={setRefConvidado} />
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-cyan-400/25 bg-cyan-950/15 p-4">
+        <div className="flex flex-wrap items-start gap-3">
+          <Megaphone className="mt-0.5 h-5 w-5 shrink-0 text-cyan-300" />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-white">Anúncios recompensados por placement</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Créditos extras ao concluir cada anúncio (callable / validação SSV), no mesmo espírito do
+              baú: cada contexto pode ter TICKET, Saldo e PR próprios. Em <strong className="text-white">Home</strong> e{" "}
+              <strong className="text-white">Roleta (placement)</strong>, deixe <strong className="text-white">PR vazio</strong> para
+              usar o valor global acima. Duelos e sorteio: PR vazio vale <strong className="text-white">0</strong> (só entram
+              TICKET/Saldo/PR se preencher). Aceleração de baú continua só pela aba Baús — este bloco não
+              altera o timer.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {REWARDED_AD_PLACEMENTS.map((placementId) => (
+            <div
+              key={placementId}
+              className="rounded-lg border border-white/10 bg-black/25 p-3 sm:grid sm:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))] sm:gap-3 sm:items-end"
+            >
+              <div className="mb-2 sm:mb-0">
+                <p className="text-sm font-medium text-white">{REWARDED_AD_PLACEMENT_LABELS[placementId]}</p>
+                <p className="font-mono text-[10px] text-slate-500">{placementId}</p>
+                {placementId === CHEST_SPEEDUP_PLACEMENT_ID ? (
+                  <p className="mt-1 text-[11px] text-amber-200/90">
+                    O app usa <code className="text-slate-300">speedUpChestUnlock</code>; PR abaixo não aplica a este
+                    fluxo.
+                  </p>
+                ) : null}
+              </div>
+              <Field
+                label={
+                  GENERIC_REWARDED_AD_PLACEMENTS.has(placementId)
+                    ? "PR (vazio = global)"
+                    : "PR extra (vazio = 0)"
+                }
+                value={placementRewards[placementId].coins}
+                onChange={(value) =>
+                  setPlacementRewards((prev) => ({
+                    ...prev,
+                    [placementId]: { ...prev[placementId], coins: value },
+                  }))
+                }
+              />
+              <Field
+                label="TICKET"
+                value={placementRewards[placementId].gems}
+                onChange={(value) =>
+                  setPlacementRewards((prev) => ({
+                    ...prev,
+                    [placementId]: { ...prev[placementId], gems: value },
+                  }))
+                }
+              />
+              <Field
+                label="Saldo"
+                value={placementRewards[placementId].saldo}
+                onChange={(value) =>
+                  setPlacementRewards((prev) => ({
+                    ...prev,
+                    [placementId]: { ...prev[placementId], saldo: value },
+                  }))
+                }
+              />
+            </div>
+          ))}
         </div>
       </section>
 
@@ -294,7 +434,7 @@ export default function AdminConfigPage() {
             <h2 className="text-lg font-semibold text-white">Roleta da sorte</h2>
             <p className="mt-1 text-xs text-slate-400">
               Por fatia: <strong className="text-white">PR</strong>,{" "}
-              <strong className="text-white">TICKET</strong>, <strong className="text-white">CASH</strong> ou{" "}
+              <strong className="text-white">TICKET</strong>, <strong className="text-white">Saldo</strong> ou{" "}
               <strong className="text-white">baú</strong>. Peso maior = mais chance na roleta (servidor).
             </p>
           </div>
@@ -322,7 +462,7 @@ export default function AdminConfigPage() {
               setRouletteRows((current) => [...current, { kind: "rewardBalance", coins: 10, weight: 6 }])
             }
           >
-            + CASH
+            + Saldo
           </Button>
           <Button
             type="button"
@@ -356,7 +496,7 @@ export default function AdminConfigPage() {
             >
               <option value="coins">PR</option>
               <option value="gems">TICKET</option>
-              <option value="rewardBalance">CASH</option>
+              <option value="rewardBalance">Saldo</option>
             </select>
           </div>
         </div>
@@ -408,7 +548,7 @@ export default function AdminConfigPage() {
                 >
                   <option value="coins">Moedas (PR)</option>
                   <option value="gems">Tickets (gems)</option>
-                  <option value="rewardBalance">Pontos CASH</option>
+                  <option value="rewardBalance">Pontos Saldo</option>
                   <option value="chest">Baú</option>
                 </select>
               </div>
@@ -444,7 +584,7 @@ export default function AdminConfigPage() {
                     row.kind === "gems"
                       ? "Tickets na fatia"
                       : row.kind === "rewardBalance"
-                        ? "Pontos CASH na fatia"
+                        ? "Pontos Saldo na fatia"
                         : "PR na fatia"
                   }
                   value={String(row.coins)}
@@ -489,7 +629,7 @@ export default function AdminConfigPage() {
         </div>
 
         <AlertBanner tone="info">
-          O prêmio real vem do servidor (PR, TICKET, CASH e/ou baú). Baús dependem dos slots da fila; se não
+          O prêmio real vem do servidor (PR, TICKET, Saldo e/ou baú). Baús dependem dos slots da fila; se não
           couber, avise para ajuste na aba Baús.
         </AlertBanner>
       </section>
@@ -536,22 +676,22 @@ export default function AdminConfigPage() {
       </section>
 
       <section className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-950/20 p-4">
-        <h2 className="text-lg font-semibold text-white">CASH ↔ real (saque / premiação)</h2>
+        <h2 className="text-lg font-semibold text-white">Saldo ↔ real (saque / premiação)</h2>
         <p className="text-xs text-slate-400">
-          Quantos <strong className="text-white">pontos CASH</strong> equivalem a{" "}
+          Quantos <strong className="text-white">pontos de saldo</strong> equivalem a{" "}
           <strong className="text-white">R$ 1,00</strong> na tela de recompensas (cálculo automático do
           valor em reais).
         </p>
         <Field
-          label="Pontos CASH por R$ 1,00"
-          value={cashPointsPerReal}
-          onChange={setCashPointsPerReal}
+          label="Pontos Saldo por R$ 1,00"
+          value={saldoPointsPerReal}
+          onChange={setSaldoPointsPerReal}
         />
         <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/40 p-3 text-xs text-emerald-100/90">
           <p className="font-semibold text-emerald-200">Inverso</p>
           <p className="mt-1">
-            R$ 1,00 = {cashN} pts CASH · 1 ponto CASH ≈{" "}
-            <strong className="text-white">{formatBrl(brlPerCashPoint)}</strong>
+            R$ 1,00 = {saldoN} pts Saldo · 1 ponto Saldo ≈{" "}
+            <strong className="text-white">{formatBrl(brlPerSaldoPoint)}</strong>
           </p>
         </div>
       </section>
@@ -559,11 +699,8 @@ export default function AdminConfigPage() {
       <section className="space-y-3 rounded-xl border border-violet-400/25 bg-violet-950/25 p-4">
         <h2 className="text-lg font-semibold text-white">Crédito manual em conta</h2>
         <p className="text-xs text-slate-400">
-          Credita PR, TICKET ou CASH na conta do jogador (via Cloud Function). Use username (sem @) ou UID.
+          Credita PR, TICKET ou Saldo na conta do jogador (via Cloud Function). Use username (sem @) ou UID.
         </p>
-        {grantMsg ? (
-          <AlertBanner tone={grantMsg.startsWith("Crédito") ? "success" : "error"}>{grantMsg}</AlertBanner>
-        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="text-xs text-slate-400">Buscar por</label>
@@ -590,7 +727,7 @@ export default function AdminConfigPage() {
             >
               <option value="coins">PR (coins)</option>
               <option value="gems">TICKET (gems)</option>
-              <option value="rewardBalance">CASH (rewardBalance)</option>
+              <option value="rewardBalance">Saldo (rewardBalance)</option>
             </select>
           </div>
           <Field label="Quantidade" value={grantAmount} onChange={setGrantAmount} />

@@ -207,11 +207,44 @@ export function subscribeDiscoverableClans(
   });
 }
 
-export function subscribeClanRankingBoard(onNext: (clans: Clan[]) => void): Unsubscribe {
+/** Uma só subscrição Firestore partilhada por todos os consumidores (evita listens duplicados). */
+const clanRankingBoardMulticast: {
+  listeners: Set<(clans: Clan[]) => void>;
+  unsub: Unsubscribe | null;
+  last: Clan[];
+} = {
+  listeners: new Set(),
+  unsub: null,
+  last: [],
+};
+
+function ensureClanRankingBoardListener(): void {
+  if (clanRankingBoardMulticast.unsub) return;
   const clansRef = collection(getFirebaseFirestore(), COLLECTIONS.clans);
-  return onSnapshot(clansRef, (snapshot) => {
-    onNext(snapshot.docs.map((docSnap) => normalizeClan(docSnap.id, docSnap.data() as Record<string, unknown>)));
+  clanRankingBoardMulticast.unsub = onSnapshot(clansRef, (snapshot) => {
+    clanRankingBoardMulticast.last = snapshot.docs.map((docSnap) =>
+      normalizeClan(docSnap.id, docSnap.data() as Record<string, unknown>),
+    );
+    for (const listener of clanRankingBoardMulticast.listeners) {
+      listener(clanRankingBoardMulticast.last);
+    }
   });
+}
+
+export function subscribeClanRankingBoard(onNext: (clans: Clan[]) => void): Unsubscribe {
+  clanRankingBoardMulticast.listeners.add(onNext);
+  if (clanRankingBoardMulticast.last.length > 0) {
+    onNext(clanRankingBoardMulticast.last);
+  }
+  ensureClanRankingBoardListener();
+  return () => {
+    clanRankingBoardMulticast.listeners.delete(onNext);
+    if (clanRankingBoardMulticast.listeners.size === 0) {
+      clanRankingBoardMulticast.unsub?.();
+      clanRankingBoardMulticast.unsub = null;
+      clanRankingBoardMulticast.last = [];
+    }
+  };
 }
 
 export function subscribeClanMembers(
@@ -359,8 +392,8 @@ export async function requestClanAccess(
   );
 }
 
-export async function leaveClan(): Promise<{ ok: boolean }> {
-  return callClanFunction<Record<string, never>, { ok: boolean }>("leaveClan", {});
+export async function leaveClan(): Promise<{ ok: boolean; dissolved?: boolean }> {
+  return callClanFunction<Record<string, never>, { ok: boolean; dissolved?: boolean }>("leaveClan", {});
 }
 
 export async function sendClanMessage(

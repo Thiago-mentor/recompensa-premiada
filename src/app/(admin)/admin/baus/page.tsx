@@ -6,7 +6,7 @@ import { Clock3, Gift, Sparkles, TimerReset } from "lucide-react";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { ChestSystemConfigPanel } from "@/components/admin/ChestSystemConfigPanel";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { Button } from "@/components/ui/Button";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
@@ -17,6 +17,7 @@ import {
   normalizeStreakDisplayDays,
 } from "@/services/economy/economyStreakConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
+import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
 
 const ECONOMY_ID = "economy";
 
@@ -27,12 +28,8 @@ const emptyTier = (): StreakRewardTier => ({
   tipoBonus: "bau",
 });
 
-type SaveMessage = {
-  tone: "success" | "error";
-  text: string;
-};
-
 export default function AdminBausPage() {
+  const { notify } = useAdminSaveFeedback();
   const [dailyBonus, setDailyBonus] = useState("50");
   const [chestCooldown, setChestCooldown] = useState("3600");
   const [boostEnabled, setBoostEnabled] = useState(false);
@@ -40,7 +37,6 @@ export default function AdminBausPage() {
   const [streakDisplayDays, setStreakDisplayDays] = useState(
     String(DEFAULT_STREAK_DISPLAY_DAYS),
   );
-  const [msg, setMsg] = useState<SaveMessage | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -72,7 +68,6 @@ export default function AdminBausPage() {
   }, []);
 
   async function saveBausEconomy() {
-    setMsg(null);
     setSaving(true);
     try {
       const db = getFirebaseFirestore();
@@ -93,15 +88,13 @@ export default function AdminBausPage() {
         },
         { merge: true },
       );
-      setMsg({
-        tone: "success",
-        text: "Configurações de baús ligadas à economia salvas.",
-      });
+      invalidateEconomyConfigCache();
+      notify("success", "Configurações de baús ligadas à economia salvas.");
     } catch (error) {
-      setMsg({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Erro ao salvar configurações de baús.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Erro ao salvar configurações de baús.",
+      );
     } finally {
       setSaving(false);
     }
@@ -130,8 +123,6 @@ export default function AdminBausPage() {
           </Button>
         }
       />
-
-      {msg ? <AlertBanner tone={msg.tone}>{msg.text}</AlertBanner> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AdminMetricCard

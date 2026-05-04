@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleOff, LayoutList, Sparkles, TriangleAlert } from "lucide-react";
 import {
   addDoc,
@@ -27,6 +27,7 @@ import {
   getFirebaseAiBackend,
 } from "@/lib/firebase/config";
 import { COLLECTIONS } from "@/lib/constants/collections";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import type { QuizQuestionDifficulty, QuizQuestionDoc } from "@/types/quiz";
@@ -113,6 +114,7 @@ const quizSingleRegenSchema = Schema.object({
 type ListFilterActive = "all" | "active" | "inactive";
 
 export default function AdminQuizPage() {
+  const { notify } = useAdminSaveFeedback();
   const [rows, setRows] = useState<QuizQuestionDoc[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(() => new Set());
@@ -123,7 +125,6 @@ export default function AdminQuizPage() {
   const [listSearch, setListSearch] = useState("");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [generatorForm, setGeneratorForm] = useState<GeneratorFormState>(EMPTY_GENERATOR_FORM);
-  const [msg, setMsg] = useState<ReactNode | null>(null);
   const [busy, setBusy] = useState(false);
   const [generatorBusy, setGeneratorBusy] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -239,15 +240,14 @@ export default function AdminQuizPage() {
     .filter((value) => value.length > 0);
 
   async function save() {
-    setMsg(null);
     const question = form.question.trim();
     const correctIndex = Number(form.correctIndex);
     if (!question || optionList.length < 2) {
-      setMsg("Preencha a pergunta e pelo menos duas opções.");
+      notify("error", "Preencha a pergunta e pelo menos duas opções.");
       return;
     }
     if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= optionList.length) {
-      setMsg("Selecione uma resposta correta válida.");
+      notify("error", "Selecione uma resposta correta válida.");
       return;
     }
     const weight = Math.max(1, Math.floor(Number(form.weight) || 1));
@@ -267,7 +267,7 @@ export default function AdminQuizPage() {
       };
       if (selectedId) {
         await setDoc(doc(db, COLLECTIONS.quizQuestions, selectedId), payload, { merge: true });
-        setMsg("Pergunta atualizada.");
+        notify("success", "Pergunta atualizada.");
       } else {
         const ref = await addDoc(collection(db, COLLECTIONS.quizQuestions), {
           ...payload,
@@ -275,10 +275,10 @@ export default function AdminQuizPage() {
         });
         await setDoc(doc(db, COLLECTIONS.quizQuestions, ref.id), { id: ref.id }, { merge: true });
         setSelectedId(ref.id);
-        setMsg("Pergunta criada.");
+        notify("success", "Pergunta criada.");
       }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao salvar pergunta.");
+      notify("error", e instanceof Error ? e.message : "Erro ao salvar pergunta.");
     } finally {
       setBusy(false);
     }
@@ -288,15 +288,14 @@ export default function AdminQuizPage() {
     if (!selectedId) return;
     if (!window.confirm("Excluir esta pergunta do quiz?")) return;
     setBusy(true);
-    setMsg(null);
     try {
       const db = getFirebaseFirestore();
       await deleteDoc(doc(db, COLLECTIONS.quizQuestions, selectedId));
       setSelectedId(null);
       setForm(EMPTY_FORM);
-      setMsg("Pergunta excluída.");
+      notify("success", "Pergunta excluída.");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao excluir pergunta.");
+      notify("error", e instanceof Error ? e.message : "Erro ao excluir pergunta.");
     } finally {
       setBusy(false);
     }
@@ -325,10 +324,9 @@ export default function AdminQuizPage() {
       return row && !row.active;
     });
     if (ids.length === 0) {
-      setMsg("Selecione pelo menos uma pergunta inativa para aprovar.");
+      notify("error", "Selecione pelo menos uma pergunta inativa para aprovar.");
       return;
     }
-    setMsg(null);
     setBulkBusy(true);
     setBulkBusyKind("activate");
     try {
@@ -346,10 +344,10 @@ export default function AdminQuizPage() {
         }
         await batch.commit();
       }
-      setMsg(`${ids.length} pergunta(s) ativada(s).`);
+      notify("success", `${ids.length} pergunta(s) ativada(s).`);
       clearBulkSelection();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao ativar em lote.");
+      notify("error", e instanceof Error ? e.message : "Erro ao ativar em lote.");
     } finally {
       setBulkBusy(false);
       setBulkBusyKind(null);
@@ -362,10 +360,9 @@ export default function AdminQuizPage() {
       return row && row.active;
     });
     if (ids.length === 0) {
-      setMsg("Selecione pelo menos uma pergunta ativa para inativar.");
+      notify("error", "Selecione pelo menos uma pergunta ativa para inativar.");
       return;
     }
-    setMsg(null);
     setBulkBusy(true);
     setBulkBusyKind("deactivate");
     try {
@@ -383,10 +380,10 @@ export default function AdminQuizPage() {
         }
         await batch.commit();
       }
-      setMsg(`${ids.length} pergunta(s) inativada(s).`);
+      notify("success", `${ids.length} pergunta(s) inativada(s).`);
       clearBulkSelection();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao inativar em lote.");
+      notify("error", e instanceof Error ? e.message : "Erro ao inativar em lote.");
     } finally {
       setBulkBusy(false);
       setBulkBusyKind(null);
@@ -396,7 +393,7 @@ export default function AdminQuizPage() {
   async function batchDeleteSelected() {
     const ids = Array.from(bulkSelectedIds);
     if (ids.length === 0) {
-      setMsg("Selecione pelo menos uma pergunta para excluir.");
+      notify("error", "Selecione pelo menos uma pergunta para excluir.");
       return;
     }
     if (
@@ -406,7 +403,6 @@ export default function AdminQuizPage() {
     ) {
       return;
     }
-    setMsg(null);
     setBulkBusy(true);
     setBulkBusyKind("delete");
     try {
@@ -424,10 +420,10 @@ export default function AdminQuizPage() {
         setSelectedId(null);
         setForm(EMPTY_FORM);
       }
-      setMsg(`${ids.length} pergunta(s) excluída(s).`);
+      notify("success", `${ids.length} pergunta(s) excluída(s).`);
       clearBulkSelection();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao excluir em lote.");
+      notify("error", e instanceof Error ? e.message : "Erro ao excluir em lote.");
     } finally {
       setBulkBusy(false);
       setBulkBusyKind(null);
@@ -439,10 +435,9 @@ export default function AdminQuizPage() {
       .map((id) => rows.find((r) => r.id === id))
       .filter((r): r is QuizQuestionDoc => Boolean(r));
     if (selectedRows.length === 0) {
-      setMsg("Selecione pelo menos uma pergunta para regenerar.");
+      notify("error", "Selecione pelo menos uma pergunta para regenerar.");
       return;
     }
-    setMsg(null);
     setBulkBusy(true);
     setBulkBusyKind("regen");
     try {
@@ -497,9 +492,12 @@ export default function AdminQuizPage() {
           fail += 1;
         }
       }
-      setMsg(`Regeneração concluída: ${ok} atualizada(s), ${fail} falha(s). Revisadas ficam inativas.`);
+      notify(
+        "success",
+        `Regeneração concluída: ${ok} atualizada(s), ${fail} falha(s). Revisadas ficam inativas.`,
+      );
     } catch (e) {
-      setMsg(formatAiLogicUserMessage(e, "Não foi possível regenerar com IA."));
+      notify("error", formatAiLogicUserPlainMessage(e, "Não foi possível regenerar com IA."));
     } finally {
       setBulkBusy(false);
       setBulkBusyKind(null);
@@ -507,12 +505,11 @@ export default function AdminQuizPage() {
   }
 
   async function generateQuestionsWithAI() {
-    setMsg(null);
     const topic = generatorForm.topic.trim();
     const category = generatorForm.category.trim();
     const quantity = Math.min(20, Math.max(1, Number(generatorForm.quantity) || 1));
     if (!topic) {
-      setMsg("Informe um tema para gerar perguntas.");
+      notify("error", "Informe um tema para gerar perguntas.");
       return;
     }
 
@@ -563,9 +560,12 @@ export default function AdminQuizPage() {
         });
       }
       await batch.commit();
-      setMsg(`${normalized.length} perguntas geradas com IA e salvas como inativas para revisão.`);
+      notify(
+        "success",
+        `${normalized.length} perguntas geradas com IA e salvas como inativas para revisão.`,
+      );
     } catch (e) {
-      setMsg(formatAiLogicUserMessage(e, "Não foi possível gerar perguntas com IA."));
+      notify("error", formatAiLogicUserPlainMessage(e, "Não foi possível gerar perguntas com IA."));
     } finally {
       setGeneratorBusy(false);
     }
@@ -584,7 +584,6 @@ export default function AdminQuizPage() {
             onClick={() => {
               setSelectedId(null);
               setForm(EMPTY_FORM);
-              setMsg(null);
             }}
           >
             Nova pergunta
@@ -592,7 +591,6 @@ export default function AdminQuizPage() {
         }
       />
 
-      {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
       {listLoadError ? (
         <AlertBanner tone="info">
           <strong className="text-amber-200">Lista não atualizou:</strong> {listLoadError} — confira regras do
@@ -978,7 +976,7 @@ export default function AdminQuizPage() {
   );
 }
 
-function formatAiLogicUserMessage(error: unknown, title: string): ReactNode {
+function formatAiLogicUserPlainMessage(error: unknown, title: string): string {
   const text = error instanceof Error ? error.message : String(error);
   const apiNotEnabled =
     /api-not-enabled|firebasevertexai\.googleapis\.com|Firebase AI API requires/i.test(text);
@@ -987,39 +985,14 @@ function formatAiLogicUserMessage(error: unknown, title: string): ReactNode {
     ? `https://console.firebase.google.com/project/${encodeURIComponent(pid)}/ailogic/`
     : "https://console.firebase.google.com/";
   if (apiNotEnabled) {
-    return (
-      <div className="space-y-2">
-        <p className="font-medium text-white">{title}</p>
-        <p>
-          O projeto precisa ter o <strong className="text-white">Firebase AI Logic</strong> ativado e o
-          par de APIs do provedor que você escolheu no Console. No <strong className="text-white">AI Logic</strong>,
-          use <strong className="text-white">Get started</strong> e ative{" "}
-          <strong className="text-white">Vertex AI Gemini</strong> <em>ou</em>{" "}
-          <strong className="text-white">Gemini Developer API</strong> (são fluxos diferentes). Se você só ativou o
-          Vertex, o app já usa <code className="text-cyan-200">NEXT_PUBLIC_FIREBASE_AI_BACKEND=vertex</code> por
-          padrão; se ativou só o Developer, coloque{" "}
-          <code className="text-cyan-200">NEXT_PUBLIC_FIREBASE_AI_BACKEND=google</code> no{" "}
-          <code className="text-cyan-200">.env.local</code> e reinicie o{" "}
-          <code className="text-cyan-200">npm run dev</code>. Aguarde alguns minutos após ativar APIs.
-        </p>
-        <p>
-          <a
-            href={aiLogicUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-cyan-200 underline underline-offset-2 hover:text-cyan-100"
-          >
-            Abrir AI Logic no Firebase Console
-          </a>
-        </p>
-      </div>
-    );
+    return [
+      title,
+      "Ative o Firebase AI Logic no Console (Vertex AI Gemini ou Gemini Developer API).",
+      "Ajuste NEXT_PUBLIC_FIREBASE_AI_BACKEND no .env.local e reinicie npm run dev.",
+      `Abrir: ${aiLogicUrl}`,
+    ].join(" ");
   }
-  return (
-    <span>
-      {title}: {text}
-    </span>
-  );
+  return `${title}: ${text}`;
 }
 
 function getQuizBaseModel() {

@@ -12,7 +12,7 @@ export interface RewardClaim {
   tipo: RewardClaimTipo;
   chavePix: string;
   status: RewardClaimStatus;
-  /** Se true, o CASH já foi retido no pedido; aprovação não debita de novo; recusa estorna. */
+  /** Se true, o saldo já foi retido no pedido; aprovação não debita de novo; recusa estorna. */
   retencaoAplicada?: boolean;
   /** URL do comprovante (HTTPS) após admin confirmar o PIX. */
   comprovanteUrl?: string | null;

@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { ClanEmptyState } from "@/components/cla/ClanEmptyState";
+import { ClaGameHeader } from "@/components/cla/ClaGameHeader";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import {
@@ -59,25 +60,21 @@ export default function ClaChatPage() {
   }
 
   return (
-    <ArenaShell maxWidth="max-w-lg" padding="sm">
+    <ArenaShell maxWidth="max-w-lg" padding="sm" hudFrame={false}>
       <motion.div className="space-y-5" variants={staggerContainer} initial="hidden" animate="show">
-        <motion.header variants={fadeUpItem} className="space-y-2 px-1 pt-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-fuchsia-300/75">Clã</p>
-          <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Chat</h1>
-          <p className="text-sm text-white/55">
-            Canal do clã para combinar jogos, avisar meta cumprida e celebrar vitórias.
-          </p>
-        </motion.header>
+        <ClaGameHeader
+          kicker="Comunicação"
+          title="Chat"
+          description="Canal do clã para combinar jogos, avisar meta cumprida e celebrar vitórias."
+          accent="fuchsia"
+        />
 
         <ClaSectionNav />
 
         {notice ? <AlertBanner tone={notice.tone}>{notice.text}</AlertBanner> : null}
 
         {loading ? (
-          <motion.section
-            variants={fadeUpItem}
-            className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-sm text-white/55"
-          >
+          <motion.section variants={fadeUpItem} className="game-panel px-4 py-10 text-center text-sm text-white/55">
             Carregando mensagens do clã...
           </motion.section>
         ) : !hasClan || !clan ? (

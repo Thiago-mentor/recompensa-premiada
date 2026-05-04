@@ -3,6 +3,7 @@
 import {
   collection,
   doc,
+  documentId,
   getDoc,
   getDocs,
   limit,
@@ -97,6 +98,37 @@ function compareVictoryRankedEntry(a: RankingEntry, b: RankingEntry): number {
   return a.uid.localeCompare(b.uid, "pt-BR");
 }
 
+function victoryRankingIndexedFetchCap(topN: number): number {
+  return Math.min(2500, Math.max(topN * 60, topN + 120));
+}
+
+function isFirestoreIndexMissingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  return "code" in error && (error as { code?: string }).code === "failed-precondition";
+}
+
+function mapVictoryRankedLimited(
+  entries: RankingEntry[],
+  topN: number,
+): RankingEntry[] {
+  return entries
+    .sort(compareVictoryRankedEntry)
+    .slice(0, topN)
+    .map((entry, index) => ({ ...entry, posicao: index + 1 }));
+}
+
+async function fetchVictoryRankedTopFullScan(
+  entriesRef: ReturnType<typeof collection>,
+  topN: number,
+  options?: RankingQueryOptions,
+): Promise<RankingEntry[]> {
+  const snap = await getDocs(entriesRef);
+  return mapVictoryRankedLimited(
+    snap.docs.map((d) => normalizeEntry(d.id, d.data(), options)),
+    topN,
+  );
+}
+
 /** Subcoleção `entries` em `rankings_* / {periodoChave} / entries / {uid}` */
 export async function fetchTopRanking(
   tipo: RankingPeriod,
@@ -107,12 +139,32 @@ export async function fetchTopRanking(
   const db = getFirebaseFirestore();
   const entriesRef = collection(db, entriesCollectionPath(tipo, periodoChave, options));
   if (isVictoryRankedGame(options)) {
-    const snap = await getDocs(entriesRef);
-    return snap.docs
-      .map((d) => normalizeEntry(d.id, d.data(), options))
-      .sort(compareVictoryRankedEntry)
-      .slice(0, topN)
-      .map((entry, index) => ({ ...entry, posicao: index + 1 }));
+    try {
+      const cap = victoryRankingIndexedFetchCap(topN);
+      const indexedQuery = query(
+        entriesRef,
+        orderBy("vitorias", "desc"),
+        orderBy("score", "desc"),
+        orderBy("partidas", "desc"),
+        orderBy("atualizadoEm", "desc"),
+        orderBy(documentId(), "desc"),
+        limit(cap),
+      );
+      const snap = await getDocs(indexedQuery);
+      return mapVictoryRankedLimited(
+        snap.docs.map((d) => normalizeEntry(d.id, d.data(), options)),
+        topN,
+      );
+    } catch (e: unknown) {
+      if (!isFirestoreIndexMissingError(e)) throw e;
+      if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+        console.warn(
+          "[ranking] Índice composto ausente para ranking por vitória; usando scan completo. Publique `firebase deploy --only firestore:indexes`.",
+          e,
+        );
+      }
+      return fetchVictoryRankedTopFullScan(entriesRef, topN, options);
+    }
   }
   const q = query(entriesRef, orderBy("score", "desc"), limit(topN));
   const snap = await getDocs(q);

@@ -1,9 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ClanEmptyState } from "@/components/cla/ClanEmptyState";
+import { ClaGameHeader } from "@/components/cla/ClaGameHeader";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useCenterScreenFeedback } from "@/components/feedback/CenterScreenFeedback";
 import { Button } from "@/components/ui/Button";
 import {
   ArenaShell,
@@ -25,6 +28,7 @@ import {
   getRankingPrizeForPosition,
   type NormalizedRankingPrizeConfig,
 } from "@/lib/ranking/prizes";
+import { ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
 import {
@@ -55,6 +59,7 @@ const ROSTER_GRID_CLASS =
 
 export default function ClaMembrosPage() {
   const { user } = useAuth();
+  const { notify } = useCenterScreenFeedback();
   const {
     loading,
     hasClan,
@@ -66,10 +71,7 @@ export default function ClaMembrosPage() {
     isOwner,
   } = useClanDashboard();
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{
-    tone: "success" | "error" | "info";
-    text: string;
-  } | null>(null);
+  const isSoloFounder = Boolean(isOwner && members.length === 1);
   const [showcaseRows, setShowcaseRows] = useState<ClanMemberShowcaseRow[]>([]);
   const [showcaseLoading, setShowcaseLoading] = useState(false);
   const [showcaseError, setShowcaseError] = useState<string | null>(null);
@@ -201,15 +203,19 @@ export default function ClaMembrosPage() {
 
   async function handleLeaveClan() {
     setBusyKey("leave");
-    setNotice(null);
     try {
-      await leaveClan();
-      setNotice({ tone: "success", text: "Você saiu do clã com sucesso." });
+      const result = await leaveClan();
+      notify(
+        "success",
+        result.dissolved
+          ? "O clã foi encerrado. Você não pertence mais a nenhum grupo."
+          : "Você saiu do clã com sucesso.",
+      );
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível sair do clã.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível sair do clã.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -218,21 +224,17 @@ export default function ClaMembrosPage() {
   async function handleChangeRole(targetUid: string, role: "leader" | "member") {
     if (!clan?.id) return;
     setBusyKey(`role:${targetUid}:${role}`);
-    setNotice(null);
     try {
       await changeClanMemberRole({ clanId: clan.id, targetUid, role });
-      setNotice({
-        tone: "success",
-        text:
-          role === "leader"
-            ? "Membro promovido para líder."
-            : "Líder rebaixado para membro.",
-      });
+      notify(
+        "success",
+        role === "leader" ? "Membro promovido para líder." : "Líder rebaixado para membro.",
+      );
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível atualizar o cargo.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível atualizar o cargo.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -243,18 +245,14 @@ export default function ClaMembrosPage() {
     if (!window.confirm(`Transferir a liderança do clã para ${nome}?`)) return;
 
     setBusyKey(`transfer:${targetUid}`);
-    setNotice(null);
     try {
       await transferClanOwnership({ clanId: clan.id, targetUid });
-      setNotice({
-        tone: "success",
-        text: `Liderança transferida para ${nome}. Você agora é líder do clã.`,
-      });
+      notify("success", `Liderança transferida para ${nome}. Você agora é líder do clã.`);
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível transferir a liderança.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível transferir a liderança.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -263,15 +261,14 @@ export default function ClaMembrosPage() {
   async function handleApproveRequest(targetUid: string, nome: string) {
     if (!clan?.id) return;
     setBusyKey(`approve:${targetUid}`);
-    setNotice(null);
     try {
       await approveClanJoinRequest({ clanId: clan.id, targetUid });
-      setNotice({ tone: "success", text: `${nome} entrou no clã com sucesso.` });
+      notify("success", `${nome} entrou no clã com sucesso.`);
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível aprovar a solicitação.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível aprovar a solicitação.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -280,15 +277,14 @@ export default function ClaMembrosPage() {
   async function handleRejectRequest(targetUid: string, nome: string) {
     if (!clan?.id) return;
     setBusyKey(`reject:${targetUid}`);
-    setNotice(null);
     try {
       await rejectClanJoinRequest({ clanId: clan.id, targetUid });
-      setNotice({ tone: "success", text: `Solicitação de ${nome} recusada.` });
+      notify("success", `Solicitação de ${nome} recusada.`);
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível recusar a solicitação.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível recusar a solicitação.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -298,40 +294,33 @@ export default function ClaMembrosPage() {
     if (!clan?.id) return;
     if (!window.confirm(`Remover ${nome} do clã?`)) return;
     setBusyKey(`kick:${targetUid}`);
-    setNotice(null);
     try {
       await kickClanMember({ clanId: clan.id, targetUid });
-      setNotice({ tone: "success", text: `${nome} foi removido do clã.` });
+      notify("success", `${nome} foi removido do clã.`);
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível remover o membro.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível remover o membro.",
+      );
     } finally {
       setBusyKey(null);
     }
   }
 
   return (
-    <ArenaShell maxWidth="max-w-[1320px]" padding="sm">
+    <ArenaShell maxWidth="max-w-[1320px]" padding="sm" hudFrame={false}>
       <motion.div className="space-y-5" variants={staggerContainer} initial="hidden" animate="show">
-        <motion.header variants={fadeUpItem} className="space-y-2 px-1 pt-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300/75">Clã</p>
-          <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Membros</h1>
-          <p className="text-sm text-white/55">
-            Papéis, convites e presença do grupo aparecem aqui quando você estiver em um clã.
-          </p>
-        </motion.header>
+        <ClaGameHeader
+          kicker="Esquadrão"
+          title="Membros"
+          description="Papéis, convites e presença do grupo aparecem aqui quando você estiver em um clã."
+          accent="cyan"
+        />
 
         <ClaSectionNav />
 
-        {notice ? <AlertBanner tone={notice.tone}>{notice.text}</AlertBanner> : null}
-
         {loading ? (
-          <motion.section
-            variants={fadeUpItem}
-            className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-sm text-white/55"
-          >
+          <motion.section variants={fadeUpItem} className="game-panel px-4 py-10 text-center text-sm text-white/55">
             Carregando integrantes do clã...
           </motion.section>
         ) : !hasClan || !clan ? (
@@ -364,9 +353,21 @@ export default function ClaMembrosPage() {
               </div>
             </motion.section>
 
-            {isOwner ? (
+            {isSoloFounder ? (
               <AlertBanner tone="info">
-                Como fundador, você precisa transferir a liderança para outro membro antes de sair do clã.
+                Você é o único membro. Para{" "}
+                <strong className="font-semibold text-cyan-100">encerrar o clã permanentemente</strong>, use{" "}
+                <Link
+                  href={ROUTES.claConfiguracoes}
+                  className="font-semibold text-cyan-200 underline-offset-4 hover:underline"
+                >
+                  Configurações
+                </Link>{" "}
+                — lá está a zona sensível com essa opção.
+              </AlertBanner>
+            ) : isOwner ? (
+              <AlertBanner tone="info">
+                Há outros membros no grupo. Transfira a liderança antes de sair do clã.
               </AlertBanner>
             ) : (
               <div className="flex justify-end">

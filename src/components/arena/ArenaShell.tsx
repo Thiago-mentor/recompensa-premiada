@@ -39,6 +39,11 @@ type ArenaShellProps = {
   /** padding interno do painel */
   padding?: "none" | "sm" | "md";
   maxWidth?: string;
+  /**
+   * Cantos cyan + friso superior no painel. Desligue quando o conteúdo já traz HUD próprio
+   * (ex.: cabeçalhos CLA), para evitar cantos duplicados ou cores misturadas.
+   */
+  hudFrame?: boolean;
 };
 
 const paddingMap = {
@@ -55,6 +60,7 @@ export function ArenaShell({
   className,
   padding = "md",
   maxWidth = "max-w-4xl",
+  hudFrame = true,
 }: ArenaShellProps) {
   return (
     <div className={cn("relative mx-auto w-full", maxWidth, className)}>
@@ -78,11 +84,15 @@ export function ArenaShell({
             backgroundSize: "22px 22px",
           }}
         />
-        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
-        <div className="pointer-events-none absolute left-4 top-4 h-4 w-4 border-l border-t border-cyan-300/45" />
-        <div className="pointer-events-none absolute right-4 top-4 h-4 w-4 border-r border-t border-cyan-300/45" />
-        <div className="pointer-events-none absolute bottom-4 left-4 h-4 w-4 border-b border-l border-cyan-300/35" />
-        <div className="pointer-events-none absolute bottom-4 right-4 h-4 w-4 border-b border-r border-cyan-300/35" />
+        {hudFrame ? (
+          <>
+            <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
+            <div className="pointer-events-none absolute left-4 top-4 h-4 w-4 border-l border-t border-cyan-300/45" />
+            <div className="pointer-events-none absolute right-4 top-4 h-4 w-4 border-r border-t border-cyan-300/45" />
+            <div className="pointer-events-none absolute bottom-4 left-4 h-4 w-4 border-b border-l border-cyan-300/35" />
+            <div className="pointer-events-none absolute bottom-4 right-4 h-4 w-4 border-b border-r border-cyan-300/35" />
+          </>
+        ) : null}
         <div className={cn("relative", paddingMap[padding])}>{children}</div>
       </div>
     </div>

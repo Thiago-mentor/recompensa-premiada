@@ -3,7 +3,9 @@
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ClanEmptyState } from "@/components/cla/ClanEmptyState";
+import { ClaGameHeader } from "@/components/cla/ClaGameHeader";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useCenterScreenFeedback } from "@/components/feedback/CenterScreenFeedback";
 import { Button } from "@/components/ui/Button";
 import {
   ArenaShell,
@@ -23,11 +25,11 @@ import {
   uploadClanCoverFromPreview,
   validateClanImageFile,
 } from "@/services/clans/clanAssetService";
-import { updateClanSettings } from "@/services/clans/clanService";
+import { updateClanSettings, leaveClan } from "@/services/clans/clanService";
 import { validatePublicName } from "@/lib/validations/publicNameModeration";
 import type { ClanPrivacy } from "@/types/clan";
 import { ClaSectionNav } from "../ClaSectionNav";
-import { Copy, ImagePlus, RotateCcw, Save, ShieldAlert } from "lucide-react";
+import { Copy, ImagePlus, LogOut, RotateCcw, Save, ShieldAlert } from "lucide-react";
 
 const fieldClass =
   "min-h-[46px] w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-cyan-400/30";
@@ -37,6 +39,7 @@ const DEFAULT_COVER_POSITION = 50;
 const DEFAULT_COVER_SCALE = 100;
 
 export default function ClaConfiguracoesPage() {
+  const { notify } = useCenterScreenFeedback();
   const {
     loading,
     hasClan,
@@ -45,6 +48,7 @@ export default function ClaConfiguracoesPage() {
     members,
     messages,
     pendingJoinRequestsCount,
+    isOwner,
   } = useClanDashboard();
   const [clanName, setClanName] = useState("");
   const [clanTag, setClanTag] = useState("");
@@ -62,10 +66,6 @@ export default function ClaConfiguracoesPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState<"avatar" | "cover" | null>(null);
   const [draggingCover, setDraggingCover] = useState(false);
-  const [notice, setNotice] = useState<{
-    tone: "success" | "error" | "info";
-    text: string;
-  } | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const coverPreviewRef = useRef<HTMLDivElement | null>(null);
@@ -75,6 +75,9 @@ export default function ClaConfiguracoesPage() {
   const savedCoverPositionYRef = useRef(DEFAULT_COVER_POSITION);
   const savedCoverScaleRef = useRef(DEFAULT_COVER_SCALE);
   const coverDraftObjectUrlRef = useRef<string | null>(null);
+
+  const isSoloFounder = Boolean(isOwner && members.length === 1);
+  const [dissolvingClan, setDissolvingClan] = useState(false);
 
   const recentGrowthCount = useMemo(() => {
     const threshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -142,13 +145,12 @@ export default function ClaConfiguracoesPage() {
   async function handleSave() {
     if (!clan?.id) return;
     setSaving(true);
-    setNotice(null);
     const blockedMessage =
       validatePublicName(clanName) ||
       validatePublicName(clanTag) ||
       validatePublicName(description);
     if (blockedMessage) {
-      setNotice({ tone: "error", text: blockedMessage });
+      notify("error", blockedMessage);
       setSaving(false);
       return;
     }
@@ -212,24 +214,51 @@ export default function ClaConfiguracoesPage() {
       setCoverDraftFile(null);
       setCoverDraftPreviewUrl(null);
       setCoverMarkedForReset(false);
-      setNotice({ tone: "success", text: "Configurações do clã atualizadas." });
+      notify("success", "Configurações do clã atualizadas.");
     } catch (error) {
       if (uploadedCoverUrl) {
         await deleteClanAssetByUrl(uploadedCoverUrl);
       }
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível atualizar o clã.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível atualizar o clã.",
+      );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDissolveClan() {
+    if (!isSoloFounder) return;
+    if (
+      !window.confirm(
+        "Encerrar o clã permanentemente? O grupo será apagado, o histórico e pedidos pendentes serão removidos, e você ficará sem clã.",
+      )
+    ) {
+      return;
+    }
+    setDissolvingClan(true);
+    try {
+      const result = await leaveClan();
+      notify(
+        "success",
+        result.dissolved
+          ? "O clã foi encerrado. Você não pertence mais a nenhum grupo."
+          : "Você saiu do clã com sucesso.",
+      );
+    } catch (error) {
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível encerrar o clã.",
+      );
+    } finally {
+      setDissolvingClan(false);
     }
   }
 
   async function handleUploadAsset(kind: "avatar" | "cover", file: File | null) {
     if (!file) return;
     setUploadingAsset(kind);
-    setNotice(null);
     try {
       if (kind === "cover") {
         await validateClanImageFile(file);
@@ -240,10 +269,7 @@ export default function ClaConfiguracoesPage() {
         setCoverDraftPreviewUrl(previewUrl);
         setCoverMarkedForReset(false);
         resetCoverFrame();
-        setNotice({
-          tone: "success",
-          text: "Preview da capa atualizado. Salve para publicar o recorte final.",
-        });
+        notify("info", "Preview da capa atualizado. Salve para publicar o recorte final.");
         return;
       }
 
@@ -254,15 +280,12 @@ export default function ClaConfiguracoesPage() {
         await deleteClanAssetByUrl(previousDraftUrl);
       }
       setAvatarUrl(url);
-      setNotice({
-        tone: "success",
-        text: "Avatar do clã pronto. Salve para publicar.",
-      });
+      notify("success", "Avatar do clã pronto. Salve para publicar.");
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Não foi possível enviar a imagem do clã.",
-      });
+      notify(
+        "error",
+        error instanceof Error ? error.message : "Não foi possível enviar a imagem do clã.",
+      );
     } finally {
       setUploadingAsset(null);
       if (kind === "avatar" && avatarInputRef.current) avatarInputRef.current.value = "";
@@ -273,7 +296,7 @@ export default function ClaConfiguracoesPage() {
   async function handleCopyInviteCode() {
     if (!inviteCode) return;
     await navigator.clipboard.writeText(inviteCode);
-    setNotice({ tone: "success", text: "Código do clã copiado." });
+    notify("success", "Código do clã copiado.");
   }
 
   async function resetDraftAsset(kind: "avatar" | "cover") {
@@ -328,25 +351,19 @@ export default function ClaConfiguracoesPage() {
   const assetActionsDisabled = uploadingAsset !== null || saving;
 
   return (
-    <ArenaShell maxWidth="max-w-lg" padding="sm">
+    <ArenaShell maxWidth="max-w-lg" padding="sm" hudFrame={false}>
       <motion.div className="space-y-5" variants={staggerContainer} initial="hidden" animate="show">
-        <motion.header variants={fadeUpItem} className="space-y-2 px-1 pt-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-violet-300/75">Clã</p>
-          <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Configurações</h1>
-          <p className="text-sm text-white/55">
-            Nome, tag, convite, identidade visual e permissões de líderes ficam concentrados aqui.
-          </p>
-        </motion.header>
+        <ClaGameHeader
+          kicker="Comando"
+          title="Configurações"
+          description="Nome, tag, convite, identidade visual e permissões de líderes ficam concentrados aqui."
+          accent="violet"
+        />
 
         <ClaSectionNav />
 
-        {notice ? <AlertBanner tone={notice.tone}>{notice.text}</AlertBanner> : null}
-
         {loading ? (
-          <motion.section
-            variants={fadeUpItem}
-            className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-sm text-white/55"
-          >
+          <motion.section variants={fadeUpItem} className="game-panel px-4 py-10 text-center text-sm text-white/55">
             Carregando configurações do clã...
           </motion.section>
         ) : !hasClan || !clan ? (
@@ -588,10 +605,11 @@ export default function ClaConfiguracoesPage() {
             </motion.section>
 
             {canManageClan ? (
-              <motion.section
-                variants={fadeUpItem}
-                className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4"
-              >
+              <>
+                <motion.section
+                  variants={fadeUpItem}
+                  className="rounded-[1.6rem] border border-white/10 bg-white/[0.03] p-4"
+                >
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
                     Ajustes editáveis
@@ -710,6 +728,36 @@ export default function ClaConfiguracoesPage() {
                   </Button>
                 </div>
               </motion.section>
+
+              {isSoloFounder ? (
+                <motion.section
+                  variants={fadeUpItem}
+                  className="rounded-[1.6rem] border border-rose-400/25 bg-rose-950/20 p-4 shadow-[0_0_36px_-16px_rgba(244,63,94,0.2)]"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-200/75">
+                        Zona sensível
+                      </p>
+                      <h2 className="mt-1 text-lg font-black text-white">Encerrar clã</h2>
+                      <p className="mt-1 max-w-xl text-sm text-white/60">
+                        Você é o único membro. Encerrar remove o grupo, histórico e pedidos — a ação não pode ser
+                        desfeita.
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className="shrink-0 border-rose-400/35 bg-rose-500/10 text-rose-50 hover:border-rose-400/50 hover:bg-rose-500/18"
+                      onClick={() => void handleDissolveClan()}
+                      disabled={dissolvingClan || saving || uploadingAsset !== null}
+                    >
+                      <LogOut className="h-4 w-4" />
+                      {dissolvingClan ? "Encerrando..." : "Encerrar clã"}
+                    </Button>
+                  </div>
+                </motion.section>
+              ) : null}
+              </>
             ) : (
               <AlertBanner tone="info">
                 Você pode consultar o código e a descrição atual, mas não tem permissão para editar este clã.

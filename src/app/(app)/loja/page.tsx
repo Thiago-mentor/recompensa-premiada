@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
-import { COLLECTIONS } from "@/lib/constants/collections";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import { ROUTES } from "@/lib/constants/routes";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
@@ -66,15 +64,15 @@ export default function LojaPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
+        const dataRaw = await fetchEconomyConfigDocument();
         if (cancelled) return;
-        if (!snap.exists()) {
+        if (!dataRaw) {
           setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
           setConfig(DEFAULT_STORE_CONFIG);
           setBoostSystemResolved(true);
           return;
         }
-        const data = snap.data() as Partial<SystemEconomyConfig>;
+        const data = dataRaw as Partial<SystemEconomyConfig>;
         setBoostSystemEnabled(isBoostSystemEnabled(data));
         setConfig({
           boostRewardPercent:

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { resolveUserRankingDailyScore } from "@/lib/users/ranking";
 import { useClanDashboard } from "@/hooks/useClanDashboard";
@@ -11,8 +10,6 @@ import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { ClanAccessBadge } from "@/components/cla/ClanAccessBadge";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/lib/constants/routes";
-import { COLLECTIONS } from "@/lib/constants/collections";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
@@ -25,6 +22,7 @@ import {
   getAvatarUploadProgress,
   AVATAR_UPLOAD_REQUIREMENTS,
 } from "@/lib/users/avatarRequirements";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { Banknote, Coins, Crown, Flame, ShieldAlert, Sparkles, Ticket, Trophy, Wallet } from "lucide-react";
 
@@ -69,9 +67,10 @@ export default function PerfilPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
-        if (!snap.exists() || cancelled) return;
-        const data = snap.data() as Partial<SystemEconomyConfig>;
+        const raw = await fetchEconomyConfigDocument();
+        if (cancelled) return;
+        if (!raw) return;
+        const data = raw as Partial<SystemEconomyConfig>;
         setBoostSystemEnabled(isBoostSystemEnabled(data));
       } catch {
         if (!cancelled) setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
@@ -185,7 +184,7 @@ export default function PerfilPage() {
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <ProfileMetric label="PR" value={profile ? String(profile.coins) : "—"} icon={<Coins className="h-4 w-4 text-cyan-200" />} />
         <ProfileMetric label="TICKET" value={profile ? String(profile.gems) : "—"} icon={<Ticket className="h-4 w-4 text-fuchsia-200" />} />
-        <ProfileMetric label="CASH" value={profile ? String(profile.rewardBalance) : "—"} icon={<Banknote className="h-4 w-4 text-emerald-200" />} />
+        <ProfileMetric label="Saldo" value={profile ? String(profile.rewardBalance) : "—"} icon={<Banknote className="h-4 w-4 text-emerald-200" />} />
         <ProfileMetric label="Vitórias" value={profile ? String(profile.totalVitorias ?? 0) : "—"} icon={<Trophy className="h-4 w-4 text-amber-200" />} />
       </section>
 

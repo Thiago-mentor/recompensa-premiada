@@ -43,7 +43,7 @@ function shuffleArrayInPlace(nums: number[]): void {
 function prizeLabel(currency: string, amount: number): string {
   if (amount <= 0) return "Prêmio a definir";
   if (currency === "gems") return `${amount} TICKET`;
-  if (currency === "rewardBalance") return `${amount} CASH`;
+  if (currency === "rewardBalance") return `${amount} Saldo`;
   return `${amount} PR`;
 }
 
@@ -581,14 +581,14 @@ export default function SorteiosPage() {
                 <h3 className="text-lg font-black text-white">Números premiados</h3>
               </div>
               <p className="mt-1 text-sm text-white/55">
-                Quando um número premiado é comprado, o CASH entra automaticamente e ele aparece aqui para todos.
+                Quando um número premiado é comprado, o saldo em pontos entra automaticamente e aparece aqui para todos.
               </p>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {raffle.instantPrizeTiers.map((tier, index) => (
                   <div key={`tier-${index}`} className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
                     <p className="text-sm font-semibold text-white">
-                      Faixa {index + 1}: {tier.quantity} número(s) de {tier.amount} CASH
+                      Faixa {index + 1}: {tier.quantity} número(s) de {tier.amount} Saldo
                     </p>
                     <p className="mt-1 text-xs text-white/45">
                       Encontrados: {tier.awardedCount ?? 0} / {tier.quantity}
@@ -620,7 +620,7 @@ export default function SorteiosPage() {
                           </div>
                           <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right">
                             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Premiação</p>
-                            <p className="mt-1 text-sm font-bold text-emerald-200">{hit.amount} CASH</p>
+                            <p className="mt-1 text-sm font-bold text-emerald-200">{hit.amount} Saldo</p>
                           </div>
                         </div>
                       </div>
@@ -762,7 +762,7 @@ function MyNumbersSection({
                     <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
                       <Sparkles className="h-3.5 w-3.5" />
                       {p.instantPrizeHits.length} número(s) premiado(s) ·{" "}
-                      {p.instantPrizeHits.reduce((sum, hit) => sum + hit.amount, 0)} CASH
+                      {p.instantPrizeHits.reduce((sum, hit) => sum + hit.amount, 0)} Saldo
                     </p>
                   ) : null}
                 </div>
@@ -890,7 +890,7 @@ function ExpandedNumbers({
               key={`${expandKey}-hit-${hit.number}-${index}`}
               className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-100"
             >
-              {formatRaffleScopedNumber(hit.number, releasedCount)} · {hit.amount} CASH
+              {formatRaffleScopedNumber(hit.number, releasedCount)} · {hit.amount} Saldo
             </span>
           ))}
         </div>
@@ -966,7 +966,7 @@ function FinalizedRaffleCard({ raffle }: { raffle: RaffleView }) {
               className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-500/12 px-3 py-1 text-xs font-semibold text-emerald-100 shadow-[0_0_20px_-12px_rgba(16,185,129,0.8)]"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              {formatRaffleScopedNumber(hit.number, raffle.releasedCount)} · {hit.amount} CASH
+              {formatRaffleScopedNumber(hit.number, raffle.releasedCount)} · {hit.amount} Saldo
             </span>
           ))}
         </div>

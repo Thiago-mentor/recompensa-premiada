@@ -5,7 +5,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
-import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
 import type { RankingPeriod } from "@/types/ranking";
 import type { RankingPrizeTier } from "@/types/systemConfig";
 import { useExperienceCatalogBuckets } from "@/hooks/useExperienceCatalogBuckets";
@@ -21,18 +21,19 @@ import {
   type NormalizedRankingPrizeConfig,
 } from "@/lib/ranking/prizes";
 import { fetchRankingPrizeConfig } from "@/services/ranking/rankingConfigService";
+import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
 import { Coins, Crown, Gamepad2, Save, Sparkles, Trophy } from "lucide-react";
 
 const ECONOMY_ID = "economy";
 
 export default function AdminRankingsPage() {
+  const { notify } = useAdminSaveFeedback();
   const { arena: arenaCatalog } = useExperienceCatalogBuckets();
   const [prizes, setPrizes] = useState<NormalizedRankingPrizeConfig>(buildDefaultRankingPrizeConfig());
   const [activeGameId, setActiveGameId] = useState("ppt");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [closingPeriod, setClosingPeriod] = useState<RankingPeriod | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +43,7 @@ export default function AdminRankingsPage() {
         if (!cancelled) setPrizes(config);
       } catch (error) {
         if (!cancelled) {
-          setMsg(formatFirebaseError(error));
+          notify("error", formatFirebaseError(error));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -64,7 +65,6 @@ export default function AdminRankingsPage() {
     arenaCatalog.find((game) => game.id === gameId)?.title ?? gameId;
 
   async function save() {
-    setMsg(null);
     setSaving(true);
     try {
       const db = getFirebaseFirestore();
@@ -83,9 +83,10 @@ export default function AdminRankingsPage() {
         },
         { merge: true },
       );
-      setMsg("Premiações globais, por confronto e de clãs salvas com sucesso.");
+      invalidateEconomyConfigCache();
+      notify("success", "Premiações globais, por confronto e de clãs salvas com sucesso.");
     } catch (error) {
-      setMsg(formatFirebaseError(error));
+      notify("error", formatFirebaseError(error));
     } finally {
       setSaving(false);
     }
@@ -227,7 +228,7 @@ export default function AdminRankingsPage() {
         },
       },
     }));
-    setMsg(`Premiação global copiada para ${resolveGameLabel(gameId)}.`);
+    notify("success", `Premiação global copiada para ${resolveGameLabel(gameId)}.`);
   }
 
   function clearGame(gameId: string) {
@@ -238,22 +239,22 @@ export default function AdminRankingsPage() {
         [gameId]: createEmptyRankingPrizePeriodConfig(),
       },
     }));
-    setMsg(`Premiações de ${resolveGameLabel(gameId)} limpas.`);
+    notify("info", `Premiações de ${resolveGameLabel(gameId)} limpas.`);
   }
 
   async function closeRanking(period: RankingPeriod) {
-    setMsg(null);
     setClosingPeriod(period);
     try {
       await callFunction<{ period: RankingPeriod }, { ok: boolean }>("adminCloseRanking", { period });
       const clanTiers = prizes.clans[period];
-      setMsg(
+      notify(
+        "success",
         clanTiers.length > 0
           ? `Fechamento do ranking ${labelForPeriod(period)} executado com sucesso, incluindo o rateio dos clãs por contribuição.`
           : `Fechamento do ranking ${labelForPeriod(period)} executado com sucesso.`,
       );
     } catch (error) {
-      setMsg(formatFirebaseError(error));
+      notify("error", formatFirebaseError(error));
     } finally {
       setClosingPeriod(null);
     }
@@ -280,7 +281,7 @@ export default function AdminRankingsPage() {
               Rankings e premiações
             </h1>
             <p className="mt-2 text-sm text-slate-300/70">
-              Controle o ranking geral, os rankings por confronto e a distribuição em PR, TICKET e CASH.
+              Controle o ranking geral, os rankings por confronto e a distribuição em PR, TICKET e Saldo.
             </p>
           </div>
 
@@ -319,8 +320,6 @@ export default function AdminRankingsPage() {
           />
         </div>
       </div>
-
-      {msg ? <AlertBanner tone="info">{msg}</AlertBanner> : null}
 
       <section className="space-y-5 rounded-[1.8rem] border border-cyan-400/20 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,0.16),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(2,6,23,0.94))] p-5 shadow-[0_0_56px_-26px_rgba(34,211,238,0.32)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -469,7 +468,7 @@ export default function AdminRankingsPage() {
           <div>
             <h2 className="text-xl font-semibold text-white">Fechamento manual</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Executa o fechamento do período e distribui PR, TICKET e CASH para o ranking geral e por confronto.
+              Executa o fechamento do período e distribui PR, TICKET e Saldo para o ranking geral e por confronto.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -546,7 +545,7 @@ function PrizeCard({
                 onChange={(value) => onChange(index, "gems", value)}
               />
               <SmallField
-                label="CASH"
+                label="Saldo"
                 value={String(row.rewardBalance)}
                 onChange={(value) => onChange(index, "rewardBalance", value)}
               />

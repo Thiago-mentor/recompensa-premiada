@@ -12,10 +12,10 @@ import { COLLECTIONS } from "@/lib/constants/collections";
 import { useAuth } from "@/hooks/useAuth";
 import { requestRewardClaim } from "@/services/rewards/rewardClaimService";
 import {
-  cashPointsToBrl,
-  fetchCashPointsPerReal,
+  saldoPointsToBrl,
+  fetchSaldoPointsPerReal,
   formatBrl,
-} from "@/services/economy/cashEconomyConfig";
+} from "@/services/economy/saldoEconomyConfig";
 import type { RewardClaim } from "@/types/reward";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
@@ -45,18 +45,18 @@ export default function RecompensasPage() {
   const [chave, setChave] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [cashPointsPerReal, setCashPointsPerReal] = useState<number | null>(null);
+  const [saldoPointsPerReal, setSaldoPointsPerReal] = useState<number | null>(null);
   const [meusPedidos, setMeusPedidos] = useState<RewardClaim[]>([]);
   const [aba, setAba] = useState<"resgatar" | "historico">("resgatar");
 
   useEffect(() => {
     let c = false;
-    void fetchCashPointsPerReal()
+    void fetchSaldoPointsPerReal()
       .then((n) => {
-        if (!c) setCashPointsPerReal(n);
+        if (!c) setSaldoPointsPerReal(n);
       })
       .catch(() => {
-        if (!c) setCashPointsPerReal(100);
+        if (!c) setSaldoPointsPerReal(100);
       });
     return () => {
       c = true;
@@ -87,7 +87,7 @@ export default function RecompensasPage() {
     [user?.uid, meusPedidos],
   );
   const balance = profile?.rewardBalance ?? 0;
-  const rate = cashPointsPerReal ?? 100;
+  const rate = saldoPointsPerReal ?? 100;
 
   const pendentesCount = useMemo(
     () => pedidosVisiveis.filter((p) => p.status === "pendente" || p.status === "aprovado").length,
@@ -104,9 +104,9 @@ export default function RecompensasPage() {
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
   }, [valor]);
 
-  const brlSaldoTotal = useMemo(() => cashPointsToBrl(balance, rate), [balance, rate]);
-  const brlResgate = useMemo(() => cashPointsToBrl(valorNum, rate), [valorNum, rate]);
-  const brlPorPonto = useMemo(() => cashPointsToBrl(1, rate), [rate]);
+  const brlSaldoTotal = useMemo(() => saldoPointsToBrl(balance, rate), [balance, rate]);
+  const brlResgate = useMemo(() => saldoPointsToBrl(valorNum, rate), [valorNum, rate]);
+  const brlPorPonto = useMemo(() => saldoPointsToBrl(1, rate), [rate]);
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
@@ -118,7 +118,7 @@ export default function RecompensasPage() {
     }
     const vi = Math.floor(v);
     if (vi > balance) {
-      setMsg("Você não tem CASH suficiente.");
+      setMsg("Você não tem saldo suficiente.");
       return;
     }
     setLoading(true);
@@ -200,7 +200,7 @@ export default function RecompensasPage() {
             <div className="mt-2 flex flex-wrap items-end gap-4">
               <div>
                 <p className="text-3xl font-black tabular-nums text-white sm:text-4xl">{balance}</p>
-                <p className="text-xs text-white/40">CASH disponível</p>
+                <p className="text-xs text-white/40">Saldo disponível</p>
               </div>
               <div className="h-10 w-px bg-white/10" aria-hidden />
               <div>
@@ -213,7 +213,7 @@ export default function RecompensasPage() {
             {retidoPendente > 0 ? (
               <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-950/20 px-3 py-2">
                 <p className="text-[11px] font-medium text-amber-200/90">
-                  Retido: <strong className="tabular-nums">{retidoPendente}</strong> pts (~{formatBrl(cashPointsToBrl(retidoPendente, rate))})
+                  Retido: <strong className="tabular-nums">{retidoPendente}</strong> pts (~{formatBrl(saldoPointsToBrl(retidoPendente, rate))})
                 </p>
               </div>
             ) : null}
@@ -224,11 +224,11 @@ export default function RecompensasPage() {
             className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:p-5"
           >
             <div>
-              <label className="text-xs font-semibold text-white/50" htmlFor="cash-valor">
-                Pontos CASH
+              <label className="text-xs font-semibold text-white/50" htmlFor="saldo-valor">
+                Pontos de saldo
               </label>
               <input
-                id="cash-valor"
+                id="saldo-valor"
                 type="number"
                 min={1}
                 max={balance || undefined}
@@ -262,7 +262,7 @@ export default function RecompensasPage() {
           </form>
         </div>
       ) : (
-        <PedidosSaquePanel pedidos={pedidosVisiveis} cashPointsPerReal={rate} />
+        <PedidosSaquePanel pedidos={pedidosVisiveis} saldoPointsPerReal={rate} />
       )}
     </div>
   );

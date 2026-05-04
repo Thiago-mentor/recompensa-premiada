@@ -1,21 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeWalletTransactions } from "@/services/carteira/walletService";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import { CurrencyConversionPanel } from "@/components/carteira/CurrencyConversionPanel";
 import { StatCard } from "@/components/cards/StatCard";
 import { WalletRow } from "@/components/cards/WalletRow";
 import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
 import { ROUTES } from "@/lib/constants/routes";
-import { COLLECTIONS } from "@/lib/constants/collections";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
 import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
-import type { SystemEconomyConfig } from "@/types/systemConfig";
 import {
   ArrowRight,
   ArrowRightLeft,
@@ -89,9 +86,9 @@ export default function CarteiraPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const snap = await getDoc(doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"));
-        if (!snap.exists() || cancelled) return;
-        const data = snap.data() as Partial<SystemEconomyConfig>;
+        const data = await fetchEconomyConfigDocument();
+        if (cancelled) return;
+        if (!data) return;
         setBoostSystemEnabled(isBoostSystemEnabled(data));
       } catch {
         if (!cancelled) setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
@@ -124,7 +121,7 @@ export default function CarteiraPage() {
             </p>
             <h1 className="mt-1 text-2xl font-black tracking-tight text-white sm:text-3xl">Carteira</h1>
             <p className="mt-1 text-sm text-white/55">
-              Sua central de PR, TICKET, CASH, conversão, saque PIX e extrato.
+              Sua central de PR, TICKET, Saldo, conversão, saque PIX e extrato.
             </p>
           </div>
         </div>
@@ -132,7 +129,7 @@ export default function CarteiraPage() {
         <div className="mt-4 grid grid-cols-3 gap-2">
           <QuickBalancePill label="PR" value={profile ? String(profile.coins) : "—"} />
           <QuickBalancePill label="TICKET" value={profile ? String(profile.gems) : "—"} />
-          <QuickBalancePill label="CASH" value={profile ? String(profile.rewardBalance) : "—"} />
+          <QuickBalancePill label="Saldo" value={profile ? String(profile.rewardBalance) : "—"} />
         </div>
       </section>
 
@@ -173,7 +170,7 @@ export default function CarteiraPage() {
             <StatCard label="TICKET" value={profile ? String(profile.gems) : "—"} icon={Ticket} />
             <StatCard
               className="col-span-2"
-              label="CASH (pontos)"
+              label="Saldo (pontos)"
               value={profile ? String(profile.rewardBalance) : "—"}
               icon={Banknote}
             />
@@ -253,7 +250,7 @@ export default function CarteiraPage() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-200/65">Saque Pix</p>
                   <h2 className="mt-1 text-lg font-black tracking-tight text-white sm:text-xl">
-                    Resgate seus CASH via PIX
+                    Resgate seu Saldo via PIX
                   </h2>
                   <p className="mt-1 text-sm text-white/50">
                     Abra a área de saque para solicitar resgates e acompanhar seus pedidos.
@@ -340,7 +337,7 @@ export default function CarteiraPage() {
               <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">1</p>
                 <p className="mt-1 font-semibold text-white">Solicite</p>
-                <p className="mt-1">Informe o valor em CASH e sua chave PIX.</p>
+                <p className="mt-1">Informe o valor em Saldo e sua chave PIX.</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">2</p>

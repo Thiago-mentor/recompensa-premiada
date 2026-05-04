@@ -1,3 +1,5 @@
+import type { RaffleView } from "@/types/raffle";
+
 export const RAFFLE_NUMBER_LENGTH = 6;
 export const RAFFLE_MAX_RELEASED_COUNT = 1_000_000;
 export const RAFFLE_DEFAULT_TICKET_PRICE = 1;
@@ -184,4 +186,26 @@ export function computeRaffleResultScheduleMs(
     );
   }
   return null;
+}
+
+/**
+ * Progresso do pool de números do sorteio (alinhado à lógica do backend:
+ * `random` usa soldCount; sequencial usa nextSequentialNumber).
+ */
+export function getRaffleNumbersPoolProgress(
+  raffle:
+    | Pick<RaffleView, "releasedCount" | "soldCount" | "nextSequentialNumber" | "allocationMode">
+    | null
+    | undefined,
+): { filledPct: number; remaining: number; allocated: number; cap: number } | null {
+  if (!raffle) return null;
+  const cap = Math.max(0, Math.floor(Number(raffle.releasedCount) || 0));
+  if (cap <= 0) return null;
+  const isRandom = raffle.allocationMode === "random";
+  const sold = Math.max(0, Math.floor(Number(raffle.soldCount) || 0));
+  const nextSeq = Math.max(0, Math.floor(Number(raffle.nextSequentialNumber) || 0));
+  const allocated = isRandom ? Math.min(sold, cap) : Math.min(nextSeq, cap);
+  const remaining = Math.max(0, cap - allocated);
+  const filledPct = Math.min(100, Math.round((allocated / cap) * 100));
+  return { filledPct, remaining, allocated, cap };
 }
