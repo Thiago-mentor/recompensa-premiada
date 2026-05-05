@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { Coins, Gift, Megaphone, Sparkles, Wallet } from "lucide-react";
+import { Coins, Gift, Image, Megaphone, Sparkles, Wallet } from "lucide-react";
+import { AdminAdCooldownGuide } from "@/components/admin/AdminAdCooldownGuide";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
@@ -10,7 +11,7 @@ import { COLLECTIONS } from "@/lib/constants/collections";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
-import type { SystemEconomyConfig, WeightedPrizeConfig } from "@/types/systemConfig";
+import type { SystemEconomyConfig, WeightedPrizeConfig, AvatarUploadReputationThresholds } from "@/types/systemConfig";
 import type { ChestRarity } from "@/types/chest";
 import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
@@ -48,6 +49,14 @@ const ROULETTE_CHEST_OPTIONS: { value: ChestRarity; label: string }[] = [
   { value: "lendario", label: "Baú lendário" },
 ];
 
+function parseAvatarThresholdField(raw: string, fallback: number): number {
+  const t = raw.trim();
+  if (t === "") return fallback;
+  const n = Math.floor(Number(t));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, n);
+}
+
 export default function AdminConfigPage() {
   const { notify: adminNotify } = useAdminSaveFeedback();
   const [rewardAd, setRewardAd] = useState("25");
@@ -57,6 +66,11 @@ export default function AdminConfigPage() {
   const [refIndicador, setRefIndicador] = useState("100");
   const [refConvidado, setRefConvidado] = useState("50");
   const [boostEnabled, setBoostEnabled] = useState(false);
+  const [avatarUploadRequireReputation, setAvatarUploadRequireReputation] = useState(false);
+  const [avatarRepAds, setAvatarRepAds] = useState("50");
+  const [avatarRepPpt, setAvatarRepPpt] = useState("10");
+  const [avatarRepQuiz, setAvatarRepQuiz] = useState("10");
+  const [avatarRepReaction, setAvatarRepReaction] = useState("10");
   const [boostPercent, setBoostPercent] = useState("25");
   const [fragmentsPerBoostCraft, setFragmentsPerBoostCraft] = useState("10");
   const [boostMinutesPerCraft, setBoostMinutesPerCraft] = useState("15");
@@ -89,6 +103,25 @@ export default function AdminConfigPage() {
         if (typeof d.referralBonusIndicador === "number") setRefIndicador(String(d.referralBonusIndicador));
         if (typeof d.referralBonusConvidado === "number") setRefConvidado(String(d.referralBonusConvidado));
         if (typeof d.boostEnabled === "boolean") setBoostEnabled(d.boostEnabled);
+        if (typeof d.avatarUploadRequireReputation === "boolean") {
+          setAvatarUploadRequireReputation(d.avatarUploadRequireReputation);
+        }
+        const avatarTh = d.avatarUploadReputationThresholds;
+        if (avatarTh && typeof avatarTh === "object") {
+          const th = avatarTh as AvatarUploadReputationThresholds;
+          if (typeof th.ads === "number" && Number.isFinite(th.ads)) {
+            setAvatarRepAds(String(Math.max(0, Math.floor(th.ads))));
+          }
+          if (typeof th.pptMatches === "number" && Number.isFinite(th.pptMatches)) {
+            setAvatarRepPpt(String(Math.max(0, Math.floor(th.pptMatches))));
+          }
+          if (typeof th.quizMatches === "number" && Number.isFinite(th.quizMatches)) {
+            setAvatarRepQuiz(String(Math.max(0, Math.floor(th.quizMatches))));
+          }
+          if (typeof th.reactionMatches === "number" && Number.isFinite(th.reactionMatches)) {
+            setAvatarRepReaction(String(Math.max(0, Math.floor(th.reactionMatches))));
+          }
+        }
         if (typeof d.boostRewardPercent === "number") setBoostPercent(String(d.boostRewardPercent));
         if (typeof d.fragmentsPerBoostCraft === "number") {
           setFragmentsPerBoostCraft(String(d.fragmentsPerBoostCraft));
@@ -166,6 +199,13 @@ export default function AdminConfigPage() {
           referralBonusIndicador: Number(refIndicador),
           referralBonusConvidado: Number(refConvidado),
           boostEnabled,
+          avatarUploadRequireReputation,
+          avatarUploadReputationThresholds: {
+            ads: parseAvatarThresholdField(avatarRepAds, 50),
+            pptMatches: parseAvatarThresholdField(avatarRepPpt, 10),
+            quizMatches: parseAvatarThresholdField(avatarRepQuiz, 10),
+            reactionMatches: parseAvatarThresholdField(avatarRepReaction, 10),
+          },
           boostRewardPercent: Math.max(0, Math.floor(Number(boostPercent)) || 0),
           fragmentsPerBoostCraft: Math.max(1, Math.floor(Number(fragmentsPerBoostCraft)) || 10),
           boostMinutesPerCraft: Math.max(1, Math.floor(Number(boostMinutesPerCraft)) || 15),
@@ -250,6 +290,15 @@ export default function AdminConfigPage() {
   const ticketPerPrSell = sellN > 0 ? 1 / sellN : null;
   const brlPerSaldoPoint = saldoPointsToBrl(1, saldoN);
 
+  const avatarRepResolvedAds = parseAvatarThresholdField(avatarRepAds, 50);
+  const avatarRepResolvedPpt = parseAvatarThresholdField(avatarRepPpt, 10);
+  const avatarRepResolvedQuiz = parseAvatarThresholdField(avatarRepQuiz, 10);
+  const avatarRepResolvedReaction = parseAvatarThresholdField(avatarRepReaction, 10);
+  const avatarRepMetricValue = `${avatarRepResolvedAds} / ${avatarRepResolvedPpt} / ${avatarRepResolvedQuiz} / ${avatarRepResolvedReaction}`;
+  const avatarRepMetricHint = avatarUploadRequireReputation
+    ? "Anúncios / PPT / QUIZ / Reaction · reputação exigida no upload"
+    : "Anúncios / PPT / QUIZ / Reaction · limiares salvos; upload livre por ora";
+
   return (
     <div className="space-y-6">
       <AdminPageHero
@@ -260,7 +309,7 @@ export default function AdminConfigPage() {
         actions={<Button onClick={save}>Salvar economia</Button>}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <AdminMetricCard
           title="PR por anúncio"
           value={rewardAd}
@@ -283,11 +332,11 @@ export default function AdminConfigPage() {
           icon={<Sparkles className="h-4 w-4" />}
         />
         <AdminMetricCard
-          title="Saldo por R$ 1"
-          value={saldoPointsPerReal}
-          hint="Taxa atual de resgate"
-          tone="violet"
-          icon={<Wallet className="h-4 w-4" />}
+          title="Foto de perfil"
+          value={avatarRepMetricValue}
+          hint={avatarRepMetricHint}
+          tone={avatarUploadRequireReputation ? "amber" : "slate"}
+          icon={<Image className="h-4 w-4" />}
         />
       </section>
 
@@ -306,6 +355,8 @@ export default function AdminConfigPage() {
           <Field label="Bônus do convidado" value={refConvidado} onChange={setRefConvidado} />
         </div>
       </section>
+
+      <AdminAdCooldownGuide />
 
       <section className="space-y-3 rounded-xl border border-cyan-400/25 bg-cyan-950/15 p-4">
         <div className="flex flex-wrap items-start gap-3">
@@ -426,6 +477,51 @@ export default function AdminConfigPage() {
             salva para reativação futura.
           </AlertBanner>
         )}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-950/15 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-white">Foto de perfil</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              {avatarUploadRequireReputation ? (
+                <>
+                  Com a opção ligada, o app exige o mínimo de anúncios e partidas PPT, QUIZ e Reaction antes de
+                  enviar foto própria. A validação automática (
+                  <strong className="text-white">Google Cloud Vision</strong>) continua em todo caso.
+                </>
+              ) : (
+                <>
+                  Com a opção desligada, qualquer usuário logado pode trocar a foto; o Vision ainda bloqueia
+                  conteúdo impróprio quando aplicável.
+                </>
+              )}
+            </p>
+          </div>
+          <label className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-amber-500"
+              checked={avatarUploadRequireReputation}
+              onChange={(e) => setAvatarUploadRequireReputation(e.target.checked)}
+            />
+            {avatarUploadRequireReputation ? "Exigir reputação" : "Sem requisito"}
+          </label>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Mín. anúncios assistidos" value={avatarRepAds} onChange={setAvatarRepAds} />
+          <Field label="Mín. partidas PPT" value={avatarRepPpt} onChange={setAvatarRepPpt} />
+          <Field label="Mín. partidas QUIZ" value={avatarRepQuiz} onChange={setAvatarRepQuiz} />
+          <Field
+            label="Mín. partidas Reaction"
+            value={avatarRepReaction}
+            onChange={setAvatarRepReaction}
+          />
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Inteiros ≥ 0. Campo vazio ao salvar usa o padrão (50 / 10 / 10 / 10). Use 0 para não exigir um eixo.
+          Clientes que já abriram o app podem precisar navegar de novo para refletir o cache da economia.
+        </p>
       </section>
 
       <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">

@@ -17,6 +17,10 @@ import type {
   ChestRewardTable,
   ChestSystemConfig,
 } from "@/types/systemConfig";
+import {
+  readMinutesToSecondsOrFallback,
+  secondsToMinutesInputValue,
+} from "@/lib/admin/rewardedAdCooldownInput";
 
 const CHEST_SYSTEM_ID = "chest_system";
 const CHEST_RARITIES: ChestRarity[] = ["comum", "raro", "epico", "lendario"];
@@ -208,7 +212,7 @@ type ChestSystemForm = {
   adSpeedupPercent: string;
   adSpeedupFixedMinutes: string;
   maxAdsPerChest: string;
-  adCooldownSeconds: string;
+  adCooldownMinutes: string;
   dailyChestAdsLimit: string;
   pityRules: {
     rareAt: string;
@@ -274,10 +278,10 @@ function defaultForm(): ChestSystemForm {
     slotCount: String(DEFAULT_CHEST_SYSTEM_CONFIG.slotCount),
     queueCapacity: String(DEFAULT_CHEST_SYSTEM_CONFIG.queueCapacity),
     unlockDurationsByRarity: {
-      comum: String(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.comum),
-      raro: String(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.raro),
-      epico: String(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.epico),
-      lendario: String(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.lendario),
+      comum: secondsToMinutesInputValue(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.comum),
+      raro: secondsToMinutesInputValue(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.raro),
+      epico: secondsToMinutesInputValue(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.epico),
+      lendario: secondsToMinutesInputValue(DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.lendario),
     },
     dropTablesBySource: {
       multiplayer_win: buildWeightsRecord(DEFAULT_CHEST_SYSTEM_CONFIG.dropTablesBySource.multiplayer_win),
@@ -307,7 +311,7 @@ function defaultForm(): ChestSystemForm {
     adSpeedupPercent: String(Math.round(DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupPercent * 100)),
     adSpeedupFixedMinutes: String(DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupFixedMinutes),
     maxAdsPerChest: String(DEFAULT_CHEST_SYSTEM_CONFIG.maxAdsPerChest),
-    adCooldownSeconds: String(DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds),
+    adCooldownMinutes: secondsToMinutesInputValue(DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds),
     dailyChestAdsLimit: String(DEFAULT_CHEST_SYSTEM_CONFIG.dailyChestAdsLimit),
     pityRules: {
       rareAt: String(DEFAULT_CHEST_SYSTEM_CONFIG.pityRules.rareAt),
@@ -343,10 +347,26 @@ function toForm(raw?: Partial<ChestSystemConfig>): ChestSystemForm {
     slotCount: String(raw.slotCount ?? base.slotCount),
     queueCapacity: String(raw.queueCapacity ?? base.queueCapacity),
     unlockDurationsByRarity: {
-      comum: String(raw.unlockDurationsByRarity?.comum ?? base.unlockDurationsByRarity.comum),
-      raro: String(raw.unlockDurationsByRarity?.raro ?? base.unlockDurationsByRarity.raro),
-      epico: String(raw.unlockDurationsByRarity?.epico ?? base.unlockDurationsByRarity.epico),
-      lendario: String(raw.unlockDurationsByRarity?.lendario ?? base.unlockDurationsByRarity.lendario),
+      comum: secondsToMinutesInputValue(
+        typeof raw.unlockDurationsByRarity?.comum === "number"
+          ? raw.unlockDurationsByRarity.comum
+          : DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.comum,
+      ),
+      raro: secondsToMinutesInputValue(
+        typeof raw.unlockDurationsByRarity?.raro === "number"
+          ? raw.unlockDurationsByRarity.raro
+          : DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.raro,
+      ),
+      epico: secondsToMinutesInputValue(
+        typeof raw.unlockDurationsByRarity?.epico === "number"
+          ? raw.unlockDurationsByRarity.epico
+          : DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.epico,
+      ),
+      lendario: secondsToMinutesInputValue(
+        typeof raw.unlockDurationsByRarity?.lendario === "number"
+          ? raw.unlockDurationsByRarity.lendario
+          : DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.lendario,
+      ),
     },
     dropTablesBySource: {
       multiplayer_win: Array.isArray(dropTables?.multiplayer_win)
@@ -414,7 +434,11 @@ function toForm(raw?: Partial<ChestSystemConfig>): ChestSystemForm {
         : DEFAULT_CHEST_SYSTEM_CONFIG.adSpeedupFixedMinutes,
     ),
     maxAdsPerChest: String(raw.maxAdsPerChest ?? base.maxAdsPerChest),
-    adCooldownSeconds: String(raw.adCooldownSeconds ?? base.adCooldownSeconds),
+    adCooldownMinutes: secondsToMinutesInputValue(
+      typeof raw.adCooldownSeconds === "number"
+        ? raw.adCooldownSeconds
+        : DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds,
+    ),
     dailyChestAdsLimit: String(raw.dailyChestAdsLimit ?? base.dailyChestAdsLimit),
     pityRules: {
       rareAt: String(raw.pityRules?.rareAt ?? base.pityRules.rareAt),
@@ -555,25 +579,25 @@ export function ChestSystemConfigPanel({
           slotCount: readInt(form.slotCount, DEFAULT_CHEST_SYSTEM_CONFIG.slotCount, 1),
           queueCapacity: readInt(form.queueCapacity, DEFAULT_CHEST_SYSTEM_CONFIG.queueCapacity, 0),
           unlockDurationsByRarity: {
-            comum: readInt(
+            comum: readMinutesToSecondsOrFallback(
               form.unlockDurationsByRarity.comum,
               DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.comum,
-              1,
+              86_400 * 30,
             ),
-            raro: readInt(
+            raro: readMinutesToSecondsOrFallback(
               form.unlockDurationsByRarity.raro,
               DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.raro,
-              1,
+              86_400 * 30,
             ),
-            epico: readInt(
+            epico: readMinutesToSecondsOrFallback(
               form.unlockDurationsByRarity.epico,
               DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.epico,
-              1,
+              86_400 * 30,
             ),
-            lendario: readInt(
+            lendario: readMinutesToSecondsOrFallback(
               form.unlockDurationsByRarity.lendario,
               DEFAULT_CHEST_SYSTEM_CONFIG.unlockDurationsByRarity.lendario,
-              1,
+              86_400 * 30,
             ),
           },
           dropTablesBySource: Object.fromEntries(
@@ -739,10 +763,10 @@ export function ChestSystemConfigPanel({
             ),
           ),
           maxAdsPerChest: readInt(form.maxAdsPerChest, DEFAULT_CHEST_SYSTEM_CONFIG.maxAdsPerChest, 0),
-          adCooldownSeconds: readInt(
-            form.adCooldownSeconds,
+          adCooldownSeconds: readMinutesToSecondsOrFallback(
+            form.adCooldownMinutes,
             DEFAULT_CHEST_SYSTEM_CONFIG.adCooldownSeconds,
-            0,
+            86_400 * 7,
           ),
           dailyChestAdsLimit: readInt(
             form.dailyChestAdsLimit,
@@ -825,9 +849,9 @@ export function ChestSystemConfigPanel({
               onChange={(value) => setForm((current) => ({ ...current, maxAdsPerChest: value }))}
             />
             <ConfigField
-              label="Cooldown entre anúncios (s)"
-              value={form.adCooldownSeconds}
-              onChange={(value) => setForm((current) => ({ ...current, adCooldownSeconds: value }))}
+              label="Cooldown entre anúncios (min)"
+              value={form.adCooldownMinutes}
+              onChange={(value) => setForm((current) => ({ ...current, adCooldownMinutes: value }))}
             />
             <ConfigField
               label="Limite diário de ads"
@@ -882,7 +906,7 @@ export function ChestSystemConfigPanel({
             {CHEST_RARITIES.map((rarity) => (
               <ConfigField
                 key={rarity}
-                label={`${RARITY_LABEL[rarity]} (segundos)`}
+                label={`${RARITY_LABEL[rarity]} (minutos)`}
                 value={form.unlockDurationsByRarity[rarity]}
                 onChange={(value) =>
                   setForm((current) => ({
@@ -896,6 +920,10 @@ export function ChestSystemConfigPanel({
               />
             ))}
           </div>
+          <p className="text-xs text-slate-400">
+            Tempos do timer de desbloqueio em <strong className="text-white">minutos</strong> (aceita
+            decimais). O servidor continua armazenando em segundos.
+          </p>
         </div>
       </div>
 

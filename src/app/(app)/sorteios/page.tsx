@@ -17,6 +17,7 @@ import {
   purchaseRaffleNumbersCallable,
 } from "@/services/raffle/raffleService";
 import { runRaffleNumberRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
+import { formatRaffleAdCooldownLabel } from "@/lib/admin/rewardedAdCooldownInput";
 import type { RafflePurchaseView, RaffleView } from "@/types/raffle";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -468,13 +469,7 @@ export default function SorteiosPage() {
                         {" "}
                         Intervalo mínimo entre um número e o próximo:{" "}
                         <strong className="text-white">
-                          {raffle.rewardedAdCooldownSeconds >= 60
-                            ? `${Math.floor(raffle.rewardedAdCooldownSeconds / 60)} min ${
-                                raffle.rewardedAdCooldownSeconds % 60
-                                  ? `${raffle.rewardedAdCooldownSeconds % 60}s`
-                                  : ""
-                              }`.trim()
-                            : `${raffle.rewardedAdCooldownSeconds}s`}
+                          {formatRaffleAdCooldownLabel(raffle.rewardedAdCooldownSeconds)}
                         </strong>
                         .
                       </>

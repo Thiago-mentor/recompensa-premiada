@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { Clock3, Gift, Sparkles, TimerReset } from "lucide-react";
+import { AdminAdCooldownGuide } from "@/components/admin/AdminAdCooldownGuide";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { ChestSystemConfigPanel } from "@/components/admin/ChestSystemConfigPanel";
@@ -18,6 +19,11 @@ import {
 } from "@/services/economy/economyStreakConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
 import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
+import {
+  formatCooldownMinutesDisplay,
+  minutesInputToSeconds,
+  secondsToMinutesInputValue,
+} from "@/lib/admin/rewardedAdCooldownInput";
 
 const ECONOMY_ID = "economy";
 
@@ -31,7 +37,9 @@ const emptyTier = (): StreakRewardTier => ({
 export default function AdminBausPage() {
   const { notify } = useAdminSaveFeedback();
   const [dailyBonus, setDailyBonus] = useState("50");
-  const [chestCooldown, setChestCooldown] = useState("3600");
+  const [chestCooldownMinutes, setChestCooldownMinutes] = useState(() =>
+    secondsToMinutesInputValue(3600),
+  );
   const [boostEnabled, setBoostEnabled] = useState(false);
   const [streakRows, setStreakRows] = useState<StreakRewardTier[]>([]);
   const [streakDisplayDays, setStreakDisplayDays] = useState(
@@ -51,7 +59,7 @@ export default function AdminBausPage() {
           setDailyBonus(String(data.dailyLoginBonus));
         }
         if (typeof data.chestCooldownSegundos === "number") {
-          setChestCooldown(String(data.chestCooldownSegundos));
+          setChestCooldownMinutes(secondsToMinutesInputValue(data.chestCooldownSegundos));
         }
         if (typeof data.boostEnabled === "boolean") {
           setBoostEnabled(data.boostEnabled);
@@ -75,7 +83,7 @@ export default function AdminBausPage() {
         doc(db, COLLECTIONS.systemConfigs, ECONOMY_ID),
         {
           id: ECONOMY_ID,
-          chestCooldownSegundos: Number(chestCooldown),
+          chestCooldownSegundos: minutesInputToSeconds(chestCooldownMinutes, 86_400 * 30),
           streakDisplayDays: normalizeStreakDisplayDays(streakDisplayDays),
           streakTable: streakRows
             .map((row) => ({
@@ -101,7 +109,7 @@ export default function AdminBausPage() {
   }
 
   const normalizedDisplayDays = normalizeStreakDisplayDays(streakDisplayDays);
-  const cooldownSeconds = Math.max(0, Math.floor(Number(chestCooldown) || 0));
+  const cooldownSeconds = minutesInputToSeconds(chestCooldownMinutes, 86_400 * 30);
 
   return (
     <div className="space-y-6">
@@ -124,11 +132,13 @@ export default function AdminBausPage() {
         }
       />
 
+      <AdminAdCooldownGuide />
+
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AdminMetricCard
           title="Cooldown"
-          value={`${cooldownSeconds}s`}
-          hint="Mini-jogo legado de baú"
+          value={formatCooldownMinutesDisplay(cooldownSeconds)}
+          hint="Mini-jogo legado de baú (valor em minutos no formulário)"
           tone="amber"
           icon={<Clock3 className="h-4 w-4" />}
         />
@@ -162,9 +172,9 @@ export default function AdminBausPage() {
             Controla o tempo de espera entre uma coleta e a próxima no mini-jogo legado de baú.
           </p>
           <Field
-            label="Cooldown do mini-jogo Baú (segundos)"
-            value={chestCooldown}
-            onChange={setChestCooldown}
+            label="Cooldown do mini-jogo Baú (minutos)"
+            value={chestCooldownMinutes}
+            onChange={setChestCooldownMinutes}
           />
         </div>
 

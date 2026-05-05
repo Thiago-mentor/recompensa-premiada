@@ -122,6 +122,14 @@ export interface RewardedAdPlacementRewardConfig {
   rewardBalance?: number;
 }
 
+/** Mínimos para liberar foto própria quando `avatarUploadRequireReputation` é true. Chaves omitidas usam 50 / 10 / 10 / 10. */
+export interface AvatarUploadReputationThresholds {
+  ads?: number;
+  pptMatches?: number;
+  quizMatches?: number;
+  reactionMatches?: number;
+}
+
 /** `system_configs/economy` (documento único ou id fixo) */
 export interface SystemEconomyConfig {
   id: "economy";
@@ -134,6 +142,10 @@ export interface SystemEconomyConfig {
   dailyLoginBonus: number;
   /** Quantos dias o modal diário mostra na janela visual (1-30). */
   streakDisplayDays?: number;
+  /** Se `true`, upload de foto personalizada exige progresso (anúncios + partidas PPT/QUIZ/Reaction). */
+  avatarUploadRequireReputation?: boolean;
+  /** Mínimos exigidos (parciais são mesclados com 50/10/10/10). */
+  avatarUploadReputationThresholds?: AvatarUploadReputationThresholds;
   /** Liga a loja de boost e o multiplicador extra de PR no app. */
   boostEnabled?: boolean;
   /** Percentual extra de PR quando o boost ativo está rodando (ex.: 25 = +25%). */

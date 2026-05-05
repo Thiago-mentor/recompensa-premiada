@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
+import { AdminAdCooldownGuide } from "@/components/admin/AdminAdCooldownGuide";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
@@ -33,6 +34,10 @@ import {
   getRaffleNumberDigits,
   getRaffleProgressPercent,
 } from "@/utils/raffle";
+import {
+  minutesInputToSeconds,
+  secondsToMinutesInputValue,
+} from "@/lib/admin/rewardedAdCooldownInput";
 import {
   BarChart3,
   CalendarClock,
@@ -149,7 +154,7 @@ export default function AdminSorteiosPage() {
   const [releasedCount, setReleasedCount] = useState(String(RAFFLE_DEFAULT_RELEASED_COUNT));
   const [ticketPrice, setTicketPrice] = useState(String(RAFFLE_DEFAULT_TICKET_PRICE));
   const [entryMode, setEntryMode] = useState<RaffleEntryMode>("ticket");
-  const [rewardedAdCooldownSeconds, setRewardedAdCooldownSeconds] = useState("120");
+  const [rewardedAdCooldownMinutes, setRewardedAdCooldownMinutes] = useState("2");
   const [maxPerPurchase, setMaxPerPurchase] = useState(String(RAFFLE_DEFAULT_MAX_PER_PURCHASE));
   const [prizeCurrency, setPrizeCurrency] = useState<"coins" | "gems" | "rewardBalance">("coins");
   const [prizeAmount, setPrizeAmount] = useState("1000");
@@ -205,8 +210,8 @@ export default function AdminSorteiosPage() {
             setReleasedCount(String(r.releasedCount));
             setTicketPrice(String(r.ticketPrice));
             setEntryMode(r.entryMode === "rewarded_ad" ? "rewarded_ad" : "ticket");
-            setRewardedAdCooldownSeconds(
-              String(
+            setRewardedAdCooldownMinutes(
+              secondsToMinutesInputValue(
                 r.rewardedAdCooldownSeconds != null && r.rewardedAdCooldownSeconds >= 0
                   ? r.rewardedAdCooldownSeconds
                   : 120,
@@ -299,8 +304,8 @@ export default function AdminSorteiosPage() {
     setReleasedCount(String(r.releasedCount));
     setTicketPrice(String(r.ticketPrice));
     setEntryMode(r.entryMode === "rewarded_ad" ? "rewarded_ad" : "ticket");
-    setRewardedAdCooldownSeconds(
-      String(
+    setRewardedAdCooldownMinutes(
+      secondsToMinutesInputValue(
         r.rewardedAdCooldownSeconds != null && r.rewardedAdCooldownSeconds >= 0
           ? r.rewardedAdCooldownSeconds
           : 120,
@@ -331,7 +336,7 @@ export default function AdminSorteiosPage() {
     setReleasedCount(String(clampRaffleReleasedCount(defaultReleasedCount)));
     setTicketPrice(String(clampRaffleTicketPrice(defaultTicketPrice)));
     setEntryMode("ticket");
-    setRewardedAdCooldownSeconds("120");
+    setRewardedAdCooldownMinutes("2");
     setMaxPerPurchase(String(clampRaffleMaxPerPurchase(defaultMaxPerPurchase)));
     setPrizeCurrency(defaultPrizeCurrency);
     setPrizeAmount(defaultPrizeAmount);
@@ -392,10 +397,7 @@ export default function AdminSorteiosPage() {
         releasedCount: clampRaffleReleasedCount(releasedCount),
         ticketPrice: clampRaffleTicketPrice(ticketPrice),
         entryMode,
-        rewardedAdCooldownSeconds: Math.max(
-          0,
-          Math.min(86_400, Math.floor(Number(rewardedAdCooldownSeconds) || 0)),
-        ),
+        rewardedAdCooldownSeconds: minutesInputToSeconds(rewardedAdCooldownMinutes),
         maxPerPurchase: clampRaffleMaxPerPurchase(maxPerPurchase),
         prizeCurrency,
         prizeAmount: Math.max(0, Math.floor(Number(prizeAmount) || 0)),
@@ -564,6 +566,8 @@ export default function AdminSorteiosPage() {
           para o sistema localizar automaticamente o ganhador.
         </p>
       </div>
+
+      <AdminAdCooldownGuide />
 
       {!loading ? (
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -792,10 +796,10 @@ export default function AdminSorteiosPage() {
           </div>
           {entryMode === "rewarded_ad" ? (
             <Field
-              label="Intervalo mínimo entre anúncios (segundos)"
-              value={rewardedAdCooldownSeconds}
-              onChange={setRewardedAdCooldownSeconds}
-              hint="0 = sem espera (só limite diário global). Máx. 86400 (24h)."
+              label="Intervalo mínimo entre anúncios (minutos)"
+              value={rewardedAdCooldownMinutes}
+              onChange={setRewardedAdCooldownMinutes}
+              hint="0 = sem espera (só limite diário global). Aceita decimais (ex.: 1,5). Máx. 1440 min (24 h)."
             />
           ) : null}
           <div className="flex flex-col gap-1">

@@ -18,6 +18,7 @@ import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS, SUBCOLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES } from "@/lib/constants/routes";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { AdminAdCooldownGuide } from "@/components/admin/AdminAdCooldownGuide";
 import { cn } from "@/lib/utils/cn";
 import type { ChestRarity, ChestSource, ChestStatus } from "@/types/chest";
 import type { ChestSystemConfig } from "@/types/systemConfig";
@@ -27,6 +28,10 @@ import {
   CHEST_STATUS_LABEL,
   formatChestPlacement,
 } from "@/utils/chest";
+import {
+  formatCooldownMinutesDisplay,
+  formatDurationMinutesFirst,
+} from "@/lib/admin/rewardedAdCooldownInput";
 import {
   ArrowRight,
   Clock3,
@@ -228,7 +233,7 @@ export default function AdminDashboardPage() {
 
           {chestConfig ? (
             <>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <InfoChip
                   label="Capacidade"
                   value={`${chestConfig.slotCount} slots + ${chestConfig.queueCapacity} fila`}
@@ -244,6 +249,10 @@ export default function AdminDashboardPage() {
                       ? `${chestConfig.adSpeedupFixedMinutes} min/anúncio (cap no restante)`
                       : `${Math.round(chestConfig.adSpeedupPercent * 100)}% por anúncio`
                   }
+                />
+                <InfoChip
+                  label="Cooldown entre anúncios"
+                  value={formatCooldownMinutesDisplay(chestConfig.adCooldownSeconds)}
                 />
                 <InfoChip
                   label="Limite diário"
@@ -273,7 +282,7 @@ export default function AdminDashboardPage() {
                       <MiniStat
                         key={rarity}
                         label={CHEST_RARITY_LABEL[rarity]}
-                        value={formatSeconds(chestConfig.unlockDurationsByRarity[rarity])}
+                        value={formatDurationMinutesFirst(chestConfig.unlockDurationsByRarity[rarity])}
                       />
                     ))}
                   </div>
@@ -286,6 +295,10 @@ export default function AdminDashboardPage() {
               interno.
             </div>
           )}
+
+          <div className="mt-4">
+            <AdminAdCooldownGuide />
+          </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
@@ -686,14 +699,6 @@ function StatusCard({
       </p>
     </div>
   );
-}
-
-function formatSeconds(totalSeconds: number | undefined): string {
-  if (!totalSeconds || totalSeconds <= 0) return "—";
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m ${totalSeconds % 60}s`;
 }
 
 function timestampToMs(value: unknown): number | null {

@@ -20,7 +20,8 @@ import {
   canUploadCustomAvatar,
   getAvatarUploadMissingRequirements,
   getAvatarUploadProgress,
-  AVATAR_UPLOAD_REQUIREMENTS,
+  isAvatarUploadReputationEnabled,
+  resolveAvatarUploadReputationThresholds,
 } from "@/lib/users/avatarRequirements";
 import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
@@ -58,9 +59,21 @@ export default function PerfilPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [msgTone, setMsgTone] = useState<"success" | "error">("success");
   const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
+  const [avatarReputationEnabled, setAvatarReputationEnabled] = useState(false);
+  const [avatarReputationThresholds, setAvatarReputationThresholds] = useState(() =>
+    resolveAvatarUploadReputationThresholds(undefined),
+  );
   const [activeSection, setActiveSection] = useState<ProfileSectionId>("conta");
-  const avatarUploadUnlocked = canUploadCustomAvatar(profile);
-  const avatarMissingRequirements = getAvatarUploadMissingRequirements(profile);
+  const avatarUploadUnlocked = canUploadCustomAvatar(
+    profile,
+    avatarReputationEnabled,
+    avatarReputationThresholds,
+  );
+  const avatarMissingRequirements = getAvatarUploadMissingRequirements(
+    profile,
+    avatarReputationEnabled,
+    avatarReputationThresholds,
+  );
   const avatarUploadProgress = getAvatarUploadProgress(profile);
 
   useEffect(() => {
@@ -72,8 +85,14 @@ export default function PerfilPage() {
         if (!raw) return;
         const data = raw as Partial<SystemEconomyConfig>;
         setBoostSystemEnabled(isBoostSystemEnabled(data));
+        setAvatarReputationEnabled(isAvatarUploadReputationEnabled(data));
+        setAvatarReputationThresholds(resolveAvatarUploadReputationThresholds(data));
       } catch {
         if (!cancelled) setBoostSystemEnabled(BOOST_SYSTEM_DEFAULT_ENABLED);
+        if (!cancelled) {
+          setAvatarReputationEnabled(false);
+          setAvatarReputationThresholds(resolveAvatarUploadReputationThresholds(undefined));
+        }
       }
     })();
     return () => {
@@ -253,10 +272,10 @@ export default function PerfilPage() {
               <div className="game-panel-soft rounded-xl border-amber-400/20 bg-amber-500/10 px-3 py-3 text-sm text-amber-100/90">
                 <p className="font-semibold text-white">Upload de foto bloqueado por reputação.</p>
                 <p className="mt-1 text-xs leading-relaxed text-amber-100/75">
-                  Requisito: {AVATAR_UPLOAD_REQUIREMENTS.ads} anúncios,{" "}
-                  {AVATAR_UPLOAD_REQUIREMENTS.pptMatches} PPT,{" "}
-                  {AVATAR_UPLOAD_REQUIREMENTS.quizMatches} QUIZ e{" "}
-                  {AVATAR_UPLOAD_REQUIREMENTS.reactionMatches} REACTION.
+                  Requisito: {avatarReputationThresholds.ads} anúncios,{" "}
+                  {avatarReputationThresholds.pptMatches} PPT,{" "}
+                  {avatarReputationThresholds.quizMatches} QUIZ e{" "}
+                  {avatarReputationThresholds.reactionMatches} REACTION.
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-amber-100/70">
                   Seu progresso: {avatarUploadProgress.ads} anúncios · {avatarUploadProgress.pptMatches} PPT ·{" "}

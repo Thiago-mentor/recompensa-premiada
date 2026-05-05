@@ -87,12 +87,29 @@ const COL = {
 const AUTO_QUEUE_GAMES = new Set(["ppt", "quiz", "reaction_tap"]);
 const RANKING_GAME_IDS = ["ppt", "quiz", "reaction_tap", "roleta", "bau", "numero_secreto"];
 const VICTORY_RANKED_GAME_IDS = new Set(["ppt", "quiz", "reaction_tap"]);
-const AVATAR_REQUIREMENTS = {
+const DEFAULT_AVATAR_UPLOAD_REPUTATION_THRESHOLDS = {
     ads: 50,
     pptMatches: 10,
     quizMatches: 10,
     reactionMatches: 10,
 };
+function parseAvatarUploadReputationThresholdsFromEconomyDoc(d) {
+    const raw = d.avatarUploadReputationThresholds;
+    const o = raw && typeof raw === "object" ? raw : {};
+    const def = DEFAULT_AVATAR_UPLOAD_REPUTATION_THRESHOLDS;
+    function pick(key) {
+        if (!Object.prototype.hasOwnProperty.call(o, key))
+            return def[key];
+        const n = Math.floor(Number(o[key]));
+        return Number.isFinite(n) && n >= 0 ? n : def[key];
+    }
+    return {
+        ads: pick("ads"),
+        pptMatches: pick("pptMatches"),
+        quizMatches: pick("quizMatches"),
+        reactionMatches: pick("reactionMatches"),
+    };
+}
 const UNSAFE_SAFESEARCH_LEVELS = new Set(["LIKELY", "VERY_LIKELY"]);
 const GAME_TITLES = {
     ppt: "Pedra, papel e tesoura",
@@ -419,20 +436,23 @@ function avatarRequirementProgress(data) {
         reactionMatches: Math.max(0, Math.floor(Number(data.totalReactionPartidas) || 0)),
     };
 }
-function assertAvatarUploadUnlocked(data) {
+function assertAvatarUploadUnlocked(data, economy) {
+    if (!economy.avatarUploadRequireReputation)
+        return;
     const progress = avatarRequirementProgress(data);
+    const req = economy.avatarUploadReputationThresholds;
     const missing = [];
-    if (progress.ads < AVATAR_REQUIREMENTS.ads) {
-        missing.push(`${AVATAR_REQUIREMENTS.ads - progress.ads} anúncio(s)`);
+    if (progress.ads < req.ads) {
+        missing.push(`${req.ads - progress.ads} anúncio(s)`);
     }
-    if (progress.pptMatches < AVATAR_REQUIREMENTS.pptMatches) {
-        missing.push(`${AVATAR_REQUIREMENTS.pptMatches - progress.pptMatches} partida(s) PPT`);
+    if (progress.pptMatches < req.pptMatches) {
+        missing.push(`${req.pptMatches - progress.pptMatches} partida(s) PPT`);
     }
-    if (progress.quizMatches < AVATAR_REQUIREMENTS.quizMatches) {
-        missing.push(`${AVATAR_REQUIREMENTS.quizMatches - progress.quizMatches} partida(s) QUIZ`);
+    if (progress.quizMatches < req.quizMatches) {
+        missing.push(`${req.quizMatches - progress.quizMatches} partida(s) QUIZ`);
     }
-    if (progress.reactionMatches < AVATAR_REQUIREMENTS.reactionMatches) {
-        missing.push(`${AVATAR_REQUIREMENTS.reactionMatches - progress.reactionMatches} partida(s) REACTION`);
+    if (progress.reactionMatches < req.reactionMatches) {
+        missing.push(`${req.reactionMatches - progress.reactionMatches} partida(s) REACTION`);
     }
     if (missing.length > 0) {
         throw new https_1.HttpsError("failed-precondition", `Upload de avatar bloqueado. Ainda falta: ${missing.join(", ")}.`);
@@ -619,6 +639,8 @@ async function getEconomy() {
     return {
         rewardAdCoinAmount: typeof d.rewardAdCoinAmount === "number" ? d.rewardAdCoinAmount : 25,
         dailyLoginBonus: typeof d.dailyLoginBonus === "number" ? d.dailyLoginBonus : 50,
+        avatarUploadRequireReputation: d.avatarUploadRequireReputation === true,
+        avatarUploadReputationThresholds: parseAvatarUploadReputationThresholdsFromEconomyDoc(d),
         boostEnabled: d.boostEnabled === true,
         boostRewardPercent: Number.isFinite(rawBoostPercent) && rawBoostPercent >= 0
             ? Math.min(300, rawBoostPercent)
@@ -4699,12 +4721,13 @@ exports.updateUserAvatar = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
         throw new https_1.HttpsError("not-found", "Perfil do usuário não encontrado.");
     }
     const userData = userSnap.data();
+    const economy = await getEconomy();
     const nome = String(userData.nome || request.auth?.token.name || "Jogador").trim() || "Jogador";
     const username = String(userData.username || uid).trim() || uid;
     const authPhotoURL = normalizeHttpPhotoUrl(rawPhotoUrl);
     const photoURL = authPhotoURL || buildDefaultAvatarDataUrl(username, nome);
     if (authPhotoURL) {
-        assertAvatarUploadUnlocked(userData);
+        assertAvatarUploadUnlocked(userData, economy);
         await assertAvatarImageAllowed(authPhotoURL);
     }
     await Promise.all([
@@ -5102,6 +5125,7 @@ exports.prepareRewardedAdSession = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, as
     if (currentCount >= economy.limiteDiarioAds) {
         throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
     }
+    let raffleIdForSession = null;
     if (placementId === RAFFLE_NUMBER_PLACEMENT_ID) {
         const raffleIdForAd = String(request.data?.raffleId || "").trim();
         if (!raffleIdForAd) {
@@ -5120,6 +5144,7 @@ exports.prepareRewardedAdSession = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, as
             throw new https_1.HttpsError("failed-precondition", "Fora da janela de inscrições deste sorteio.");
         }
         assertCanClaimRaffleAdNumber(userData, raffleForAd, nowAd);
+        raffleIdForSession = raffleIdForAd;
     }
     const sessionRef = db.collection(COL.rewardedAdSessions).doc();
     const expiresAtMs = Date.now() + REWARDED_AD_SESSION_TTL_MS;
@@ -5127,6 +5152,7 @@ exports.prepareRewardedAdSession = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, as
         id: sessionRef.id,
         userId: uid,
         placementId,
+        ...(raffleIdForSession ? { raffleId: raffleIdForSession } : {}),
         status: "solicitado",
         provider: "admob_ssv",
         mock: false,
@@ -6762,6 +6788,9 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 }
                 if (String(sd.placementId || "").trim() !== RAFFLE_NUMBER_PLACEMENT_ID) {
                     throw new https_1.HttpsError("failed-precondition", "Este anúncio não é do tipo sorteio.");
+                }
+                if (String(sd.raffleId || "").trim() !== raffle.id) {
+                    throw new https_1.HttpsError("failed-precondition", "Esta sessão de anúncio não corresponde a este sorteio. Prepare o anúncio de novo na página deste sorteio.");
                 }
                 if (String(sd.status || "") !== "recompensado") {
                     throw new https_1.HttpsError("failed-precondition", "Anúncio ainda não foi validado. Aguarde ou assista novamente.");
