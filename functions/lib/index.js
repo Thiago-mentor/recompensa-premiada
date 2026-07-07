@@ -159,7 +159,9 @@ const REACTION_WAIT_MIN_MS = 1800;
 const REACTION_WAIT_MAX_MS = 3400;
 const REACTION_RESPONSE_MS_CAP = 9999;
 const REACTION_FALSE_START_MS = 9999;
-const REACTION_TIE_MS = 18;
+const REACTION_TIE_MS = 120;
+const REACTION_MIN_VALID_MS = 120;
+const REACTION_NETWORK_GRACE_MS = 140;
 function readPositiveIntEnv(name, fallback) {
     const raw = process.env[name];
     const value = Number(raw);
@@ -3058,7 +3060,14 @@ async function upsertRanking(input) {
         { period: "mensal", col: COL.rankingsMonthly, key: monthlyKey() },
     ];
     await db.runTransaction(async (tx) => {
+        const applyRefs = input.idempotencyKey
+            ? periods.map((p) => db.doc(`${p.col}/${p.key}/ranking_applied/${safeFirestoreDocId(`${input.gameId}:${input.uid}:${input.idempotencyKey}`)}`))
+            : [];
         const userSnap = await tx.get(userRef);
+        const applySnaps = await Promise.all(applyRefs.map((ref) => tx.get(ref)));
+        if (applySnaps.some((snap) => snap.exists)) {
+            return;
+        }
         const userData = (userSnap.data() || {});
         const [dailyPeriod, weeklyPeriod, monthlyPeriod] = periods;
         tx.set(userRef, {
@@ -3117,7 +3126,18 @@ async function upsertRanking(input) {
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             }, { merge: true });
         }
+        for (const ref of applyRefs) {
+            tx.set(ref, {
+                uid: input.uid,
+                gameId: input.gameId,
+                idempotencyKey: input.idempotencyKey,
+                appliedAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
     });
+}
+function safeFirestoreDocId(raw) {
+    return raw.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 900);
 }
 async function syncUserPresentation(uid, nome, foto) {
     const userSnap = await db.doc(`${COL.users}/${uid}`).get();
@@ -3239,7 +3259,7 @@ async function assertAvatarImageAllowed(photoURL) {
         throw new https_1.HttpsError("failed-precondition", "Não foi possível moderar a imagem agora. Tente novamente mais tarde.");
     }
 }
-async function bumpPlayMatchMissions(uid) {
+async function bumpPlayMatchMissions(uid, idempotencyKey) {
     const playSnap = await db
         .collection(COL.missions)
         .where("ativa", "==", true)
@@ -3247,18 +3267,33 @@ async function bumpPlayMatchMissions(uid) {
         .get();
     for (const m of playSnap.docs) {
         const progRef = db.doc(`${COL.userMissions}/${uid}/daily/${m.id}`);
-        const pSnap = await progRef.get();
+        const appliedRef = idempotencyKey
+            ? db.doc(`${COL.userMissions}/${uid}/daily/${m.id}/applied/${safeFirestoreDocId(`play_match:${idempotencyKey}`)}`)
+            : null;
         const meta = Number(m.data().meta || 1);
-        const cur = pSnap.exists ? Number(pSnap.data()?.progresso || 0) : 0;
-        const next = Math.min(meta, cur + 1);
-        await progRef.set({
-            missionId: m.id,
-            progresso: next,
-            concluida: next >= meta,
-            recompensaResgatada: pSnap.data()?.recompensaResgatada ?? false,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            periodoChave: dailyKey(),
-        }, { merge: true });
+        await db.runTransaction(async (tx) => {
+            const pSnap = await tx.get(progRef);
+            const appliedSnap = appliedRef ? await tx.get(appliedRef) : null;
+            if (appliedSnap?.exists)
+                return;
+            const cur = pSnap.exists ? Number(pSnap.data()?.progresso || 0) : 0;
+            const next = Math.min(meta, cur + 1);
+            tx.set(progRef, {
+                missionId: m.id,
+                progresso: next,
+                concluida: next >= meta,
+                recompensaResgatada: pSnap.data()?.recompensaResgatada ?? false,
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                periodoChave: dailyKey(),
+            }, { merge: true });
+            if (appliedRef) {
+                tx.set(appliedRef, {
+                    appliedAt: firestore_2.FieldValue.serverTimestamp(),
+                    idempotencyKey,
+                    source: "play_match",
+                });
+            }
+        });
     }
 }
 function pptOutcomeFromHands(hostHand, guestHand) {
@@ -3348,6 +3383,7 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
         deltaScore: ecoH.rankingPoints,
         win: hostRes === "vitoria",
         gameId: "ppt",
+        idempotencyKey: `${roomId}:host`,
     });
     await upsertRanking({
         uid: guestUid,
@@ -3357,9 +3393,10 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
         deltaScore: ecoG.rankingPoints,
         win: guestRes === "vitoria",
         gameId: "ppt",
+        idempotencyKey: `${roomId}:guest`,
     });
-    await bumpPlayMatchMissions(hostUid);
-    await bumpPlayMatchMissions(guestUid);
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
 }
@@ -3405,6 +3442,7 @@ async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWi
         deltaScore: ecoH.rankingPoints,
         win: hostRes === "vitoria",
         gameId: "quiz",
+        idempotencyKey: `${roomId}:host`,
     });
     await upsertRanking({
         uid: guestUid,
@@ -3414,9 +3452,10 @@ async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWi
         deltaScore: ecoG.rankingPoints,
         win: guestRes === "vitoria",
         gameId: "quiz",
+        idempotencyKey: `${roomId}:guest`,
     });
-    await bumpPlayMatchMissions(hostUid);
-    await bumpPlayMatchMissions(guestUid);
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
 }
@@ -3425,6 +3464,15 @@ function clampReactionResponseMs(raw) {
     if (!Number.isFinite(ms))
         return REACTION_RESPONSE_MS_CAP;
     return Math.max(1, Math.min(REACTION_RESPONSE_MS_CAP, Math.floor(ms)));
+}
+function resolveBalancedReactionMs(clientRaw, serverElapsedRaw) {
+    const clientMs = Math.max(REACTION_MIN_VALID_MS, clampReactionResponseMs(clientRaw));
+    const serverElapsed = Number(serverElapsedRaw);
+    if (!Number.isFinite(serverElapsed) || serverElapsed <= 0) {
+        return clientMs;
+    }
+    const serverMs = clampReactionResponseMs(serverElapsed);
+    return Math.max(clientMs, serverMs - REACTION_NETWORK_GRACE_MS);
 }
 function nextReactionGoLiveAt() {
     return firestore_2.Timestamp.fromMillis(Date.now() +
@@ -3469,6 +3517,7 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
         deltaScore: ecoH.rankingPoints,
         win: hostRes === "vitoria",
         gameId: "reaction_tap",
+        idempotencyKey: `${roomId}:host`,
     });
     await upsertRanking({
         uid: guestUid,
@@ -3478,9 +3527,10 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
         deltaScore: ecoG.rankingPoints,
         win: guestRes === "vitoria",
         gameId: "reaction_tap",
+        idempotencyKey: `${roomId}:guest`,
     });
-    await bumpPlayMatchMissions(hostUid);
-    await bumpPlayMatchMissions(guestUid);
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     const matchWinner = hostRes === "vitoria" ? "host" : guestRes === "vitoria" ? "guest" : null;
     if (matchWinner) {
@@ -8132,6 +8182,7 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
         deltaScore: ecoH.rankingPoints,
         win: hostRes === "vitoria",
         gameId: "ppt",
+        idempotencyKey: `${roomId}:host`,
     });
     await upsertRanking({
         uid: guestUid,
@@ -8141,9 +8192,10 @@ exports.submitPptPick = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
         deltaScore: ecoG.rankingPoints,
         win: guestRes === "vitoria",
         gameId: "ppt",
+        idempotencyKey: `${roomId}:guest`,
     });
-    await bumpPlayMatchMissions(hostUid);
-    await bumpPlayMatchMissions(guestUid);
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
     return {
@@ -8332,11 +8384,14 @@ exports.submitReactionTap = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async
             throw new https_1.HttpsError("failed-precondition", "Tempo da rodada esgotado.");
         }
         const goLiveAtMs = millisFromFirestoreTime(room.reactionGoLiveAt);
-        if (goLiveAtMs > 0 && Date.now() < goLiveAtMs) {
-            throw new https_1.HttpsError("failed-precondition", "Aguardando sinal da rodada.");
-        }
-        const falseStart = false;
-        const reactionMs = clampReactionResponseMs(request.data?.reactionMs);
+        const nowMs = Date.now();
+        const clientFalseStart = request.data?.falseStart === true;
+        const serverFalseStart = goLiveAtMs > 0 && nowMs < goLiveAtMs;
+        const falseStart = clientFalseStart || serverFalseStart;
+        const serverElapsedMs = goLiveAtMs > 0 ? nowMs - goLiveAtMs : null;
+        const reactionMs = falseStart
+            ? REACTION_FALSE_START_MS
+            : resolveBalancedReactionMs(request.data?.reactionMs, serverElapsedMs);
         const hostUid = String(room.hostUid);
         const guestUid = String(room.guestUid);
         const otherUid = uid === hostUid ? guestUid : hostUid;
@@ -8358,6 +8413,8 @@ exports.submitReactionTap = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async
                 uid,
                 reactionMs,
                 falseStart,
+                clientReactionMs: clampReactionResponseMs(request.data?.reactionMs),
+                serverElapsedMs: serverElapsedMs == null ? null : clampReactionResponseMs(serverElapsedMs),
                 createdAt: firestore_2.FieldValue.serverTimestamp(),
             });
             tx.update(roomRef, {
