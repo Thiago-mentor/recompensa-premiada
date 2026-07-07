@@ -10,6 +10,7 @@ import { GameModeSwitcher } from "../../components/GameModeSwitcher";
 import { useGameMatchFlow } from "../../hooks/useGameMatchFlow";
 import { MatchResultModal } from "../../components/MatchResultModal";
 import { RewardToast } from "../../components/RewardToast";
+import { useReducedGameFx } from "../../hooks/useReducedGameFx";
 import type { Hand } from "./engine";
 import { pptClientScore, randomHouseHand, resolvePptRound } from "./engine";
 
@@ -160,6 +161,7 @@ export function PptGameScreen() {
   const sessionStart = useRef<string>(new Date().toISOString());
   const { busy, modal, closeModal, submitMatch, toast, dismissToast } = useGameMatchFlow();
   const [last, setLast] = useState<LastRound | null>(null);
+  const reducedFx = useReducedGameFx();
 
   const status = useMemo(() => {
     if (!last) {
@@ -222,6 +224,7 @@ export function PptGameScreen() {
         initial="hidden"
         animate="show"
       >
+        {!reducedFx ? (
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <motion.div
             className="absolute -left-16 top-10 h-40 w-40 rounded-full bg-cyan-500/18 blur-3xl"
@@ -239,6 +242,7 @@ export function PptGameScreen() {
             transition={{ duration: 5.8, repeat: Infinity, ease: "easeInOut" }}
           />
         </div>
+        ) : null}
 
         <motion.div variants={fadeUpItem} className="relative flex flex-col gap-6">
           <GameModeSwitcher currentGameId="ppt" mode="solo" />
@@ -310,9 +314,12 @@ export function PptGameScreen() {
                 />
 
                 <motion.div
-                  className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-amber-300/30 bg-gradient-to-b from-amber-300/18 to-orange-500/14 text-center shadow-[0_0_40px_-10px_rgba(251,191,36,0.45)]"
-                  animate={{ scale: [0.96, 1.05, 0.96], rotate: [0, 4, -4, 0] }}
-                  transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                  className={cn(
+                    "mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-amber-300/30 bg-gradient-to-b from-amber-300/18 to-orange-500/14 text-center",
+                    !reducedFx && "shadow-[0_0_40px_-10px_rgba(251,191,36,0.45)]",
+                  )}
+                  animate={reducedFx ? undefined : { scale: [0.96, 1.05, 0.96], rotate: [0, 4, -4, 0] }}
+                  transition={reducedFx ? undefined : { duration: 4, repeat: Infinity, ease: "easeInOut" }}
                 >
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-[0.35em] text-amber-200/80">
@@ -393,11 +400,11 @@ export function PptGameScreen() {
               {HAND_OPTIONS.map((option, index) => (
                 <motion.div
                   key={option.id}
-                  initial={{ opacity: 0, y: 18 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.12 + index * 0.08, duration: 0.35 }}
-                  whileHover={{ y: -4, scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
+                  initial={reducedFx ? false : { opacity: 0, y: 18 }}
+                  animate={reducedFx ? undefined : { opacity: 1, y: 0 }}
+                  transition={reducedFx ? undefined : { delay: 0.12 + index * 0.08, duration: 0.35 }}
+                  whileHover={reducedFx ? undefined : { y: -4, scale: 1.01 }}
+                  whileTap={reducedFx ? undefined : { scale: 0.99 }}
                 >
                   <Button
                     variant="secondary"

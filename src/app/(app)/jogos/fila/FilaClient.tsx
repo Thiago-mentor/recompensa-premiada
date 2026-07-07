@@ -43,6 +43,7 @@ import {
   runQuizDuelRewardedAdFlow,
   runReactionDuelRewardedAdFlow,
 } from "@/services/anuncios/rewardedAdService";
+import { useReducedGameFx } from "@/modules/jogos/hooks/useReducedGameFx";
 
 function formatCountdownMs(remainingMs: number): string {
   const s = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -82,7 +83,7 @@ const OPTIONS: { id: GameId; label: string; short: string }[] = [
   { id: "reaction_tap", label: "Reaction tap", short: "Reaction" },
 ];
 
-const MATCHMAKING_RETRY_MS = 1200;
+const MATCHMAKING_RETRY_MS = 2500;
 /** Tempo em segundo plano antes de sair da fila (alinhado ao stale no servidor, ~90s). */
 const MATCHMAKING_BACKGROUND_LEAVE_MS = 60_000;
 
@@ -114,6 +115,7 @@ function queueCopy(gameId: GameId) {
 export function FilaClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const reducedFx = useReducedGameFx();
   const raw = searchParams.get("gameId") || "ppt";
   const initialGame: GameId = isAutoQueueGame(raw) ? raw : "ppt";
   const buscarNaUrl = searchParams.get("buscar") === "1";
@@ -374,45 +376,38 @@ export function FilaClient() {
     }
 
     let cancelled = false;
+    let joinInFlight = false;
     const db = getFirebaseFirestore();
     const slotDoc = doc(db, COLLECTIONS.multiplayerSlots, uid);
 
-    const runJoin = async () => {
+    const runJoin = async (reportError = false) => {
+      if (joinInFlight) return;
+      joinInFlight = true;
       try {
         const r = await joinAutoMatchQueue(gameId);
         if (cancelled) return;
         if (r.status === "matched") {
           router.replace(`${ROUTES.jogos}/sala/${r.roomId}`);
-        }
-      } catch {
-        /* polling ignora falhas transitórias */
-      }
-    };
-
-    void (async () => {
-      try {
-        const r = await joinAutoMatchQueue(gameId);
-        if (cancelled) return;
-        if (r.status === "matched") {
-          router.replace(`${ROUTES.jogos}/sala/${r.roomId}`);
-          return;
         }
       } catch (e) {
-        if (!cancelled) {
+        if (!cancelled && reportError) {
           const fe = e instanceof FirebaseError ? e : null;
           if (fe?.code === "functions/resource-exhausted") {
             setError(
               fe.message ||
-                "Sem duelos PvP. Assista a um anúncio (+3) ou aguarde 10 minutos.",
+                "Sem duelos PvP. Assista a um anuncio (+3) ou aguarde 10 minutos.",
             );
           } else {
             setError(formatFirebaseError(e));
           }
           router.replace(`${ROUTES.jogosFila}?gameId=${gameId}`);
         }
-        return;
+      } finally {
+        joinInFlight = false;
       }
-    })();
+    };
+
+    void runJoin(true);
 
     const unsub = onSnapshot(slotDoc, async (snap) => {
       if (!snap.exists()) return;
@@ -449,7 +444,10 @@ export function FilaClient() {
   return (
     <div className="relative mx-auto max-w-lg">
       <div
-        className="pointer-events-none absolute -inset-1 rounded-[1.85rem] opacity-60 blur-2xl"
+        className={cn(
+          "pointer-events-none absolute -inset-1 rounded-[1.85rem]",
+          reducedFx ? "opacity-25 blur-md" : "opacity-60 blur-2xl",
+        )}
         style={{
           background:
             phase === "searching"
@@ -457,7 +455,12 @@ export function FilaClient() {
               : "linear-gradient(135deg, rgb(139 92 246 / 0.15), rgb(217 70 239 / 0.12))",
         }}
       />
-      <div className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-gradient-to-b from-slate-950 via-violet-950/30 to-slate-950 shadow-[0_0_56px_-14px_rgba(34,211,238,0.2)]">
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-gradient-to-b from-slate-950 via-violet-950/30 to-slate-950",
+          reducedFx ? "shadow-none" : "shadow-[0_0_56px_-14px_rgba(34,211,238,0.2)]",
+        )}
+      >
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.06]"
           style={{
@@ -627,12 +630,24 @@ export function FilaClient() {
             <div className="space-y-5">
               <div className="relative mx-auto flex aspect-square w-[min(100%,280px)] items-center justify-center">
                 <div
-                  className="animate-matchmaking-orbit absolute inset-0 rounded-full border border-dashed border-cyan-400/25"
-                  style={{ animationDuration: "12s" }}
+                  className={cn(
+                    "absolute inset-0 rounded-full border border-dashed border-cyan-400/25",
+                    !reducedFx && "animate-matchmaking-orbit",
+                  )}
+                  style={reducedFx ? undefined : { animationDuration: "12s" }}
                 />
-                <div className="animate-matchmaking-ping absolute inset-[12%] rounded-full border border-violet-400/20" />
-                <div className="animate-matchmaking-ping absolute inset-[24%] rounded-full border border-fuchsia-400/15 [animation-delay:0.4s]" />
-                <div className="relative flex h-[42%] w-[42%] items-center justify-center rounded-full border-2 border-cyan-400/40 bg-gradient-to-br from-cyan-500/20 to-violet-900/40 shadow-[0_0_40px_-6px_rgba(34,211,238,0.45)]">
+                {!reducedFx ? (
+                  <>
+                    <div className="animate-matchmaking-ping absolute inset-[12%] rounded-full border border-violet-400/20" />
+                    <div className="animate-matchmaking-ping absolute inset-[24%] rounded-full border border-fuchsia-400/15 [animation-delay:0.4s]" />
+                  </>
+                ) : null}
+                <div
+                  className={cn(
+                    "relative flex h-[42%] w-[42%] items-center justify-center rounded-full border-2 border-cyan-400/40 bg-gradient-to-br from-cyan-500/20 to-violet-900/40",
+                    reducedFx ? "shadow-none" : "shadow-[0_0_40px_-6px_rgba(34,211,238,0.45)]",
+                  )}
+                >
                   <div className="text-center">
                     <p className="text-[9px] font-bold uppercase tracking-[0.35em] text-cyan-200/70">
                       Scan

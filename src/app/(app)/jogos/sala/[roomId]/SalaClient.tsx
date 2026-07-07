@@ -38,6 +38,17 @@ const PPT_ROUND_REVEAL_MS = 3200;
 
 type LeaveIntent = "forfeit" | "lobby" | "rematch";
 
+function isIosWebKit(): boolean {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent || "";
+  const platform = window.navigator.platform || "";
+  const maxTouchPoints = window.navigator.maxTouchPoints || 0;
+  return (
+    /iPad|iPhone|iPod/i.test(ua) ||
+    (platform === "MacIntel" && maxTouchPoints > 1)
+  );
+}
+
 /** Padrão de segundos para UI; valores reais vêm de `system_configs/economy.pvpChoiceSeconds`. */
 
 function firestoreTimeToMs(value: unknown): number | null {
@@ -1246,15 +1257,21 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const [boostRewardPercent, setBoostRewardPercent] = useState(25);
   const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
   const [isNativeAndroid, setIsNativeAndroid] = useState(false);
+  const [prefersReducedPptFx, setPrefersReducedPptFx] = useState(false);
   const [pvpChoiceSec, setPvpChoiceSec] = useState<PvpChoiceSecondsConfig>(() =>
     parsePvpChoiceSeconds(undefined),
   );
   const pvpChoiceSecRef = useRef(pvpChoiceSec);
   pvpChoiceSecRef.current = pvpChoiceSec;
-  const simplifiedAndroidPptFx = isNativeAndroid && room?.gameId === "ppt";
+  const reducedRoomFx = isNativeAndroid || prefersReducedPptFx;
+  const simplifiedPptFx = reducedRoomFx && room?.gameId === "ppt";
 
   useEffect(() => {
     setIsNativeAndroid(isNativeAndroidPlatform());
+    setPrefersReducedPptFx(
+      isIosWebKit() ||
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
+    );
   }, []);
 
   useEffect(() => {
@@ -2009,19 +2026,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
     secondsLeft <= 3 ? "rgb(248 113 113)" : secondsLeft <= 6 ? "rgb(251 191 36)" : "rgb(34 211 238)";
   const roomShellClass = cn(
     "relative overflow-hidden rounded-[1.6rem] border sm:rounded-3xl",
-    simplifiedAndroidPptFx
+    simplifiedPptFx
       ? "border-white/10 bg-slate-950 shadow-none"
       : "border-cyan-500/20 bg-gradient-to-b from-slate-950/95 via-violet-950/25 to-slate-950 shadow-[0_0_60px_-14px_rgba(34,211,238,0.22)]",
   );
   const faceoffSectionClass = cn(
     "relative overflow-hidden rounded-[1.35rem] border p-3 sm:rounded-[1.8rem] sm:p-5",
-    simplifiedAndroidPptFx
+    simplifiedPptFx
       ? "border-white/10 bg-slate-950 shadow-none"
       : "border-white/10 bg-gradient-to-r from-cyan-950/45 via-slate-950/85 to-fuchsia-950/45 shadow-[0_0_46px_-16px_rgba(34,211,238,0.26)]",
   );
   const pptSectionClass = cn(
     "relative space-y-3 overflow-hidden rounded-[1.35rem] border p-3 sm:space-y-5 sm:rounded-[1.9rem] sm:p-6",
-    simplifiedAndroidPptFx
+    simplifiedPptFx
       ? "border-violet-400/18 bg-slate-950 shadow-none"
       : "border-violet-400/25 bg-gradient-to-b from-violet-950/55 via-slate-950/95 to-cyan-950/25 shadow-[0_0_48px_-14px_rgba(139,92,246,0.3)]",
   );
@@ -2104,7 +2121,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
   return (
     <div className="relative">
-      {!simplifiedAndroidPptFx ? (
+      {!simplifiedPptFx ? (
         <div
           className="pointer-events-none absolute -inset-px rounded-[1.75rem] opacity-70 blur-xl"
           style={{
@@ -2116,7 +2133,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
       <div
         className={roomShellClass}
         style={
-          simplifiedAndroidPptFx
+          simplifiedPptFx
             ? {
                 transform: "translate3d(0,0,0)",
                 contain: "layout paint",
@@ -2127,7 +2144,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
             : undefined
         }
       >
-        {!simplifiedAndroidPptFx ? (
+        {!simplifiedPptFx ? (
           <>
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(255,255,255,0.07),transparent_28%),radial-gradient(circle_at_18%_24%,rgba(34,211,238,0.12),transparent_24%),radial-gradient(circle_at_82%_24%,rgba(217,70,239,0.12),transparent_24%),radial-gradient(circle_at_50%_100%,rgba(251,191,36,0.08),transparent_28%)]" />
             <motion.div
@@ -2158,7 +2175,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               <h1
                 className={cn(
                   "text-lg font-black tracking-tight sm:text-2xl",
-                  simplifiedAndroidPptFx
+                  simplifiedPptFx
                     ? "text-white"
                     : "bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-transparent",
                 )}
@@ -2180,7 +2197,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
           <section
             className={faceoffSectionClass}
             style={
-              simplifiedAndroidPptFx
+              simplifiedPptFx
                 ? {
                     transform: "translate3d(0,0,0)",
                     contain: "layout paint",
@@ -2189,14 +2206,14 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 : undefined
             }
           >
-            {!simplifiedAndroidPptFx ? (
+            {!simplifiedPptFx ? (
               <>
                 <div className="pointer-events-none absolute -left-10 top-0 h-32 w-32 rounded-full bg-cyan-500/15 blur-3xl" />
                 <div className="pointer-events-none absolute -right-8 bottom-0 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
                 <div className="pointer-events-none absolute inset-x-[20%] top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
               </>
             ) : null}
-            {!simplifiedAndroidPptFx ? (
+            {!simplifiedPptFx ? (
               <motion.div
                 className="pointer-events-none absolute inset-x-8 bottom-2 h-16 rounded-full bg-gradient-to-r from-cyan-500/10 via-amber-400/12 to-fuchsia-500/10 blur-2xl"
                 animate={{ opacity: [0.35, 0.7, 0.35], scaleX: [0.96, 1.04, 0.96] }}
@@ -2214,21 +2231,21 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 score={duelMyPts}
                 align="left"
                 ringClass={
-                  simplifiedAndroidPptFx
+                  simplifiedPptFx
                     ? "border-cyan-400/28 bg-slate-950"
                     : "border-cyan-400/60 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(34,211,238,0.45)]"
                 }
                 progressRatio={duelMyPts / Math.max(1, duelTarget)}
-                simple={simplifiedAndroidPptFx}
+                simple={simplifiedPptFx}
               />
               <div className="relative flex shrink-0 flex-col items-center gap-0.5 px-1 sm:gap-1">
-                {!simplifiedAndroidPptFx ? (
+                {!simplifiedPptFx ? (
                   <div className="pointer-events-none absolute inset-0 rounded-full bg-amber-300/10 blur-xl" />
                 ) : null}
                 <span
                   className={cn(
                     "select-none text-2xl font-black italic tracking-tighter sm:text-4xl",
-                    simplifiedAndroidPptFx
+                    simplifiedPptFx
                       ? "text-amber-200"
                       : "bg-gradient-to-b from-amber-300 via-orange-400 to-red-500 bg-clip-text text-transparent drop-shadow-[0_0_20px_rgba(251,191,36,0.4)]",
                   )}
@@ -2263,12 +2280,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 score={duelOppPts}
                 align="right"
                 ringClass={
-                  simplifiedAndroidPptFx
+                  simplifiedPptFx
                     ? "border-fuchsia-400/24 bg-slate-950"
                     : "border-fuchsia-400/55 bg-slate-900/90 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]"
                 }
                 progressRatio={duelOppPts / Math.max(1, duelTarget)}
-                simple={simplifiedAndroidPptFx}
+                simple={simplifiedPptFx}
               />
             </div>
             <div className="mt-3 flex flex-col items-center gap-2 rounded-xl border border-white/8 bg-black/20 p-2 sm:hidden">
@@ -2457,7 +2474,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               aria-label="Pedra, papel e tesoura"
               title="Toque numa carta antes do tempo acabar. Se o tempo expirar, o servidor encerra a rodada."
               style={
-                simplifiedAndroidPptFx
+                simplifiedPptFx
                   ? {
                       transform: "translate3d(0,0,0)",
                       willChange: "transform, opacity",
@@ -2469,7 +2486,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   : undefined
               }
             >
-              {!simplifiedAndroidPptFx ? (
+              {!simplifiedPptFx ? (
                 <>
                   <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-violet-500/15 blur-3xl" />
                   <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
@@ -2530,7 +2547,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     </div>
                   </div>
                 ) : myPickDone ? (
-                  isNativeAndroid ? (
+                  simplifiedPptFx ? (
                     <div
                       className="flex items-center gap-1.5 rounded-full border border-cyan-500/25 bg-cyan-950/20 px-2.5 py-1 sm:gap-2 sm:px-3 sm:py-1.5"
                       aria-hidden
@@ -2566,7 +2583,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     <span
                       className={cn(
                         "h-1.5 w-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_8px_rgba(217,70,239,0.6)]",
-                        !isNativeAndroid && "animate-pulse",
+                        !simplifiedPptFx && "animate-pulse",
                       )}
                     />
                     Oponente pronto
@@ -2586,7 +2603,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
               ) : null}
 
               {myPickDone ? (
-                isNativeAndroid ? (
+                simplifiedPptFx ? (
                   <div
                     className="relative flex items-stretch justify-center gap-2 pt-0.5 sm:gap-4 sm:pt-1"
                     style={{ transform: "translate3d(0,0,0)", contain: "paint", isolation: "isolate" }}
@@ -2617,7 +2634,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                       <div className="py-0.5 sm:py-1">
                         <CardBackFace
                           className="mx-auto max-w-[4.8rem] sm:max-w-[7.5rem]"
-                          nativeAndroid={isNativeAndroid}
+                          nativeAndroid={simplifiedPptFx}
                         />
                         <p className="sr-only">Carta do oponente oculta até ambos jogarem</p>
                       </div>
@@ -2692,27 +2709,27 @@ export function SalaClient({ roomId }: { roomId: string }) {
                         onClick={() => void submitPpt(h)}
                         className={cn(
                           "group relative flex min-h-[8.6rem] flex-col items-center justify-between gap-1.5 overflow-hidden rounded-[1.1rem] border-2 p-2.5 transition-all duration-200 sm:min-h-[13rem] sm:gap-3 sm:rounded-[1.45rem] sm:p-4",
-                          simplifiedAndroidPptFx
+                          simplifiedPptFx
                             ? "bg-slate-950 text-white shadow-none active:bg-white/[0.04]"
                             : "bg-gradient-to-b from-white/[0.08] to-slate-950/90",
-                          !simplifiedAndroidPptFx &&
+                          !simplifiedPptFx &&
                             "hover:-translate-y-1 hover:shadow-[0_12px_40px_-12px_rgba(34,211,238,0.35)] active:scale-[0.97] active:brightness-95",
                           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400",
                           "disabled:pointer-events-none disabled:opacity-40",
                           selected &&
-                            (simplifiedAndroidPptFx
+                            (simplifiedPptFx
                               ? "border-cyan-400/60 bg-cyan-950/20 ring-1 ring-cyan-400/30"
                               : "border-cyan-400/80 shadow-[0_0_28px_-4px_rgba(34,211,238,0.55)] ring-2 ring-cyan-400/40"),
                           !selected &&
-                            (simplifiedAndroidPptFx ? "border-white/12" : cn("border-white/15", theme.ring)),
+                            (simplifiedPptFx ? "border-white/12" : cn("border-white/15", theme.ring)),
                         )}
                         style={
-                          simplifiedAndroidPptFx
+                          simplifiedPptFx
                             ? { transform: "translate3d(0,0,0)", contain: "paint" }
                             : undefined
                         }
                       >
-                        {!simplifiedAndroidPptFx ? (
+                        {!simplifiedPptFx ? (
                           <div
                             className={cn(
                               "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-75",
@@ -2722,22 +2739,22 @@ export function SalaClient({ roomId }: { roomId: string }) {
                         ) : null}
                         <div
                           className={cn(
-                            simplifiedAndroidPptFx
+                            simplifiedPptFx
                               ? "relative rounded-lg bg-white/[0.03] p-2 ring-1 ring-white/10 sm:rounded-xl sm:p-3"
                               : "relative rounded-lg bg-gradient-to-br from-white/10 to-transparent p-2 ring-1 transition-all duration-200 ring-white/10 group-hover:ring-white/25 sm:rounded-xl sm:p-3",
                             selected &&
-                              (simplifiedAndroidPptFx ? "bg-cyan-500/10 ring-cyan-400/30" : "from-cyan-500/20 ring-cyan-400/50"),
+                              (simplifiedPptFx ? "bg-cyan-500/10 ring-cyan-400/30" : "from-cyan-500/20 ring-cyan-400/50"),
                           )}
                         >
                           <HandIcon
                             hand={h}
                             className={cn(
-                              simplifiedAndroidPptFx
+                              simplifiedPptFx
                                 ? "h-9 w-9 sm:h-16 sm:w-16"
                                 : "h-9 w-9 transition-transform duration-200 group-hover:scale-110 sm:h-16 sm:w-16",
                               selected
                                 ? "text-cyan-200"
-                                : simplifiedAndroidPptFx
+                                : simplifiedPptFx
                                   ? theme.icon
                                   : cn(theme.icon, "group-hover:text-white"),
                             )}
@@ -2763,7 +2780,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                           <span
                             className={cn(
                               "absolute right-2 top-2 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_rgb(34,211,238)]",
-                              !simplifiedAndroidPptFx && "animate-pulse",
+                              !simplifiedPptFx && "animate-pulse",
                             )}
                           />
                         ) : null}
@@ -2777,13 +2794,20 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
           {showQuizPlay ? (
             <section
-              className="relative space-y-3 overflow-hidden rounded-[1.35rem] border border-fuchsia-400/25 bg-gradient-to-b from-violet-950/55 via-slate-950/95 to-cyan-950/25 p-3 shadow-[0_0_48px_-14px_rgba(217,70,239,0.28)] sm:space-y-5 sm:rounded-[1.9rem] sm:p-6"
+              className={cn(
+                "relative space-y-3 overflow-hidden rounded-[1.35rem] border border-fuchsia-400/25 bg-gradient-to-b from-violet-950/55 via-slate-950/95 to-cyan-950/25 p-3 sm:space-y-5 sm:rounded-[1.9rem] sm:p-6",
+                reducedRoomFx ? "shadow-none" : "shadow-[0_0_48px_-14px_rgba(217,70,239,0.28)]",
+              )}
               aria-label="Quiz rápido"
               data-quiz-sala-ui="pvp-rules-2026-04"
             >
-              <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
-              <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
-              <div className="pointer-events-none absolute inset-x-8 bottom-0 h-16 bg-gradient-to-r from-cyan-500/8 via-fuchsia-500/12 to-violet-500/8 blur-2xl" />
+              {!reducedRoomFx ? (
+                <>
+                  <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-fuchsia-500/15 blur-3xl" />
+                  <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
+                  <div className="pointer-events-none absolute inset-x-8 bottom-0 h-16 bg-gradient-to-r from-cyan-500/8 via-fuchsia-500/12 to-violet-500/8 blur-2xl" />
+                </>
+              ) : null}
 
               <div className="relative flex items-start justify-between gap-2 sm:gap-3">
                 <div>
@@ -2956,7 +2980,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
                             className={cn(
                               "group relative overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold transition-all duration-200 sm:rounded-[1.35rem] sm:px-5 sm:py-4",
                               "bg-gradient-to-b from-white/[0.08] to-slate-950/90 text-white",
-                              "hover:-translate-y-0.5 hover:border-fuchsia-300/45 hover:shadow-[0_12px_30px_-16px_rgba(217,70,239,0.45)]",
+                              !reducedRoomFx &&
+                                "hover:-translate-y-0.5 hover:border-fuchsia-300/45 hover:shadow-[0_12px_30px_-16px_rgba(217,70,239,0.45)]",
                               "disabled:pointer-events-none disabled:opacity-55",
                               selected ? "border-fuchsia-300/60 bg-fuchsia-500/12" : "border-white/10",
                             )}
@@ -2983,10 +3008,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
           ) : null}
 
           {showReactionPlay ? (
-            <section className="relative space-y-4 overflow-hidden rounded-[1.35rem] border border-emerald-400/25 bg-gradient-to-b from-emerald-950/40 via-slate-950/95 to-cyan-950/25 p-3 shadow-[0_0_48px_-14px_rgba(16,185,129,0.28)] sm:space-y-5 sm:rounded-[1.9rem] sm:p-6">
-              <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-emerald-500/15 blur-3xl" />
-              <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
-              <div className="pointer-events-none absolute inset-x-8 bottom-0 h-16 bg-gradient-to-r from-cyan-500/8 via-emerald-500/12 to-teal-500/8 blur-2xl" />
+            <section
+              className={cn(
+                "relative space-y-4 overflow-hidden rounded-[1.35rem] border border-emerald-400/25 bg-gradient-to-b from-emerald-950/40 via-slate-950/95 to-cyan-950/25 p-3 sm:space-y-5 sm:rounded-[1.9rem] sm:p-6",
+                reducedRoomFx ? "shadow-none" : "shadow-[0_0_48px_-14px_rgba(16,185,129,0.28)]",
+              )}
+            >
+              {!reducedRoomFx ? (
+                <>
+                  <div className="pointer-events-none absolute -top-10 left-1/4 h-32 w-32 rounded-full bg-emerald-500/15 blur-3xl" />
+                  <div className="pointer-events-none absolute -bottom-8 right-0 h-32 w-32 rounded-full bg-cyan-500/12 blur-3xl" />
+                  <div className="pointer-events-none absolute inset-x-8 bottom-0 h-16 bg-gradient-to-r from-cyan-500/8 via-emerald-500/12 to-teal-500/8 blur-2xl" />
+                </>
+              ) : null}
 
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -3096,8 +3130,14 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 className={cn(
                   "w-full rounded-[1.35rem] border-2 py-10 text-xl font-black uppercase tracking-[0.22em] transition sm:rounded-[1.7rem] sm:py-14 sm:text-3xl",
                   reactionInputReady
-                    ? "border-emerald-300/70 bg-emerald-400 text-slate-950 shadow-[0_0_36px_-8px_rgba(52,211,153,0.55)]"
-                    : "border-amber-400/35 bg-amber-500/15 text-amber-100 shadow-[0_0_30px_-10px_rgba(251,191,36,0.22)]",
+                    ? cn(
+                        "border-emerald-300/70 bg-emerald-400 text-slate-950",
+                        !reducedRoomFx && "shadow-[0_0_36px_-8px_rgba(52,211,153,0.55)]",
+                      )
+                    : cn(
+                        "border-amber-400/35 bg-amber-500/15 text-amber-100",
+                        !reducedRoomFx && "shadow-[0_0_30px_-10px_rgba(251,191,36,0.22)]",
+                      ),
                   (!reactionInputReady || reactionSending || myReactionAnswered || matchDone) &&
                     "pointer-events-none opacity-55",
                   reactionRoundExpired && "pointer-events-none opacity-55",
@@ -3172,7 +3212,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
           />
         ) : null}
         {roundFlash ? (
-          <RoundRevealOverlay key={roundFlash.key} flash={roundFlash} nativeAndroid={isNativeAndroid} />
+          <RoundRevealOverlay key={roundFlash.key} flash={roundFlash} nativeAndroid={simplifiedPptFx} />
         ) : null}
       </AnimatePresence>
     </div>

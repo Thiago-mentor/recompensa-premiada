@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ROUTES } from "@/lib/constants/routes";
+import { cn } from "@/lib/utils/cn";
 import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import type { SystemEconomyConfig, WeightedPrizeConfig } from "@/types/systemConfig";
 import {
@@ -23,6 +24,7 @@ import {
   formatHmsCountdown,
   msUntilNextAppDayStart,
 } from "@/lib/scheduling/appDay";
+import { useReducedGameFx } from "../../hooks/useReducedGameFx";
 
 const SEGMENT_COLORS = ["#521b92", "#7c2ccb", "#4b167f", "#671fa7", "#3b126e", "#8229cf"];
 
@@ -61,6 +63,7 @@ function RouletteChestGlyph({ cx, cy, tint }: { cx: number; cy: number; tint: st
 
 export function RoletaGameScreen() {
   const { user, profile, profileLoading, refreshProfile } = useAuth();
+  const reducedFx = useReducedGameFx();
   const [spinSyncMs, setSpinSyncMs] = useState(() => Date.now());
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
@@ -90,6 +93,7 @@ export function RoletaGameScreen() {
 
   const segmentCount = wheelSlices.length;
   const segmentAngle = useMemo(() => 360 / Math.max(segmentCount, 1), [segmentCount]);
+  const spinDurationMs = reducedFx ? 2200 : 3300;
 
   const todayDailyKey = appDailyKey();
   const dailySpinKey = String(profile?.rouletteDailyAdSpinDayKey ?? "").trim();
@@ -196,7 +200,7 @@ export function RoletaGameScreen() {
 
     setSpinning(true);
     setRotation(nextRotation);
-    await new Promise((r) => setTimeout(r, 3300));
+    await new Promise((r) => setTimeout(r, spinDurationMs));
     setSpinning(false);
     setBusy(false);
 
@@ -254,9 +258,20 @@ export function RoletaGameScreen() {
   }
 
   return (
-    <div className="relative -mx-1 min-h-[calc(100dvh-12rem)] overflow-hidden rounded-[1.75rem] border border-fuchsia-400/25 bg-[radial-gradient(circle_at_50%_36%,rgba(217,70,239,0.22),transparent_32%),radial-gradient(circle_at_50%_70%,rgba(251,191,36,0.12),transparent_34%),linear-gradient(180deg,#050315,#110522_52%,#050315)] px-3 pb-4 pt-3 text-white shadow-[0_0_60px_-22px_rgba(217,70,239,0.55),inset_0_1px_0_rgba(255,255,255,0.08)]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(236,72,153,0.16),transparent_18%),radial-gradient(circle_at_82%_22%,rgba(139,92,246,0.15),transparent_20%)]" />
-      <div className="pointer-events-none absolute inset-0 opacity-40 [background-image:radial-gradient(circle,rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:28px_28px]" />
+    <div
+      className={cn(
+        "relative -mx-1 min-h-[calc(100dvh-12rem)] overflow-hidden rounded-[1.75rem] border border-fuchsia-400/25 bg-[linear-gradient(180deg,#050315,#110522_52%,#050315)] px-3 pb-4 pt-3 text-white",
+        reducedFx
+          ? "shadow-none"
+          : "bg-[radial-gradient(circle_at_50%_36%,rgba(217,70,239,0.22),transparent_32%),radial-gradient(circle_at_50%_70%,rgba(251,191,36,0.12),transparent_34%),linear-gradient(180deg,#050315,#110522_52%,#050315)] shadow-[0_0_60px_-22px_rgba(217,70,239,0.55),inset_0_1px_0_rgba(255,255,255,0.08)]",
+      )}
+    >
+      {!reducedFx ? (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(236,72,153,0.16),transparent_18%),radial-gradient(circle_at_82%_22%,rgba(139,92,246,0.15),transparent_20%)]" />
+          <div className="pointer-events-none absolute inset-0 opacity-40 [background-image:radial-gradient(circle,rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:28px_28px]" />
+        </>
+      ) : null}
 
       <div className="relative flex items-center justify-between">
         <Link
@@ -315,7 +330,7 @@ export function RoletaGameScreen() {
         </p>
 
         <div className="relative mx-auto mt-3 aspect-square w-full max-w-[360px]">
-          <div className="pointer-events-none absolute -inset-5 rounded-full bg-fuchsia-500/20 blur-3xl" />
+          {!reducedFx ? <div className="pointer-events-none absolute -inset-5 rounded-full bg-fuchsia-500/20 blur-3xl" /> : null}
           <div
             className="absolute left-1/2 top-0 z-20 h-14 w-12 -translate-x-1/2 drop-shadow-[0_8px_16px_rgba(0,0,0,0.55)]"
             aria-hidden
@@ -325,8 +340,13 @@ export function RoletaGameScreen() {
           </div>
 
           <div
-            className="absolute inset-0 rounded-full border-[10px] border-orange-500 bg-[#22052e] shadow-[0_16px_32px_-18px_rgba(0,0,0,0.9),0_0_0_4px_rgba(253,186,116,0.28),0_0_36px_rgba(217,70,239,0.35),inset_0_0_26px_rgba(0,0,0,0.55)] transition-transform duration-[3300ms] ease-out"
-            style={{ transform: `rotate(${rotation}deg)` }}
+            className={cn(
+              "absolute inset-0 rounded-full border-[10px] border-orange-500 bg-[#22052e] transition-transform ease-out",
+              reducedFx
+                ? "shadow-[0_12px_24px_-18px_rgba(0,0,0,0.85)]"
+                : "shadow-[0_16px_32px_-18px_rgba(0,0,0,0.9),0_0_0_4px_rgba(253,186,116,0.28),0_0_36px_rgba(217,70,239,0.35),inset_0_0_26px_rgba(0,0,0,0.55)]",
+            )}
+            style={{ transform: `rotate(${rotation}deg)`, transitionDuration: `${spinDurationMs}ms` }}
           >
             <svg className="h-full w-full" viewBox="0 0 320 320" aria-hidden>
               <defs>
