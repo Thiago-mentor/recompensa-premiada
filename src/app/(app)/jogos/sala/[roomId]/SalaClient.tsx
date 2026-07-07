@@ -326,26 +326,31 @@ function RoundRevealOverlay({
           <p className="text-center text-[10px] font-bold uppercase tracking-[0.32em] text-cyan-200/70">
             Rodada encerrada
           </p>
-          <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-            {[
-              { hand: flash.hostHand, label: flash.hostLabel, side: "host" as const },
-              { hand: flash.guestHand, label: flash.guestLabel, side: "guest" as const },
-            ].map(({ hand, label, side }) => (
-              <div key={side} className="flex min-w-0 flex-col items-center gap-2">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-white/40">{label}</span>
-                <div
-                  className={cn(
-                    "flex w-full max-w-[8.5rem] flex-col items-center gap-2 rounded-2xl border bg-slate-950 px-3 py-4 sm:max-w-[9.5rem] sm:px-4 sm:py-5",
-                    side === "host" ? "border-cyan-400/30" : "border-fuchsia-400/30",
-                  )}
-                >
-                  <HandIcon hand={hand} className="h-16 w-16 text-white sm:h-[4.5rem] sm:w-[4.5rem]" />
-                  <span className="text-sm font-black uppercase tracking-wide text-white">{handLabel(hand)}</span>
-                </div>
+          <div className="mt-6 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+            <div className="flex min-w-0 flex-col items-center gap-2">
+              <span className="max-w-full truncate text-[9px] font-bold uppercase tracking-widest text-white/40">
+                {flash.hostLabel}
+              </span>
+              <div className="flex w-full max-w-[8.5rem] flex-col items-center gap-2 rounded-2xl border border-cyan-400/30 bg-slate-950 px-3 py-4 sm:max-w-[9.5rem] sm:px-4 sm:py-5">
+                <HandIcon hand={flash.hostHand} className="h-16 w-16 text-white sm:h-[4.5rem] sm:w-[4.5rem]" />
+                <span className="text-sm font-black uppercase tracking-wide text-white">
+                  {handLabel(flash.hostHand)}
+                </span>
               </div>
-            ))}
+            </div>
             <div className="flex flex-col items-center">
               <span className="text-lg font-black italic text-amber-200 sm:text-2xl">VS</span>
+            </div>
+            <div className="flex min-w-0 flex-col items-center gap-2">
+              <span className="max-w-full truncate text-[9px] font-bold uppercase tracking-widest text-white/40">
+                {flash.guestLabel}
+              </span>
+              <div className="flex w-full max-w-[8.5rem] flex-col items-center gap-2 rounded-2xl border border-fuchsia-400/30 bg-slate-950 px-3 py-4 sm:max-w-[9.5rem] sm:px-4 sm:py-5">
+                <HandIcon hand={flash.guestHand} className="h-16 w-16 text-white sm:h-[4.5rem] sm:w-[4.5rem]" />
+                <span className="text-sm font-black uppercase tracking-wide text-white">
+                  {handLabel(flash.guestHand)}
+                </span>
+              </div>
             </div>
           </div>
           <div className="mt-6 space-y-1 text-center">

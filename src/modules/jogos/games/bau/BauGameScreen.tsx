@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
@@ -41,7 +42,7 @@ import {
 } from "lucide-react";
 
 const hubLink =
-  "inline-flex min-h-[44px] items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-bold transition";
+  "inline-flex min-h-[44px] touch-manipulation items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-bold transition [-webkit-tap-highlight-color:transparent]";
 
 const CHEST_HUB_FIRST_HINT_LS_PREFIX = "recompensa-premiada:chestHubFirstUnlockHint:";
 
@@ -109,7 +110,7 @@ export function BauGameScreen() {
   return (
     <ArenaShell maxWidth="max-w-5xl">
       <motion.div
-        className="space-y-6"
+        className="space-y-6 pb-24 sm:pb-16"
         variants={staggerContainer}
         initial="hidden"
         animate="show"
@@ -551,8 +552,10 @@ function ChestFeedbackToast({
         ? "shadow-[0_22px_54px_-20px_rgba(239,68,68,0.85)]"
         : "shadow-[0_22px_54px_-22px_rgba(14,165,233,0.75)]";
 
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70] flex justify-center px-4">
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-[1200] flex justify-center px-4 sm:bottom-[calc(7rem+env(safe-area-inset-bottom))]">
       <motion.div
         key={`${feedback.tone}:${feedback.text}`}
         initial={{ opacity: 0, y: 26, scale: 0.96 }}
@@ -573,14 +576,15 @@ function ChestFeedbackToast({
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-full border border-white/10 p-1 text-white/70 transition hover:bg-white/10 hover:text-white"
+            className="touch-manipulation rounded-full border border-white/10 p-1 text-white/70 transition [-webkit-tap-highlight-color:transparent] hover:bg-white/10 hover:text-white"
             aria-label="Fechar aviso"
           >
             <X className="h-4 w-4" />
           </button>
         </AlertBanner>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -860,7 +864,7 @@ function SourceCard({
       {title === "Vitórias 1v1" ? (
         <Link
           href={ROUTES.jogos}
-          className="mt-4 inline-flex items-center text-sm font-semibold text-cyan-200 hover:text-cyan-100"
+          className="mt-4 inline-flex touch-manipulation items-center text-sm font-semibold text-cyan-200 [-webkit-tap-highlight-color:transparent] hover:text-cyan-100"
         >
           Ir para a arena
           <ArrowRight className="ml-1 h-4 w-4" />
