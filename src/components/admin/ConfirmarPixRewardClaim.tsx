@@ -15,12 +15,19 @@ const UPLOAD_TIMEOUT_MS = 20_000;
 
 type BusyStep = "idle" | "uploading" | "confirming";
 
-function isAllowedComprovanteUrl(raw: string): boolean {
+function isAllowedComprovanteUrl(raw: string, claimId: string): boolean {
   const value = raw.trim();
   if (!value) return false;
   try {
     const parsed = new URL(value);
-    if (parsed.protocol === "https:") return true;
+    if (parsed.protocol === "https:") {
+      if (parsed.hostname !== "firebasestorage.googleapis.com") return false;
+      const marker = "/o/";
+      const markerIndex = parsed.pathname.indexOf(marker);
+      if (markerIndex < 0) return false;
+      const objectPath = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+      return objectPath.startsWith(`reward_claim_comprovantes/${claimId}/`);
+    }
     if (!useFirebaseEmulators || parsed.protocol !== "http:") return false;
     const samePort = parsed.port === String(firebaseEmulatorPorts.storage);
     const allowedHosts = new Set(["127.0.0.1", "localhost", firebaseEmulatorHost]);
@@ -82,7 +89,7 @@ export function ConfirmarPixRewardClaim({ claimId, onDone }: { claimId: string; 
         getDownloadURL(storageRef),
         "Nao foi possivel obter a URL final do comprovante.",
       );
-      if (!isAllowedComprovanteUrl(url)) {
+      if (!isAllowedComprovanteUrl(url, claimId)) {
         setErr("Nao foi possivel obter uma URL valida do comprovante.");
         return;
       }

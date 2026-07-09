@@ -72,7 +72,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if false;
-      allow update: if isAdmin();
+      // Saldos, risco e suspensão passam por Functions com validação e auditoria.
+      allow update: if false;
       allow delete: if false;
     }
 
@@ -97,7 +98,9 @@ service cloud.firestore {
     }
 
     match /raffles/{id} {
-      allow read: if isSignedIn();
+      // O app público recebe uma visão sanitizada pelas Functions.
+      // O documento bruto contém estado operacional e fica restrito ao admin.
+      allow read: if isAdmin();
       allow create, update, delete: if false;
     }
 
@@ -227,7 +230,8 @@ service cloud.firestore {
     }
 
     match /system_configs/{id} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin()
+        || (isSignedIn() && id == "economy");
       allow write: if isAdmin();
     }
 
@@ -254,7 +258,8 @@ service cloud.firestore {
 
     match /support_tickets/{id} {
       allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      // Recurso ainda sem fluxo validado no backend; fechado para evitar spam/custo.
+      allow create: if false;
       allow update, delete: if isAdmin();
     }
 

@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = void 0;
+exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
+exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const vision_1 = require("@google-cloud/vision");
@@ -188,6 +188,7 @@ const DEFAULT_SCHEDULE_OPTS = {
 };
 const RAFFLE_SYSTEM_CONFIG_ID = "raffle_system";
 const RAFFLE_MAX_RELEASED_COUNT = 1000000;
+const RAFFLE_MAX_INSTANT_PRIZE_HITS = 1000;
 const RAFFLE_DEFAULT_DRAW_TIME_ZONE = DEFAULT_SCHEDULE_OPTS.timeZone;
 const RAFFLE_DEFAULT_SYSTEM_CONFIG = {
     enabled: true,
@@ -995,6 +996,20 @@ function raffleViewFromDoc(docSnap) {
         createdAtMs: d.createdAt ? d.createdAt.toMillis() : null,
         updatedAtMs: d.updatedAt ? d.updatedAt.toMillis() : null,
     };
+}
+function publicRaffleViewFromDoc(docSnap) {
+    const safe = { ...raffleViewFromDoc(docSnap) };
+    delete safe.winnerUserId;
+    delete safe.winnerPurchaseId;
+    safe.instantPrizeHits = Array.isArray(safe.instantPrizeHits)
+        ? safe.instantPrizeHits.map((rawHit) => {
+            const hit = { ...rawHit };
+            delete hit.userId;
+            delete hit.purchaseId;
+            return hit;
+        })
+        : [];
+    return safe;
 }
 function rafflePurchaseViewFromDoc(docSnap) {
     const d = (docSnap.data() || {});
@@ -2334,8 +2349,15 @@ async function generateUniqueReferralCode(seed) {
     return `${seed.slice(0, 2)}${Date.now().toString(36).toUpperCase().slice(-6)}`.slice(0, 8);
 }
 async function getReferralConfig() {
-    const snap = await db.doc(`${COL.systemConfigs}/referral_system`).get();
+    const [snap, privateSnap] = await Promise.all([
+        db.doc(`${COL.systemConfigs}/referral_system`).get(),
+        db.doc(`${COL.systemConfigs}/referral_fraud_private`).get(),
+    ]);
     const d = (snap.data() || {});
+    const privateData = (privateSnap.data() || {});
+    const antiFraudSource = privateData.antiFraudRules && typeof privateData.antiFraudRules === "object"
+        ? privateData
+        : d;
     return {
         enabled: d.enabled !== false,
         codeRequired: d.codeRequired === true,
@@ -2365,23 +2387,33 @@ async function getReferralConfig() {
                 : 0) || 0)),
         },
         antiFraudRules: {
-            blockSelfReferral: d.antiFraudRules && typeof d.antiFraudRules === "object"
-                ? d.antiFraudRules.blockSelfReferral !== false
+            blockSelfReferral: antiFraudSource.antiFraudRules && typeof antiFraudSource.antiFraudRules === "object"
+                ? antiFraudSource.antiFraudRules.blockSelfReferral !== false
                 : true,
-            flagBurstSignups: d.antiFraudRules && typeof d.antiFraudRules === "object"
-                ? d.antiFraudRules.flagBurstSignups !== false
+            flagBurstSignups: antiFraudSource.antiFraudRules && typeof antiFraudSource.antiFraudRules === "object"
+                ? antiFraudSource.antiFraudRules.flagBurstSignups !== false
                 : true,
-            burstSignupThreshold: Math.max(1, Math.floor(Number(d.antiFraudRules && typeof d.antiFraudRules === "object"
-                ? d.antiFraudRules.burstSignupThreshold
+            burstSignupThreshold: Math.max(1, Math.floor(Number(antiFraudSource.antiFraudRules && typeof antiFraudSource.antiFraudRules === "object"
+                ? antiFraudSource.antiFraudRules.burstSignupThreshold
                 : 5) || 5)),
-            requireManualReviewForSuspected: d.antiFraudRules && typeof d.antiFraudRules === "object"
-                ? d.antiFraudRules.requireManualReviewForSuspected === true
+            requireManualReviewForSuspected: antiFraudSource.antiFraudRules && typeof antiFraudSource.antiFraudRules === "object"
+                ? antiFraudSource.antiFraudRules.requireManualReviewForSuspected === true
                 : false,
         },
         activeCampaignId: typeof d.activeCampaignId === "string" ? d.activeCampaignId : null,
         campaignText: typeof d.campaignText === "string" ? d.campaignText : null,
     };
 }
+exports.getReferralPublicConfig = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const snap = await db.doc(`${COL.systemConfigs}/referral_system`).get();
+    if (!snap.exists)
+        return { ok: true, config: null };
+    const config = { ...snap.data() };
+    delete config.antiFraudRules;
+    return { ok: true, config };
+});
 async function getActiveReferralCampaign(config) {
     if (config.activeCampaignId) {
         const snap = await db.doc(`${COL.referralCampaigns}/${config.activeCampaignId}`).get();
@@ -6200,114 +6232,97 @@ exports.reviewRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
     const uid = request.auth?.uid;
     assertAuthed(uid);
     await assertAdmin(uid);
-    const claimId = String(request.data?.claimId || "");
+    const claimId = String(request.data?.claimId || "").trim();
     const status = String(request.data?.status || "");
     if (!claimId || !["aprovado", "recusado"].includes(status)) {
         throw new https_1.HttpsError("invalid-argument", "Parâmetros inválidos.");
     }
     const ref = db.doc(`${COL.rewardClaims}/${claimId}`);
-    const snap = await ref.get();
-    if (!snap.exists)
-        throw new https_1.HttpsError("not-found", "Pedido inexistente.");
-    const c = snap.data();
-    if (c.status !== "pendente")
-        throw new https_1.HttpsError("failed-precondition", "Já analisado.");
-    const userRef = db.doc(`${COL.users}/${c.userId}`);
-    const valorN = Number(c.valor);
-    const retencao = c.retencaoAplicada === true;
-    if (status === "aprovado") {
-        await db.runTransaction(async (tx) => {
-            const claimSnap = await tx.get(ref);
-            if (!claimSnap.exists)
-                throw new https_1.HttpsError("not-found", "Pedido inexistente.");
-            const cur = claimSnap.data();
-            if (cur.status !== "pendente")
-                throw new https_1.HttpsError("failed-precondition", "Já analisado.");
-            const comRetencao = cur.retencaoAplicada === true;
-            if (comRetencao) {
-                tx.update(ref, {
-                    status: "aprovado",
-                    analisadoPor: uid,
-                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-                });
+    await db.runTransaction(async (tx) => {
+        const claimSnap = await tx.get(ref);
+        if (!claimSnap.exists)
+            throw new https_1.HttpsError("not-found", "Pedido inexistente.");
+        const claim = claimSnap.data();
+        if (claim.status !== "pendente") {
+            throw new https_1.HttpsError("failed-precondition", "Já analisado.");
+        }
+        const userId = String(claim.userId || "").trim();
+        const value = Number(claim.valor);
+        const retained = claim.retencaoAplicada === true;
+        if (!userId || !Number.isFinite(value) || value <= 0) {
+            throw new https_1.HttpsError("failed-precondition", "Pedido com dados financeiros inválidos.");
+        }
+        const userRef = db.doc(`${COL.users}/${userId}`);
+        const needsUserBalance = (status === "aprovado" && !retained) || (status === "recusado" && retained);
+        const userSnap = needsUserBalance ? await tx.get(userRef) : null;
+        if (needsUserBalance && !userSnap?.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Usuário do pedido não encontrado.");
+        }
+        const currentBalance = Number(userSnap?.data()?.rewardBalance || 0);
+        if (status === "aprovado" && !retained) {
+            if (currentBalance < value) {
+                throw new https_1.HttpsError("failed-precondition", "Saldo alterado.");
             }
-            else {
-                const uSnap = await tx.get(userRef);
-                const bal = Number(uSnap.data()?.rewardBalance || 0);
-                if (bal < valorN)
-                    throw new https_1.HttpsError("failed-precondition", "Saldo alterado.");
-                tx.update(userRef, {
-                    rewardBalance: firestore_2.FieldValue.increment(-valorN),
-                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-                });
-                tx.update(ref, {
-                    status: "aprovado",
-                    analisadoPor: uid,
-                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-                });
-            }
-        });
-        // Pedidos com retenção já têm extrato em `resgate_pendente`; não duplicar linha no aprove.
-        if (!retencao) {
-            const after = await userRef.get();
-            const saldoApos = Number(after.data()?.rewardBalance ?? 0);
-            await addWalletTx({
-                userId: c.userId,
+            const balanceAfter = currentBalance - value;
+            tx.update(userRef, {
+                rewardBalance: firestore_2.FieldValue.increment(-value),
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            addWalletTxInTx(tx, {
+                id: hashId("reward_claim_approved", claimId),
+                userId,
                 tipo: "resgate",
                 moeda: "rewardBalance",
-                valor: -valorN,
-                saldoApos,
+                valor: -value,
+                saldoApos: balanceAfter,
                 descricao: "Resgate aprovado",
                 referenciaId: claimId,
             });
         }
-    }
-    else {
-        await db.runTransaction(async (tx) => {
-            const claimSnap = await tx.get(ref);
-            if (!claimSnap.exists)
-                throw new https_1.HttpsError("not-found", "Pedido inexistente.");
-            const cur = claimSnap.data();
-            if (cur.status !== "pendente")
-                throw new https_1.HttpsError("failed-precondition", "Já analisado.");
-            const comRetencao = cur.retencaoAplicada === true;
-            if (comRetencao) {
-                tx.update(userRef, {
-                    rewardBalance: firestore_2.FieldValue.increment(valorN),
-                    atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-                });
-            }
-            tx.update(ref, {
-                status: "recusado",
-                analisadoPor: uid,
-                motivoRecusa: String(request.data?.motivo || ""),
+        if (status === "recusado" && retained) {
+            const balanceAfter = currentBalance + value;
+            tx.update(userRef, {
+                rewardBalance: firestore_2.FieldValue.increment(value),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
-        });
-        if (retencao) {
-            const after = await userRef.get();
-            const saldoApos = Number(after.data()?.rewardBalance ?? 0);
-            await addWalletTx({
-                userId: c.userId,
+            addWalletTxInTx(tx, {
+                id: hashId("reward_claim_refund", claimId),
+                userId,
                 tipo: "ajuste",
                 moeda: "rewardBalance",
-                valor: valorN,
-                saldoApos,
-                descricao: "Estorno CASH — saque recusado",
+                valor: value,
+                saldoApos: balanceAfter,
+                descricao: "Estorno de saldo — saque recusado",
                 referenciaId: claimId,
             });
         }
-    }
+        tx.update(ref, {
+            status,
+            analisadoPor: uid,
+            ...(status === "recusado"
+                ? { motivoRecusa: String(request.data?.motivo || "").trim().slice(0, 500) }
+                : {}),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+    });
     return { ok: true };
 });
-function isAllowedComprovanteUrl(raw) {
+function isAllowedComprovanteUrl(raw, claimId) {
     const u = raw.trim();
     if (u.length < 16 || u.length > 2048)
         return false;
     try {
         const parsed = new URL(u);
-        if (parsed.protocol === "https:")
-            return true;
+        if (parsed.protocol === "https:") {
+            if (parsed.hostname !== "firebasestorage.googleapis.com")
+                return false;
+            const marker = "/o/";
+            const markerIndex = parsed.pathname.indexOf(marker);
+            if (markerIndex < 0)
+                return false;
+            const objectPath = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+            return objectPath.startsWith(`reward_claim_comprovantes/${claimId}/`);
+        }
         const emulatorHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST?.trim();
         if (!emulatorHost || parsed.protocol !== "http:")
             return false;
@@ -6324,7 +6339,7 @@ exports.confirmRewardClaimPix = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     await assertAdmin(uid);
     const claimId = String(request.data?.claimId || "");
     const comprovanteUrl = String(request.data?.comprovanteUrl || "").trim();
-    if (!claimId || !comprovanteUrl || !isAllowedComprovanteUrl(comprovanteUrl)) {
+    if (!claimId || !comprovanteUrl || !isAllowedComprovanteUrl(comprovanteUrl, claimId)) {
         throw new https_1.HttpsError("invalid-argument", "claimId e comprovanteUrl valido do Storage sao obrigatorios.");
     }
     const ref = db.doc(`${COL.rewardClaims}/${claimId}`);
@@ -6460,10 +6475,14 @@ async function assertNoOtherActiveRaffle(exceptId) {
         throw new https_1.HttpsError("failed-precondition", "Já existe um sorteio ativo. Encerre-o antes de abrir outro.");
     }
 }
+function raffleActiveLockRef() {
+    return db.doc("internal_locks/raffle_active");
+}
 async function closeRaffleIfDue(raffleId, nowMs) {
     const ref = db.doc(`${COL.raffles}/${raffleId}`);
+    const lockRef = raffleActiveLockRef();
     return db.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
+        const [snap, lockSnap] = await Promise.all([tx.get(ref), tx.get(lockRef)]);
         if (!snap.exists)
             return false;
         const raw = (snap.data() || {});
@@ -6471,6 +6490,9 @@ async function closeRaffleIfDue(raffleId, nowMs) {
         if (!shouldAutoCloseRaffle(raffle, nowMs))
             return false;
         tx.set(ref, buildCloseRafflePayload(raffle, firestore_2.Timestamp.fromMillis(nowMs)), { merge: true });
+        if (String(lockSnap.data()?.raffleId || "") === raffleId) {
+            tx.delete(lockRef);
+        }
         return true;
     });
 }
@@ -6699,7 +6721,7 @@ exports.getActiveRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
     }
     const q = await db.collection(COL.raffles).where("status", "==", "active").limit(1).get();
     if (!q.empty) {
-        return { ok: true, enabled: true, raffle: raffleViewFromDoc(q.docs[0]) };
+        return { ok: true, enabled: true, raffle: publicRaffleViewFromDoc(q.docs[0]) };
     }
     const latestSnap = await db.collection(COL.raffles).orderBy("updatedAt", "desc").limit(10).get();
     const latestPublished = latestSnap.docs.find((docSnap) => {
@@ -6709,8 +6731,28 @@ exports.getActiveRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
     return {
         ok: true,
         enabled: true,
-        raffle: latestPublished ? raffleViewFromDoc(latestPublished) : null,
+        raffle: latestPublished
+            ? publicRaffleViewFromDoc(latestPublished)
+            : null,
     };
+});
+exports.listPublishedRaffles = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const resultLimit = Math.min(24, Math.max(1, Math.floor(Number(request.data?.limit) || 12)));
+    const snap = await db
+        .collection(COL.raffles)
+        .orderBy("updatedAt", "desc")
+        .limit(Math.min(48, resultLimit * 2))
+        .get();
+    const items = snap.docs
+        .filter((docSnap) => {
+        const status = String(docSnap.data()?.status || "");
+        return status !== "draft";
+    })
+        .slice(0, resultLimit)
+        .map(publicRaffleViewFromDoc);
+    return { ok: true, items };
 });
 exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -6734,6 +6776,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const purchaseId = hashId("raffle_buy", uid, raffleId, clientRequestId);
     const purchaseRef = db.doc(`${COL.rafflePurchases}/${purchaseId}`);
     const userRef = db.doc(`${COL.users}/${uid}`);
+    const activeLockRef = raffleActiveLockRef();
     const previewSnap = await raffleRef.get();
     if (!previewSnap.exists) {
         throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
@@ -6762,7 +6805,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const existingPurchase = await purchaseRef.get();
     if (existingPurchase.exists) {
         const raffleSnap = await raffleRef.get();
-        const raffle = raffleSnap.exists ? raffleViewFromDoc(raffleSnap) : null;
+        const raffle = raffleSnap.exists ? publicRaffleViewFromDoc(raffleSnap) : null;
         return {
             ok: true,
             idempotent: true,
@@ -6771,10 +6814,11 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         };
     }
     const result = await db.runTransaction(async (tx) => {
-        const [purchaseSnap, raffleSnap, userSnap] = await Promise.all([
+        const [purchaseSnap, raffleSnap, userSnap, activeLockSnap] = await Promise.all([
             tx.get(purchaseRef),
             tx.get(raffleRef),
             tx.get(userRef),
+            tx.get(activeLockRef),
         ]);
         if (purchaseSnap.exists) {
             return { kind: "idempotent" };
@@ -6921,7 +6965,17 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 picked.push(cand);
             }
             if (picked.length < quantity) {
-                throw new https_1.HttpsError("failed-precondition", "Não foi possível sortear números disponíveis. Tente uma quantidade menor.");
+                const scanStart = (0, node_crypto_1.randomInt)(0, raffle.releasedCount);
+                for (let offset = 0; offset < raffle.releasedCount && picked.length < quantity; offset += 1) {
+                    const cand = (scanStart + offset) % raffle.releasedCount;
+                    if (raffleBitIsSet(buf, cand))
+                        continue;
+                    raffleBitSet(buf, cand);
+                    picked.push(cand);
+                }
+            }
+            if (picked.length < quantity) {
+                throw new https_1.HttpsError("failed-precondition", "Não há números disponíveis suficientes para esta compra.");
             }
             shuffleNumberArrayInPlace(picked);
             numbers = picked;
@@ -6999,6 +7053,10 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         }
         tx.set(userRef, userUpdate, { merge: true });
         tx.set(raffleRef, raffleUpdate, { merge: true });
+        if (raffleUpdate.status === "closed" &&
+            String(activeLockSnap.data()?.raffleId || "") === raffleId) {
+            tx.delete(activeLockRef);
+        }
         const purchasePayload = {
             raffleId,
             raffleTitle: raffle.title,
@@ -7045,7 +7103,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         return {
             ok: true,
             idempotent: true,
-            raffle: raffleSnap.exists ? raffleViewFromDoc(raffleSnap) : null,
+            raffle: raffleSnap.exists ? publicRaffleViewFromDoc(raffleSnap) : null,
             purchase: purchaseSnap.exists ? rafflePurchaseViewFromDoc(purchaseSnap) : null,
         };
     }
@@ -7053,7 +7111,7 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     return {
         ok: true,
         idempotent: false,
-        raffle: raffleSnapAfter.exists ? raffleViewFromDoc(raffleSnapAfter) : null,
+        raffle: raffleSnapAfter.exists ? publicRaffleViewFromDoc(raffleSnapAfter) : null,
         purchase: purchaseSnapAfter.exists ? rafflePurchaseViewFromDoc(purchaseSnapAfter) : result.purchase,
     };
 });
@@ -7146,13 +7204,17 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
         throw new https_1.HttpsError("invalid-argument", "Defina a data final para o modo com início e fim.");
     }
     const totalInstantPrizeQuantity = requestedInstantPrizeTiers.reduce((sum, tier) => sum + tier.quantity, 0);
+    if (totalInstantPrizeQuantity > RAFFLE_MAX_INSTANT_PRIZE_HITS) {
+        throw new https_1.HttpsError("invalid-argument", `O total de números premiados não pode ultrapassar ${RAFFLE_MAX_INSTANT_PRIZE_HITS}.`);
+    }
     if (totalInstantPrizeQuantity > releasedCount) {
         throw new https_1.HttpsError("invalid-argument", "A quantidade total de números premiados não pode passar da faixa liberada.");
     }
     const system = await getRaffleSystemConfig();
     const ref = raffleId ? db.doc(`${COL.raffles}/${raffleId}`) : db.collection(COL.raffles).doc();
+    const activeLockRef = raffleActiveLockRef();
     await db.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
+        const [snap, activeLockSnap] = await Promise.all([tx.get(ref), tx.get(activeLockRef)]);
         const prev = snap.exists ? raffleDocFromFirestore(snap.id, (snap.data() || {})) : null;
         const resolvedAllocation = allocationInput === "sequential"
             ? "sequential"
@@ -7191,7 +7253,19 @@ exports.adminCreateOrUpdateRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, a
             }
         }
         if (status === "active") {
+            const lockedRaffleId = String(activeLockSnap.data()?.raffleId || "");
+            if (lockedRaffleId && lockedRaffleId !== ref.id) {
+                throw new https_1.HttpsError("failed-precondition", "Já existe um sorteio ativo. Encerre-o antes de abrir outro.");
+            }
             await assertNoOtherActiveRaffle(prev?.id ?? null);
+            tx.set(activeLockRef, {
+                raffleId: ref.id,
+                updatedAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
+        else if (prev?.status === "active" &&
+            String(activeLockSnap.data()?.raffleId || "") === ref.id) {
+            tx.delete(activeLockRef);
         }
         const nextSequentialNumber = prev ? Math.min(prev.nextSequentialNumber, releasedCount) : 0;
         const soldCount = prev?.soldCount ?? 0;
@@ -7268,9 +7342,10 @@ exports.adminCloseRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
     if (!raffleId)
         throw new https_1.HttpsError("invalid-argument", "raffleId obrigatório.");
     const ref = db.doc(`${COL.raffles}/${raffleId}`);
+    const activeLockRef = raffleActiveLockRef();
     const closedAt = firestore_2.Timestamp.now();
     await db.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
+        const [snap, activeLockSnap] = await Promise.all([tx.get(ref), tx.get(activeLockRef)]);
         if (!snap.exists)
             throw new https_1.HttpsError("not-found", "Sorteio não encontrado.");
         const raffle = raffleDocFromFirestore(snap.id, (snap.data() || {}));
@@ -7278,6 +7353,9 @@ exports.adminCloseRaffle = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
             throw new https_1.HttpsError("failed-precondition", "Somente sorteios ativos podem ser encerrados manualmente.");
         }
         tx.set(ref, buildCloseRafflePayload(raffle, closedAt), { merge: true });
+        if (String(activeLockSnap.data()?.raffleId || "") === raffleId) {
+            tx.delete(activeLockRef);
+        }
     });
     const after = await ref.get();
     return { ok: true, raffle: after.exists ? raffleViewFromDoc(after) : null };

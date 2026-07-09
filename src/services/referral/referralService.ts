@@ -12,9 +12,9 @@ import {
   where,
   type Unsubscribe,
 } from "firebase/firestore";
+import { callFunction } from "@/services/callables/client";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
-import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { getDailyPeriodKey, getMonthlyPeriodKey, getWeeklyPeriodKey } from "@/utils/date";
 import type {
@@ -124,10 +124,11 @@ async function loadReferralRankingForPeriodKey(
 }
 
 export async function fetchReferralSystemConfig(): Promise<ReferralSystemConfig | null> {
-  const db = getFirebaseFirestore();
-  const snap = await getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system"));
-  if (!snap.exists()) return null;
-  return snap.data() as ReferralSystemConfig;
+  const res = await callFunction<Record<string, never>, {
+    ok: boolean;
+    config: ReferralSystemConfig | null;
+  }>("getReferralPublicConfig", {});
+  return res.data.config;
 }
 
 export async function fetchReferralCampaigns(): Promise<ReferralCampaign[]> {

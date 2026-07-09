@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   collection,
+  deleteField,
   doc,
   getCountFromServer,
   getDoc,
@@ -135,7 +136,7 @@ export default function AdminFraudesPage() {
           logsSnap,
           reviewSnap,
         ] = await Promise.all([
-          getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system")),
+          getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_fraud_private")),
           getCountFromServer(collection(db, COLLECTIONS.fraudLogs)),
           getCountFromServer(
             query(collection(db, COLLECTIONS.fraudLogs), where("severidade", "==", "alta")),
@@ -234,20 +235,27 @@ export default function AdminFraudesPage() {
     try {
       await ensureFreshAdminSession();
       const db = getFirebaseFirestore();
-      await setDoc(
-        doc(db, COLLECTIONS.systemConfigs, "referral_system"),
-        {
-          id: "referral_system",
-          antiFraudRules: {
-            blockSelfReferral: rules.blockSelfReferral,
-            flagBurstSignups: rules.flagBurstSignups,
-            burstSignupThreshold: Math.max(1, Math.floor(Number(rules.burstSignupThreshold) || 1)),
-            requireManualReviewForSuspected: rules.requireManualReviewForSuspected,
+      await Promise.all([
+        setDoc(
+          doc(db, COLLECTIONS.systemConfigs, "referral_fraud_private"),
+          {
+            id: "referral_fraud_private",
+            antiFraudRules: {
+              blockSelfReferral: rules.blockSelfReferral,
+              flagBurstSignups: rules.flagBurstSignups,
+              burstSignupThreshold: Math.max(1, Math.floor(Number(rules.burstSignupThreshold) || 1)),
+              requireManualReviewForSuspected: rules.requireManualReviewForSuspected,
+            },
+            updatedAt: new Date(),
           },
-          updatedAt: new Date(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        ),
+        setDoc(
+          doc(db, COLLECTIONS.systemConfigs, "referral_system"),
+          { antiFraudRules: deleteField() },
+          { merge: true },
+        ),
+      ]);
       showMessage("success", "Regras automáticas anti-fraude salvas.");
       await loadCenter({ suppressMessage: true });
     } catch (error) {

@@ -3,16 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, doc, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { ROUTES } from "@/lib/constants/routes";
-import { COLLECTIONS } from "@/lib/constants/collections";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import {
   getActiveRaffleCallable,
+  listPublishedRafflesCallable,
   listMyRafflePurchasesCallable,
   purchaseRaffleNumbersCallable,
 } from "@/services/raffle/raffleService";
@@ -26,7 +24,6 @@ import {
   formatRaffleScopedRange,
   getRaffleProgressPercent,
 } from "@/utils/raffle";
-import { mapRaffleSnapshotToView } from "@/utils/raffleFirestore";
 import { ChevronDown, ChevronUp, Clapperboard, Sparkles, Ticket } from "lucide-react";
 
 const MAX_EXPAND_NUMBERS = 240;
@@ -144,30 +141,23 @@ export default function SorteiosPage() {
   }, [loadRaffle]);
 
   useEffect(() => {
-    if (!enabled || !raffle?.id) return;
-    const db = getFirebaseFirestore();
-    const ref = doc(db, COLLECTIONS.raffles, raffle.id);
-    const unsub = onSnapshot(ref, (snap) => {
-      const next = mapRaffleSnapshotToView(snap);
-      if (next) setRaffle(next);
-    });
-    return () => unsub();
-  }, [enabled, raffle?.id]);
-
-  useEffect(() => {
     if (!enabled) {
       setFinalizedRaffles([]);
       return;
     }
-    const db = getFirebaseFirestore();
-    const historyQuery = query(collection(db, COLLECTIONS.raffles), orderBy("updatedAt", "desc"), limit(24));
-    const unsub = onSnapshot(historyQuery, (snap) => {
-      const next = snap.docs
-        .map((docSnap) => mapRaffleSnapshotToView(docSnap))
-        .filter((item): item is RaffleView => item != null && isFinalizedRaffle(item.status));
-      setFinalizedRaffles(next);
-    });
-    return () => unsub();
+    let cancelled = false;
+    void listPublishedRafflesCallable(24)
+      .then((res) => {
+        if (!cancelled) {
+          setFinalizedRaffles(res.items.filter((item) => isFinalizedRaffle(item.status)));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFinalizedRaffles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [enabled]);
 
   useEffect(() => {
@@ -325,7 +315,7 @@ export default function SorteiosPage() {
             <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Números da sorte</h1>
             <p className="mt-2 max-w-2xl text-sm text-white/60">
               Participe com TICKET ou, quando o sorteio estiver em modo anúncio, assista a um vídeo recompensado para
-              ganhar 1 número. Os números saem da faixa liberada pelo admin; esta página atualiza em tempo real.
+              ganhar 1 número. Os números saem da faixa liberada pelo admin.
             </p>
           </div>
           <Link

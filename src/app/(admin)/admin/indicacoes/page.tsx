@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collection,
+  deleteField,
   doc,
   getCountFromServer,
   getDoc,
@@ -285,9 +286,10 @@ export default function AdminIndicacoesPage() {
       try {
         await ensureFreshAdminSession();
         const db = getFirebaseFirestore();
-        const [cfgSnap, campaignSnap, referralSnap, total, pending, valid, rewarded, blocked] =
+        const [cfgSnap, fraudCfgSnap, campaignSnap, referralSnap, total, pending, valid, rewarded, blocked] =
           await Promise.all([
             getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_system")),
+            getDoc(doc(db, COLLECTIONS.systemConfigs, "referral_fraud_private")),
             getDocs(query(collection(db, COLLECTIONS.referralCampaigns), orderBy("startAt", "desc"), limit(20))),
             getDocs(
               statusFilter === "all"
@@ -308,10 +310,15 @@ export default function AdminIndicacoesPage() {
 
         if (cfgSnap.exists()) {
           const raw = cfgSnap.data() as Record<string, unknown>;
+          const privateAntiFraud = fraudCfgSnap.data()?.antiFraudRules;
           const rawConfig = raw as unknown as Partial<ReferralSystemConfig>;
           const nextConfig: ReferralSystemConfig = {
             ...EMPTY_CONFIG,
             ...rawConfig,
+            antiFraudRules:
+              privateAntiFraud && typeof privateAntiFraud === "object"
+                ? (privateAntiFraud as ReferralSystemConfig["antiFraudRules"])
+                : EMPTY_CONFIG.antiFraudRules,
             defaultInviterRewardAmount: Math.max(
               0,
               Number(
@@ -396,14 +403,27 @@ export default function AdminIndicacoesPage() {
         },
       };
       const db = getFirebaseFirestore();
-      await setDoc(
-        doc(db, COLLECTIONS.systemConfigs, "referral_system"),
-        {
-          ...nextConfig,
-          updatedAt: new Date(),
-        },
-        { merge: true },
-      );
+      const { antiFraudRules, ...publicConfig } = nextConfig;
+      await Promise.all([
+        setDoc(
+          doc(db, COLLECTIONS.systemConfigs, "referral_system"),
+          {
+            ...publicConfig,
+            antiFraudRules: deleteField(),
+            updatedAt: new Date(),
+          },
+          { merge: true },
+        ),
+        setDoc(
+          doc(db, COLLECTIONS.systemConfigs, "referral_fraud_private"),
+          {
+            id: "referral_fraud_private",
+            antiFraudRules,
+            updatedAt: new Date(),
+          },
+          { merge: true },
+        ),
+      ]);
       try {
         await loadAll({ suppressMessage: true });
         showMessage("success", "Configurações de indicação salvas.");

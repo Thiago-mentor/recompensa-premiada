@@ -26,6 +26,11 @@ export type ListMyRafflePurchasesResult = {
   nextCursor: RafflePurchaseListCursor | null;
 };
 
+export type ListPublishedRafflesResult = {
+  ok: boolean;
+  items: RaffleView[];
+};
+
 export async function getActiveRaffleCallable(): Promise<GetActiveRaffleResult> {
   const res = await callFunction<Record<string, never>, GetActiveRaffleResult>("getActiveRaffle", {});
   return res.data;
@@ -68,6 +73,14 @@ export async function listMyRafflePurchasesCallable(input: {
     pageSize: input.pageSize,
     cursor: input.cursor ?? undefined,
   });
+  return res.data;
+}
+
+export async function listPublishedRafflesCallable(limit = 24): Promise<ListPublishedRafflesResult> {
+  const res = await callFunction<{ limit: number }, ListPublishedRafflesResult>(
+    "listPublishedRaffles",
+    { limit },
+  );
   return res.data;
 }
 
