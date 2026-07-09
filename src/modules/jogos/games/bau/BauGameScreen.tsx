@@ -25,6 +25,7 @@ import {
 import {
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   Clock3,
   Coins,
@@ -107,26 +108,49 @@ export function BauGameScreen() {
     !firstHubHintStoredDismissed &&
     firstHubHintSuppressedForUid !== user.uid;
 
+  const spotlightTitle = loading
+    ? "Sincronizando seus baús"
+    : readyChest
+      ? `${summary.readyCount} baú${summary.readyCount > 1 ? "s" : ""} pronto${summary.readyCount > 1 ? "s" : ""}`
+      : activeUnlockChest
+        ? `${rarityLabel[activeUnlockChest.rarity]} em abertura`
+        : lockedChest
+          ? `${rarityLabel[lockedChest.rarity]} aguardando`
+          : queuedChest
+            ? "Fila aguardando espaço"
+            : "Seus próximos prêmios aparecem aqui";
+
+  const spotlightDescription = loading
+    ? "Buscando o estado mais recente."
+    : readyChest
+      ? "Colete agora para liberar o slot."
+      : activeUnlockChest
+        ? `Faltam ${formatChestDurationMs(activeUnlockChest.remainingMs)}.`
+        : lockedChest
+          ? "Inicie o timer para liberar a recompensa."
+          : queuedChest
+            ? "Libere um slot para receber o próximo baú."
+            : "Ganhe partidas, complete missões e mantenha sua sequência.";
+
   return (
     <ArenaShell maxWidth="max-w-5xl">
       <motion.div
-        className="space-y-6 pb-24 sm:pb-16"
+        className="space-y-4 pb-24 sm:space-y-5 sm:pb-16"
         variants={staggerContainer}
         initial="hidden"
         animate="show"
       >
-        <motion.header variants={fadeUpItem} className="space-y-3">
+        <motion.header variants={fadeUpItem} className="space-y-2.5">
           <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-amber-200/75">
             Hub de baús
           </p>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="bg-gradient-to-r from-white via-amber-100 to-orange-200 bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl">
-                Acompanhe o pipeline de recompensas
+                Seus baús e recompensas
               </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/55">
-                Vitórias 1v1, resgates de missão e marcos de streak podem cair aqui. Inicie a
-                abertura, acelere com anúncio e colete quando o slot ficar pronto.
+              <p className="mt-1 max-w-3xl text-xs leading-relaxed text-white/55 sm:text-sm">
+                Abra, acelere e colete. Os próximos ganhos entram nos slots ou aguardam na fila.
               </p>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -154,33 +178,24 @@ export function BauGameScreen() {
           <motion.div variants={fadeUpItem}>
             <div
               role="note"
-              className="flex gap-3 rounded-[1.35rem] border border-cyan-400/25 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_45%),linear-gradient(135deg,rgba(8,47,73,0.35),rgba(2,6,23,0.92))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+              className="flex items-start gap-3 rounded-[1.2rem] border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(8,47,73,0.3),rgba(2,6,23,0.9))] p-3"
             >
               <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10 text-cyan-200">
                 <Sparkles className="h-5 w-5" aria-hidden />
               </span>
-              <div className="min-w-0 space-y-2 text-sm leading-relaxed">
+              <div className="min-w-0 flex-1 text-sm leading-relaxed">
                 <p className="font-bold text-cyan-100">Primeiro baú neste hub</p>
-                <p className="text-white/70">
-                  Toque em <span className="font-semibold text-white">Começar abertura</span> (ou{" "}
-                  <span className="font-semibold text-white">Iniciar abertura</span> no card do slot)
-                  para ligar o timer. Quando o status virar <span className="font-semibold text-emerald-200/95">Pronto</span>
-                  , use <span className="font-semibold text-white">Coletar</span> para creditar PR,
-                  tickets e o restante do snapshot.
+                <p className="mt-1 text-xs text-white/60">
+                  Inicie a abertura, aguarde o timer e colete. Um anúncio pode reduzir o tempo.
                 </p>
-                <p className="text-xs text-white/55">
-                  Durante a contagem, <span className="font-semibold text-white/75">Acelerar com anúncio</span>{" "}
-                  reduz o tempo restante. Os outros slots vazios recebem novos baús quando você ganhar de
-                  novo; se todos encherem, os extras entram na fila abaixo.
-                </p>
-                <div className="pt-1">
+                <div className="mt-2">
                   <Button
                     type="button"
                     variant="secondary"
-                    className="min-h-10 border-cyan-400/20 px-4 py-2 text-xs"
+                    className="min-h-9 border-cyan-400/20 px-3 py-1.5 text-[10px]"
                     onClick={dismissFirstHubHint}
                   >
-                    Entendi, não mostrar de novo
+                    Entendi
                   </Button>
                 </div>
               </div>
@@ -191,261 +206,127 @@ export function BauGameScreen() {
         <motion.section
           variants={fadeUpItem}
           className={cn(
-            "rounded-[1.75rem] border p-5 shadow-[0_0_48px_-18px_rgba(251,191,36,0.18)]",
+            "rounded-[1.4rem] border p-4 shadow-[0_0_42px_-20px_rgba(251,191,36,0.22)] sm:p-5",
             readyChest
-              ? "border-emerald-400/25 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.18),transparent_30%),linear-gradient(135deg,rgba(6,78,59,0.58),rgba(2,6,23,0.96)_58%,rgba(8,47,73,0.72))]"
+              ? "border-emerald-400/25 bg-[linear-gradient(135deg,rgba(6,78,59,0.52),rgba(2,6,23,0.96)_60%,rgba(8,47,73,0.62))]"
               : activeUnlockChest
-                ? "border-cyan-400/20 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.18),transparent_30%),linear-gradient(135deg,rgba(8,47,73,0.54),rgba(2,6,23,0.96)_58%,rgba(76,29,149,0.56))]"
-                : "border-amber-400/20 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.15),transparent_30%),linear-gradient(135deg,rgba(120,53,15,0.48),rgba(2,6,23,0.96)_58%,rgba(76,29,149,0.48))]",
+                ? "border-cyan-400/20 bg-[linear-gradient(135deg,rgba(8,47,73,0.5),rgba(2,6,23,0.96)_60%,rgba(76,29,149,0.48))]"
+                : "border-amber-400/20 bg-[linear-gradient(135deg,rgba(120,53,15,0.42),rgba(2,6,23,0.96)_60%,rgba(76,29,149,0.42))]",
           )}
         >
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-2xl space-y-3">
-              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-white/65">
-                {loading ? (
-                  <>
-                    <Clock3 className="h-3.5 w-3.5" />
-                    sincronizando
-                  </>
-                ) : readyChest ? (
-                  <>
-                    <PackageOpen className="h-3.5 w-3.5 text-emerald-200" />
-                    pronto para coleta
-                  </>
-                ) : activeUnlockChest ? (
-                  <>
-                    <Clock3 className="h-3.5 w-3.5 text-cyan-200" />
-                    contagem ativa
-                  </>
-                ) : lockedChest ? (
-                  <>
-                    <Hourglass className="h-3.5 w-3.5 text-amber-200" />
-                    aguardando início
-                  </>
-                ) : queuedChest ? (
-                  <>
-                    <Inbox className="h-3.5 w-3.5 text-violet-200" />
-                    fila em espera
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-3.5 w-3.5 text-amber-200" />
-                    hub vazio
-                  </>
-                )}
-              </span>
-
-              {loading ? (
-                <>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    Buscando seus baús no Firestore
-                  </h2>
-                  <p className="text-sm leading-relaxed text-white/65">
-                    Assim que os dados chegarem, este painel mostra o próximo passo e o melhor
-                    ganho disponível.
-                  </p>
-                </>
-              ) : readyChest ? (
-                <>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    {summary.readyCount} baú{summary.readyCount > 1 ? "s" : ""} já podem ser abertos
-                  </h2>
-                  <p className="text-sm leading-relaxed text-white/70">
-                    O primeiro da fila quente é um {rarityLabel[readyChest.rarity].toLowerCase()} com{" "}
-                    {formatChestRewardSummary(readyChest.rewardsSnapshot)}.
-                  </p>
-                  <p className="text-xs leading-relaxed text-white/55">
-                    Origem: {CHEST_SOURCE_LABEL[readyChest.source]}. Coletar agora libera o slot e
-                    acelera a rotação do seu estoque.
-                  </p>
-                </>
+          <div className="flex items-start gap-3 sm:gap-4">
+            <span
+              className={cn(
+                "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border sm:h-16 sm:w-16",
+                readyChest
+                  ? "border-emerald-300/30 bg-emerald-400/12 text-emerald-200"
+                  : activeUnlockChest
+                    ? "border-cyan-300/30 bg-cyan-400/12 text-cyan-200"
+                    : "border-amber-300/30 bg-amber-400/12 text-amber-200",
+              )}
+            >
+              {readyChest ? (
+                <PackageOpen className="h-7 w-7" aria-hidden />
               ) : activeUnlockChest ? (
-                <>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    Baú {rarityLabel[activeUnlockChest.rarity]} em liberação
-                  </h2>
-                  <p className="text-sm leading-relaxed text-white/70">
-                    Faltam {formatChestDurationMs(activeUnlockChest.remainingMs)} para coletar{" "}
-                    {formatChestRewardSummary(activeUnlockChest.rewardsSnapshot)}.
-                  </p>
-                  <p className="text-xs leading-relaxed text-white/55">
-                    Origem: {CHEST_SOURCE_LABEL[activeUnlockChest.source]}. Você pode acelerar com
-                    anúncio para transformar esse ganho em sensação imediata.
-                  </p>
-                </>
+                <Clock3 className="h-7 w-7" aria-hidden />
               ) : lockedChest ? (
-                <>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    Seu próximo baú já está no slot {Number(lockedChest.slotIndex ?? 0) + 1}
-                  </h2>
-                  <p className="text-sm leading-relaxed text-white/70">
-                    Inicie a abertura do {rarityLabel[lockedChest.rarity].toLowerCase()} e coloque
-                    o timer para rodar.
-                  </p>
-                  <p className="text-xs leading-relaxed text-white/55">
-                    Snapshot do prêmio: {formatChestRewardSummary(lockedChest.rewardsSnapshot)}.
-                  </p>
-                </>
+                <Hourglass className="h-7 w-7" aria-hidden />
               ) : queuedChest ? (
-                <>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    Há baús esperando vaga na fila
-                  </h2>
-                  <p className="text-sm leading-relaxed text-white/70">
-                    O próximo da fila é um {rarityLabel[queuedChest.rarity].toLowerCase()} vindo de{" "}
-                    {CHEST_SOURCE_LABEL[queuedChest.source].toLowerCase()}.
-                  </p>
-                  <p className="text-xs leading-relaxed text-white/55">
-                    Assim que um slot for liberado, ele sobe automaticamente para a área principal.
-                  </p>
-                </>
+                <Inbox className="h-7 w-7" aria-hidden />
               ) : (
-                <>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    Nenhum baú armazenado no momento
-                  </h2>
-                  <p className="text-sm leading-relaxed text-white/70">
-                    Jogue partidas 1v1, mantenha a streak e resgate missões para começar a abastecer
-                    este hub.
-                  </p>
-                  <p className="text-xs leading-relaxed text-white/55">
-                    Quando o primeiro baú cair, esta tela passa a mostrar slots, fila e próximos
-                    ganhos automaticamente.
-                  </p>
-                </>
+                <Sparkles className="h-7 w-7" aria-hidden />
               )}
-            </div>
+            </span>
 
-            <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-black/20 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-              <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
-                Foco do momento
+            <div className="min-w-0 flex-1">
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/45">
+                Próxima ação
               </p>
+              <h2 className="mt-0.5 text-lg font-black leading-tight text-white sm:text-xl">
+                {spotlightTitle}
+              </h2>
+              <p className="mt-1 text-xs text-white/60">{spotlightDescription}</p>
               {spotlightChest ? (
-                <div className="mt-3 space-y-3">
-                  <div>
-                    <p className="text-lg font-black tracking-tight text-white">
-                      {rarityLabel[spotlightChest.rarity]}
-                    </p>
-                    <p className="mt-1 text-sm text-white/65">
-                      {CHEST_SOURCE_LABEL[spotlightChest.source]}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
-                      Snapshot
-                    </p>
-                    <div className="mt-2">
-                      <RewardBadges rewards={spotlightChest.rewardsSnapshot} />
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
-                      Estado
-                    </p>
-                    <p className="mt-1 text-sm text-white">
-                      {spotlightChest.resolvedStatus === "unlocking"
-                        ? `${CHEST_STATUS_LABEL[spotlightChest.resolvedStatus]} · ${formatChestDurationMs(spotlightChest.remainingMs)}`
-                        : CHEST_STATUS_LABEL[spotlightChest.resolvedStatus]}
-                    </p>
-                    {spotlightChest.resolvedStatus === "unlocking" &&
-                    spotlightChest.speedupCooldownRemainingMs <= 0 ? (
-                      <p className="mt-2 text-[11px] text-cyan-200/78">
-                        Pode usar outro anúncio já para reduzir o tempo outra vez.
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {readyChest ? (
-                      <Button
-                        size="lg"
-                        variant="arena"
-                        className="flex-1"
-                        disabled={busyState != null}
-                        onClick={() => void claimChest(readyChest.id)}
-                      >
-                        {busyState?.chestId === readyChest.id && busyState?.action === "claim"
-                          ? "Coletando..."
-                          : "Coletar agora"}
-                      </Button>
-                    ) : activeUnlockChest ? (
-                      <Button
-                        size="lg"
-                        variant="secondary"
-                        className={cn(
-                          "flex min-h-[3.35rem] flex-1 flex-col gap-1 border-cyan-400/25 py-3 leading-snug [&>svg]:shrink-0",
-                          activeUnlockChest.speedupCooldownRemainingMs > 0 && "opacity-90",
-                        )}
-                        disabled={
-                          busyState != null || activeUnlockChest.speedupCooldownRemainingMs > 0
-                        }
-                        onClick={() => void speedUpChest(activeUnlockChest.id)}
-                      >
-                        {busyState?.chestId === activeUnlockChest.id &&
-                        busyState?.action === "speed" ? (
-                          "Validando anúncio…"
-                        ) : activeUnlockChest.speedupCooldownRemainingMs > 0 ? (
-                          <>
-                            <span className="inline-flex items-center justify-center gap-2 text-[13px] font-bold uppercase tracking-wide">
-                              <Clock3 className="h-4 w-4 text-amber-200" aria-hidden />
-                              Aceleração em espera
-                            </span>
-                            <span className="text-[13px] font-mono font-bold tabular-nums text-amber-100">
-                              {formatChestDurationMs(activeUnlockChest.speedupCooldownRemainingMs)}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide">
-                              <Zap className="h-4 w-4" aria-hidden />
-                              Acelerar
-                            </span>
-                            <span className="text-[11px] font-normal capitalize text-white/75">
-                              com anúncio
-                            </span>
-                          </>
-                        )}
-                      </Button>
-                    ) : lockedChest ? (
-                      <Button
-                        size="lg"
-                        className="flex-1"
-                        disabled={busyState != null}
-                        onClick={() => void startUnlock(lockedChest.id)}
-                      >
-                        {busyState?.chestId === lockedChest.id && busyState?.action === "start"
-                          ? "Iniciando..."
-                          : "Começar abertura"}
-                      </Button>
-                    ) : null}
-                    <Link
-                      href={ROUTES.home}
-                      className={cn(
-                        hubLink,
-                        "border-white/10 bg-white/5 text-white/70 hover:border-white/20 hover:bg-white/10 hover:text-white",
-                      )}
-                    >
-                      Voltar à home
-                    </Link>
-                  </div>
+                <div className="mt-2.5">
+                  <RewardBadges rewards={spotlightChest.rewardsSnapshot} />
                 </div>
-              ) : (
-                <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/50">
-                  Nenhum item na fila ou nos slots por enquanto.
-                </div>
-              )}
+              ) : null}
             </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-white/8 pt-3">
+            {readyChest ? (
+              <Button
+                size="lg"
+                variant="arena"
+                className="min-w-[10rem] flex-1"
+                disabled={busyState != null}
+                onClick={() => void claimChest(readyChest.id)}
+              >
+                {busyState?.chestId === readyChest.id && busyState?.action === "claim"
+                  ? "Coletando..."
+                  : "Coletar agora"}
+              </Button>
+            ) : activeUnlockChest ? (
+              <Button
+                size="lg"
+                variant="secondary"
+                className="min-w-[10rem] flex-1 border-cyan-400/25"
+                disabled={busyState != null || activeUnlockChest.speedupCooldownRemainingMs > 0}
+                onClick={() => void speedUpChest(activeUnlockChest.id)}
+              >
+                {busyState?.chestId === activeUnlockChest.id &&
+                busyState?.action === "speed"
+                  ? "Validando anúncio…"
+                  : activeUnlockChest.speedupCooldownRemainingMs > 0
+                    ? `Aguarde ${formatChestDurationMs(activeUnlockChest.speedupCooldownRemainingMs)}`
+                    : "Acelerar com anúncio"}
+              </Button>
+            ) : lockedChest ? (
+              <Button
+                size="lg"
+                className="min-w-[10rem] flex-1"
+                disabled={busyState != null}
+                onClick={() => void startUnlock(lockedChest.id)}
+              >
+                {busyState?.chestId === lockedChest.id && busyState?.action === "start"
+                  ? "Iniciando..."
+                  : "Começar abertura"}
+              </Button>
+            ) : (
+              <Link
+                href={ROUTES.jogos}
+                className={cn(
+                  hubLink,
+                  "min-w-[10rem] flex-1 border-amber-300/25 bg-amber-400/10 text-amber-100",
+                )}
+              >
+                Jogar na Arena
+              </Link>
+            )}
+            <Link
+              href={ROUTES.home}
+              className={cn(
+                hubLink,
+                "border-white/10 bg-white/5 text-white/65 hover:bg-white/10 hover:text-white",
+              )}
+            >
+              Voltar
+            </Link>
           </div>
         </motion.section>
 
         <motion.section variants={fadeUpItem} className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
                 Slots principais
               </p>
               <h2 className="text-lg font-semibold text-white">Área operacional</h2>
             </div>
-            <p className="text-xs text-white/45">Até {totalSlots} baús ativos ao mesmo tempo</p>
+            <p className="max-w-[8rem] text-right text-[10px] leading-snug text-white/45 sm:max-w-none sm:text-xs">
+              Até {totalSlots} baús ativos
+            </p>
           </div>
           <motion.div
             variants={staggerContainer}
@@ -468,12 +349,12 @@ export function BauGameScreen() {
         </motion.section>
 
         <motion.section variants={fadeUpItem} className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">Fila</p>
               <h2 className="text-lg font-semibold text-white">Próximos envios</h2>
             </div>
-            <p className="text-xs text-white/45">
+            <p className="max-w-[8rem] text-right text-[10px] leading-snug text-white/45 sm:max-w-none sm:text-xs">
               {summary.queuedCount > 0
                 ? `${summary.queuedCount} aguardando slot`
                 : "Sem espera no momento"}
@@ -481,7 +362,7 @@ export function BauGameScreen() {
           </div>
           <div className="space-y-2">
             {queueItems.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/45">
+              <div className="rounded-[1.2rem] border border-dashed border-white/10 bg-white/[0.025] px-4 py-5 text-center text-xs text-white/40">
                 Quando os slots lotarem, os próximos baús ficam estacionados aqui.
               </div>
             ) : (
@@ -494,26 +375,39 @@ export function BauGameScreen() {
 
         <motion.section
           variants={fadeUpItem}
-          className="grid gap-3 rounded-[1.7rem] border border-white/10 bg-white/[0.03] p-4 sm:grid-cols-3"
+          className="rounded-[1.25rem] border border-white/10 bg-white/[0.025]"
         >
-          <SourceCard
-            icon={Trophy}
-            title="Vitórias 1v1"
-            tone="cyan"
-            text="Confrontos multiplayer podem enviar baús direto para este hub quando você fecha a série em vantagem."
-          />
-          <SourceCard
-            icon={Flame}
-            title="Streak diária"
-            tone="amber"
-            text="Alguns marcos de sequência liberam um baú extra para reforçar o retorno de quem volta todo dia."
-          />
-          <SourceCard
-            icon={Gift}
-            title="Missões"
-            tone="violet"
-            text="Resgates de missão também podem abastecer a fila, criando sensação de progresso mesmo fora da arena."
-          />
+          <details className="group">
+            <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+              <span>
+                <span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-white/40">
+                  Ajuda
+                </span>
+                <span className="block text-sm font-semibold text-white">Como ganhar novos baús</span>
+              </span>
+              <ChevronDown className="h-4 w-4 text-white/45 transition group-open:rotate-180" aria-hidden />
+            </summary>
+            <div className="grid gap-2 border-t border-white/8 p-3 sm:grid-cols-3">
+              <SourceCard
+                icon={Trophy}
+                title="Vitórias 1v1"
+                tone="cyan"
+                text="Confrontos multiplayer podem enviar baús quando você fecha a série em vantagem."
+              />
+              <SourceCard
+                icon={Flame}
+                title="Streak diária"
+                tone="amber"
+                text="Alguns marcos de sequência liberam um baú extra."
+              />
+              <SourceCard
+                icon={Gift}
+                title="Missões"
+                tone="violet"
+                text="Resgates de missão também podem abastecer seus slots e a fila."
+              />
+            </div>
+          </details>
         </motion.section>
       </motion.div>
       <ChestFeedbackToast feedback={feedback} onDismiss={clearFeedback} />
@@ -629,16 +523,17 @@ function SlotCard({
 }) {
   if (!item) {
     return (
-      <div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/[0.03] p-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40">
-          Slot {slotNumber}
-        </p>
-        <div className="mt-4 rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-white/40">
-          Vazio
-        </div>
-        <p className="mt-2 text-center text-[11px] leading-snug text-white/35">
-          Livre para o próximo envio quando chegar
-        </p>
+      <div className="flex min-h-[88px] items-center gap-3 rounded-[1.2rem] border border-dashed border-white/10 bg-white/[0.025] p-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-white/12 bg-black/15">
+          <Inbox className="h-4 w-4 text-white/30" aria-hidden />
+        </span>
+        <span>
+          <span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">
+            Slot {slotNumber}
+          </span>
+          <span className="mt-0.5 block text-sm font-semibold text-white/55">Livre</span>
+          <span className="mt-0.5 block text-[10px] text-white/32">Pronto para o próximo baú</span>
+        </span>
       </div>
     );
   }
@@ -647,7 +542,7 @@ function SlotCard({
   const isAnyBusy = busyState != null;
 
   return (
-    <div className="h-full rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.8)]">
+    <div className="h-full rounded-[1.25rem] border border-white/10 bg-slate-950/70 p-3.5 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.8)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40">
