@@ -99,6 +99,13 @@ function xpBarPercent(level: number | undefined, xp: number | undefined): number
   return Math.min(100, Math.round((inSpan / span) * 100));
 }
 
+function formatCompactBalance(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 export default function HomePage() {
   const { user, profile, profileLoading } = useAuth();
   const { ranking, refreshRanking } = useHomeDashboard();
@@ -324,8 +331,11 @@ export default function HomePage() {
             </span>
             <span className="min-w-0">
               <span className="block text-[9px] font-black uppercase text-amber-200/90">PR</span>
-              <span className="block truncate bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-xs font-black tabular-nums text-transparent">
-                {profile ? profile.coins.toLocaleString("pt-BR") : "—"}
+              <span
+                className="block bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-xs font-black tabular-nums text-transparent"
+                title={profile ? profile.coins.toLocaleString("pt-BR") : undefined}
+              >
+                {profile ? formatCompactBalance(profile.coins) : "—"}
               </span>
             </span>
           </Link>
@@ -346,8 +356,11 @@ export default function HomePage() {
             </span>
             <span className="min-w-0">
               <span className="block text-[9px] font-black uppercase text-emerald-200/90">Saldo</span>
-              <span className="block truncate bg-gradient-to-b from-amber-50 via-amber-300 to-amber-500 bg-clip-text text-xs font-black tabular-nums text-transparent">
-                {profile ? `R$ ${profile.rewardBalance.toLocaleString("pt-BR")}` : "—"}
+              <span
+                className="block bg-gradient-to-b from-amber-50 via-amber-300 to-amber-500 bg-clip-text text-xs font-black tabular-nums text-transparent"
+                title={profile ? `R$ ${profile.rewardBalance.toLocaleString("pt-BR")}` : undefined}
+              >
+                {profile ? `R$ ${formatCompactBalance(profile.rewardBalance)}` : "—"}
               </span>
             </span>
           </Link>
@@ -432,28 +445,28 @@ export default function HomePage() {
                   ? `Giro da sorte — ${rouletteHomeUrgency.line}`
                   : "Giro da sorte"
               }
-              className="casino-panel-soft relative flex min-h-[116px] items-center gap-2.5 rounded-[1.1rem] !border-violet-400/40 px-3 py-2.5"
+              className="casino-panel-soft relative flex min-h-[148px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[1.1rem] !border-violet-400/40 px-2.5 py-3 text-center"
             >
               {rouletteHomeUrgency.freeHighlight ? (
                 <span className="absolute right-2 top-2 rounded-full border border-amber-300/55 bg-amber-500/20 px-1.5 py-0.5 text-[7px] font-black uppercase text-amber-50">
                   Grátis
                 </span>
               ) : null}
-              <span className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full ring-2 ring-amber-400/35 shadow-[0_0_24px_-6px_rgba(139,92,246,0.65)]">
+              <span className="flex h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-amber-400/35 shadow-[0_0_24px_-6px_rgba(139,92,246,0.65)]">
                 <Image
                   src="/roulette-wheel-home.png"
                   alt=""
                   width={112}
                   height={112}
                   className="h-full w-full object-cover"
-                  sizes="56px"
+                  sizes="64px"
                 />
               </span>
-              <span className="min-w-0">
+              <span className="mt-2 min-w-0 max-w-full">
                 <span className="block text-[10px] font-black uppercase leading-tight text-white">
                   Giro da sorte
                 </span>
-                <span className="mt-1 block text-[8px] font-bold uppercase leading-tight text-amber-200/90">
+                <span className="mt-1 block line-clamp-2 min-h-[1.75rem] text-[8px] font-bold uppercase leading-tight text-amber-200/90">
                   {rouletteHomeUrgency.line ?? "Abrir roleta"}
                 </span>
               </span>
@@ -465,17 +478,17 @@ export default function HomePage() {
                   ? `${bauHomeTile.title} — ${bauHomeTile.subline}`
                   : bauHomeTile.title
               }
-              className="casino-panel-soft flex min-h-[116px] items-center gap-2.5 rounded-[1.1rem] !border-amber-400/45 px-3 py-2.5"
+              className="casino-panel-soft flex min-h-[148px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[1.1rem] !border-amber-400/45 px-2.5 py-3 text-center"
             >
               <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[1rem] bg-[linear-gradient(180deg,#facc15,#b45309)] shadow-[0_0_24px_-6px_rgba(251,191,36,0.8)]">
                 <span className="absolute inset-x-1 top-5 h-2 rounded-full bg-amber-950/45" />
                 <Gift className="relative h-7 w-7 text-amber-950" aria-hidden />
               </span>
-              <span className="min-w-0">
+              <span className="mt-2 min-w-0 max-w-full">
                 <span className="block text-[10px] font-black uppercase leading-tight text-white">
                   {bauHomeTile.title}
                 </span>
-                <span className="mt-1 block text-[8px] font-bold uppercase leading-tight text-amber-200/90">
+                <span className="mt-1 block line-clamp-2 min-h-[1.75rem] text-[8px] font-bold uppercase leading-tight text-amber-200/90">
                   {bauHomeTile.subline ?? (chestHubLoading ? "Carregando" : "Ver baús")}
                 </span>
               </span>
