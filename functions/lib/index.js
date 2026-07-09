@@ -9670,6 +9670,7 @@ exports.getArenaOverallRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asyn
     const matchesSnap = await db
         .collection(COL.matches)
         .where("gameId", "in", [...ARENA_OVERALL_GAME_IDS])
+        .limit(20000)
         .get();
     const statsByUser = new Map();
     for (const docSnap of matchesSnap.docs) {
@@ -9706,6 +9707,7 @@ exports.getArenaOverallRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asyn
     };
     return {
         ok: true,
+        sourceTruncated: matchesSnap.size >= 20000,
         general: packRows(generalRows),
         byGame: {
             ppt: packRows(byGameRows.ppt),

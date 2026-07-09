@@ -11963,6 +11963,7 @@ export const getArenaOverallRanking = onCall(DEFAULT_CALLABLE_OPTS, async (reque
   const matchesSnap = await db
     .collection(COL.matches)
     .where("gameId", "in", [...ARENA_OVERALL_GAME_IDS])
+    .limit(20_000)
     .get();
 
   const statsByUser = new Map<string, ArenaOverallAccumulator>();
@@ -12018,6 +12019,7 @@ export const getArenaOverallRanking = onCall(DEFAULT_CALLABLE_OPTS, async (reque
 
   return {
     ok: true,
+    sourceTruncated: matchesSnap.size >= 20_000,
     general: packRows(generalRows),
     byGame: {
       ppt: packRows(byGameRows.ppt),
