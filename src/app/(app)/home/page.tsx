@@ -634,12 +634,12 @@ function WeeklyGameLeaderHomeCard({
       ) : leader ? (
         <>
           <span className="relative mt-2">
-            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-amber-950 shadow-[0_0_12px_rgba(251,191,36,0.5)]">
-              <Crown className="h-3 w-3" aria-hidden />
+            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-amber-950 shadow-[0_0_12px_rgba(251,191,36,0.5)]">
+              <Crown className="h-3.5 w-3.5" aria-hidden />
             </span>
             <span
               aria-label={leader.nome}
-              className="block h-10 w-10 rounded-full border-2 border-amber-300/65 bg-cover bg-center shadow-[0_0_16px_-5px_rgba(251,191,36,0.7)]"
+              className="block h-14 w-14 rounded-full border-2 border-amber-300/65 bg-cover bg-center shadow-[0_0_18px_-4px_rgba(251,191,36,0.72)]"
               style={{
                 backgroundImage: resolveAvatarBackgroundCssValue({
                   photoUrl: leader.foto,
