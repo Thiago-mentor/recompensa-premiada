@@ -36,7 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <CenterScreenFeedbackProvider>
-      <div className="template-3d-scene relative flex min-h-dvh flex-col overflow-x-hidden bg-[linear-gradient(180deg,#070B1A_0%,#0a1022_45%,#0F172A_100%)] text-white">
+      <div className="template-3d-scene relative flex min-h-dvh flex-col overflow-x-clip bg-[linear-gradient(180deg,#070B1A_0%,#0a1022_45%,#0F172A_100%)] text-white">
         <div
           aria-hidden
           className="pointer-events-none fixed inset-x-0 top-0 z-0 h-56 bg-[radial-gradient(ellipse_90%_100%_at_50%_-20%,rgba(139,92,246,0.28),transparent_55%)]"
