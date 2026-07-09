@@ -13,14 +13,20 @@
     "deploy:firestore-rules": "firebase deploy --only firestore:rules",
     "deploy:functions": "firebase deploy --only functions",
     "deploy:apphosting": "npx -y firebase-tools@latest apphosting:rollouts:create recompensa-premiada --project premios-14238 --git-branch main --force",
-    "cap:sync": "cap sync android",
-    "cap:open": "cap open android"
+    "cap:sync": "cap sync",
+    "cap:sync:android": "cap sync android",
+    "cap:sync:ios": "cap sync ios",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
+    "android:debug": "cd android && gradlew.bat assembleDebug",
+    "android:release": "cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
     "@capacitor-community/admob": "^8.0.0",
     "@capacitor/android": "^8.3.0",
     "@capacitor/cli": "^8.3.0",
     "@capacitor/core": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
     "clsx": "^2.1.1",
     "firebase": "^12.11.0",
     "framer-motion": "^12.38.0",
