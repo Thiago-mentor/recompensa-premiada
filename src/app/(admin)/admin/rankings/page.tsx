@@ -52,7 +52,7 @@ export default function AdminRankingsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     const nextDefaultId = arenaCatalog[0]?.id ?? "ppt";

@@ -137,54 +137,64 @@ export function useChestHub() {
       return { ok: false, error: CHEST_OPEN_LOWER_SLOT_FIRST_MESSAGE };
     }
     setFeedback(null);
-    const result = await startChestUnlockCallable(chestId);
-    if (result.ok) {
-      void refreshItemsFromServer({ silent: true });
-      setFeedback({ tone: "success", text: "Baú começou a abrir." });
-    } else {
-      setFeedback({ tone: "error", text: result.error });
+    setBusyState({ chestId, action: "start" });
+    try {
+      const result = await startChestUnlockCallable(chestId);
+      if (result.ok) {
+        void refreshItemsFromServer({ silent: true });
+        setFeedback({ tone: "success", text: "Baú começou a abrir." });
+      } else {
+        setFeedback({ tone: "error", text: result.error });
+      }
+      return result;
+    } finally {
+      setBusyState(null);
     }
-    setBusyState(null);
-    return result;
   }, [refreshItemsFromServer]);
 
   const speedUpChest = useCallback(async (chestId: string) => {
     setBusyState({ chestId, action: "speed" });
     setFeedback(null);
-    const result = await runChestSpeedupRewardedAdFlow(chestId);
-    if (result.ok) {
-      void refreshItemsFromServer({ silent: true });
-      setFeedback({ tone: "success", text: result.message });
-    } else {
-      setFeedback({ tone: "error", text: result.message });
+    try {
+      const result = await runChestSpeedupRewardedAdFlow(chestId);
+      if (result.ok) {
+        void refreshItemsFromServer({ silent: true });
+        setFeedback({ tone: "success", text: result.message });
+      } else {
+        setFeedback({ tone: "error", text: result.message });
+      }
+      return result;
+    } finally {
+      setBusyState(null);
     }
-    setBusyState(null);
-    return result;
   }, [refreshItemsFromServer]);
 
   const claimChest = useCallback(
     async (chestId: string): Promise<ClaimChestRewardResult> => {
       setBusyState({ chestId, action: "claim" });
       setFeedback(null);
-      const result = await claimChestRewardCallable(chestId);
-      if (result.ok) {
-        await refreshItemsFromServer({ silent: true });
-        const rewardLine = formatChestRewardSummary(result.rewards);
-        const promotedLine = result.promotedChestId
-          ? "O próximo baú já subiu da fila para um slot."
-          : null;
-        setFeedback({
-          tone: "success",
-          text: [`Baú ${CHEST_RARITY_LABEL[result.rarity]} aberto.`, rewardLine, promotedLine]
-            .filter(Boolean)
-            .join(" · "),
-        });
-        await refreshProfile();
-      } else {
-        setFeedback({ tone: "error", text: result.error });
+      try {
+        const result = await claimChestRewardCallable(chestId);
+        if (result.ok) {
+          await refreshItemsFromServer({ silent: true });
+          const rewardLine = formatChestRewardSummary(result.rewards);
+          const promotedLine = result.promotedChestId
+            ? "O próximo baú já subiu da fila para um slot."
+            : null;
+          setFeedback({
+            tone: "success",
+            text: [`Baú ${CHEST_RARITY_LABEL[result.rarity]} aberto.`, rewardLine, promotedLine]
+              .filter(Boolean)
+              .join(" · "),
+          });
+          await refreshProfile();
+        } else {
+          setFeedback({ tone: "error", text: result.error });
+        }
+        return result;
+      } finally {
+        setBusyState(null);
       }
-      setBusyState(null);
-      return result;
     },
     [refreshItemsFromServer, refreshProfile],
   );

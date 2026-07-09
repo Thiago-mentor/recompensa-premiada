@@ -503,7 +503,7 @@ export function ChestSystemConfigPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [notify]);
 
   const sourceTotals = useMemo(
     () =>

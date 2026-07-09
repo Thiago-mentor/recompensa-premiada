@@ -83,7 +83,7 @@ export default function AdminMissoesPage() {
       },
       (error) => notify("error", error.message),
     );
-  }, []);
+  }, [notify]);
 
   const stats = useMemo(
     () => ({

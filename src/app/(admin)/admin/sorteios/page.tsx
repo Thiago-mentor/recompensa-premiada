@@ -267,7 +267,7 @@ export default function AdminSorteiosPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     const db = getFirebaseFirestore();

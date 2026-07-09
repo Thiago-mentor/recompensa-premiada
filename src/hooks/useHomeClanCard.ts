@@ -22,8 +22,6 @@ export function useHomeClanCard() {
 
   useEffect(() => {
     if (!uid) {
-      setMembership(null);
-      setMembershipObservedFor(null);
       return;
     }
     return subscribeMyClanMembership(uid, (next) => {
@@ -35,11 +33,8 @@ export function useHomeClanCard() {
   useEffect(() => {
     const clanId = membership?.clanId;
     if (!clanId) {
-      setClan(null);
-      setLoadedClanId(null);
       return;
     }
-    setLoadedClanId(null);
     return subscribeClan(clanId, (next) => {
       setClan(next);
       setLoadedClanId(clanId);
@@ -51,18 +46,20 @@ export function useHomeClanCard() {
   }, []);
 
   const membershipLoading = Boolean(uid) && membershipObservedFor !== uid;
-  const activeClanId = membership?.clanId;
+  const activeMembership = membershipObservedFor === uid ? membership : null;
+  const activeClanId = activeMembership?.clanId;
   const clanLoading = Boolean(activeClanId) && loadedClanId !== activeClanId;
+  const activeClan = loadedClanId === activeClanId ? clan : null;
 
   return useMemo(
     () =>
       buildHomeClanCardModel({
         membershipLoading,
         clanLoading,
-        membership,
-        clan,
+        membership: activeMembership,
+        clan: activeClan,
         board,
       }),
-    [membershipLoading, clanLoading, membership, clan, board],
+    [membershipLoading, clanLoading, activeMembership, activeClan, board],
   );
 }

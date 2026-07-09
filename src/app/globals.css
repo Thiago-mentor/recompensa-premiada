@@ -9,6 +9,10 @@
   --accent3: #d946ef;
   --accent4: #fbbf24;
   --accent5: #34d399;
+  --font-sans-fallback:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono-fallback:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --panel-border: rgb(103 232 249 / 0.18);
   --panel-border-strong: rgb(103 232 249 / 0.3);
   --panel-shadow: 0 0 48px -18px rgb(34 211 238 / 0.28);
@@ -21,8 +25,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans-fallback);
+  --font-mono: var(--font-mono-fallback);
 }
 
 html {
@@ -39,7 +43,7 @@ body {
     radial-gradient(circle at 0% 95%, rgb(217 70 239 / 0.12), transparent 38%),
     linear-gradient(180deg, #070b1a 0%, #0b1024 42%, #0f172a 100%);
   color: var(--foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans-fallback);
   min-height: 100dvh;
   overflow-x: hidden;
 }
@@ -345,6 +349,8 @@ body::after {
   overflow: hidden;
   transform: translateY(0) translateZ(0);
   filter: drop-shadow(0 8px 8px rgb(0 0 0 / 0.24));
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .template-3d-button::after {
@@ -433,6 +439,42 @@ body::after {
 @media (hover: hover) and (pointer: fine) {
   .game-stage-3d:hover .game-stage-3d-surface {
     transform: rotateX(0.4deg) translateY(-3px) translateZ(18px);
+  }
+}
+
+/**
+ * Toque (iPhone/Android): perspectiva 3D + rotateX no palco (`game-stage-3d`) costuma quebrar
+ * o hit-testing do Safari/WebKit — botões parecem “travados”. Aplainar como no painel admin.
+ */
+@media (hover: none), (pointer: coarse) {
+  .template-3d-scene {
+    perspective: none;
+  }
+
+  .game-stage-3d {
+    perspective: none;
+    transform-style: flat;
+  }
+
+  .game-stage-3d-surface {
+    transform: none;
+    will-change: auto;
+    backface-visibility: visible;
+  }
+
+  .template-3d-nav {
+    transform: translateZ(0);
+  }
+
+  .template-3d-orb {
+    transform: none;
+    filter: drop-shadow(0 10px 16px rgb(0 0 0 / 0.35));
+  }
+
+  /* Links no app mobile: sem delay de toque (iOS) e menos “flash” ao tocar */
+  main a[href] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 

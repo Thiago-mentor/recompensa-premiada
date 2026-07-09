@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { Coins, Gift, Image, Megaphone, Sparkles, Wallet } from "lucide-react";
+import { Coins, Gift, Image as ImageIcon, Megaphone, Sparkles } from "lucide-react";
 import { AdminAdCooldownGuide } from "@/components/admin/AdminAdCooldownGuide";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
@@ -336,7 +336,7 @@ export default function AdminConfigPage() {
           value={avatarRepMetricValue}
           hint={avatarRepMetricHint}
           tone={avatarUploadRequireReputation ? "amber" : "slate"}
-          icon={<Image className="h-4 w-4" />}
+          icon={<ImageIcon className="h-4 w-4" />}
         />
       </section>
 

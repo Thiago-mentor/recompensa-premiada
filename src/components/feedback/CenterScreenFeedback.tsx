@@ -61,10 +61,13 @@ function CenterScreenFeedbackOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[500] flex touch-manipulation items-center justify-center p-4 animate-in fade-in duration-200 [-webkit-tap-highlight-color:transparent]"
       style={{ backgroundColor: "rgb(2 6 23 / 0.65)" }}
       role="presentation"
       onClick={onDismiss}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onDismiss();
+      }}
     >
       <div
         ref={panelRef}

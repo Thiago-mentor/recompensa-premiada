@@ -48,7 +48,7 @@ export function Button({
     <button
       type={type}
       className={cn(
-        "template-3d-button inline-flex items-center justify-center gap-2 font-semibold transition duration-200 disabled:pointer-events-none disabled:opacity-50",
+        "template-3d-button touch-manipulation inline-flex items-center justify-center gap-2 font-semibold transition duration-200 disabled:pointer-events-none disabled:opacity-50 [-webkit-tap-highlight-color:transparent]",
         sizes[size],
         variants[variant],
         className,

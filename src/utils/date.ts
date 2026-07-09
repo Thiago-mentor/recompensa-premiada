@@ -88,3 +88,19 @@ export function getNextDailyPeriodStartMs(d = new Date()): number {
     day: nextDay.getUTCDate(),
   });
 }
+
+/**
+ * Próximo instante em que a chave `getWeeklyPeriodKey` muda (alinhado a meia-noites no fuso do app).
+ * Usado para cronômetro até “zerar” o ranking semanal na UI.
+ */
+export function getNextWeeklyPeriodStartMs(d = new Date()): number {
+  const current = getWeeklyPeriodKey(d);
+  let probe = getNextDailyPeriodStartMs(d);
+  for (let i = 0; i < 14; i++) {
+    if (getWeeklyPeriodKey(new Date(probe)) !== current) {
+      return probe;
+    }
+    probe = getNextDailyPeriodStartMs(new Date(probe));
+  }
+  return probe;
+}

@@ -16,9 +16,14 @@ import { fetchTopRanking } from "@/services/ranking/rankingService";
 import { ROUTES } from "@/lib/constants/routes";
 import {
   resolveAvatarBackgroundCssValue,
-  resolveAvatarUrl,
 } from "@/lib/users/avatar";
-import { getDailyPeriodKey, getNextDailyPeriodStartMs, getWeeklyPeriodKey } from "@/utils/date";
+import {
+  APP_PERIOD_TIME_ZONE,
+  getDailyPeriodKey,
+  getNextDailyPeriodStartMs,
+  getNextWeeklyPeriodStartMs,
+  getWeeklyPeriodKey,
+} from "@/utils/date";
 import { getRaffleNumbersPoolProgress } from "@/utils/raffle";
 import {
   Banknote,
@@ -38,6 +43,9 @@ import type { GrantedChestSummary } from "@/types/chest";
 import type { RaffleView } from "@/types/raffle";
 import type { RankingEntry } from "@/types/ranking";
 
+const APP_PERIOD_TZ_LABEL =
+  APP_PERIOD_TIME_ZONE === "America/Sao_Paulo" ? "Brasília" : APP_PERIOD_TIME_ZONE;
+
 const WEEKLY_GAME_LEADERS_LIMIT = 3;
 const WEEKLY_GAME_LEADER_CARDS = [
   { gameId: "ppt", label: "PPT" },
@@ -52,6 +60,57 @@ function formatCountdownClock(ms: number): string {
   const s = totalSec % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+function getCountdownParts(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  return { days, hours, minutes, seconds };
+}
+
+function RankingResetCountdownBar({
+  ms,
+  accent,
+}: {
+  ms: number;
+  accent: "amber" | "cyan";
+}) {
+  const { days, hours, minutes, seconds } = getCountdownParts(ms);
+  const chip =
+    accent === "amber"
+      ? "border-amber-400/30 bg-black/30 text-amber-50 shadow-[inset_0_1px_0_rgba(251,191,36,0.12)]"
+      : "border-cyan-400/30 bg-black/30 text-cyan-50 shadow-[inset_0_1px_0_rgba(34,211,238,0.12)]";
+  const labelMuted = accent === "amber" ? "text-amber-200/55" : "text-cyan-200/55";
+  const valueClass = accent === "amber" ? "text-amber-100" : "text-cyan-100";
+
+  const cells: { value: number; label: string }[] = [
+    { value: days, label: "Dias" },
+    { value: hours, label: "Horas" },
+    { value: minutes, label: "Min" },
+    { value: seconds, label: "Seg" },
+  ];
+
+  return (
+    <div
+      className="mt-1.5 flex flex-wrap items-stretch gap-1 sm:gap-1.5"
+      aria-label={`Tempo restante: ${days} dias, ${hours} horas, ${minutes} minutos e ${seconds} segundos`}
+    >
+      {cells.map((c) => (
+        <div
+          key={c.label}
+          className={`flex min-w-[2.75rem] flex-1 flex-col items-center justify-center rounded-lg border px-1.5 py-1 sm:min-w-[3rem] sm:px-2 ${chip}`}
+        >
+          <span className={`text-sm font-black tabular-nums leading-none sm:text-base ${valueClass}`}>
+            {String(c.value).padStart(2, "0")}
+          </span>
+          <span className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide ${labelMuted}`}>{c.label}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Contagem curta para urgência do giro grátis (ex.: "2h 15m", "45m"). */
@@ -100,6 +159,7 @@ export default function HomePage() {
   });
   const [weeklyGameLeadersLoading, setWeeklyGameLeadersLoading] = useState(true);
   const [rouletteUrgencyTick, setRouletteUrgencyTick] = useState(() => Date.now());
+  const [rankingCountdownTick, setRankingCountdownTick] = useState(() => Date.now());
 
   const nome = profile?.nome || user?.displayName || "Jogador";
 
@@ -180,8 +240,21 @@ export default function HomePage() {
     [chestHubLoading, slotItems, queueItems, activeUnlockChest],
   );
 
+  const { dailyRankingResetMs, weeklyRankingResetMs } = useMemo(() => {
+    const now = rankingCountdownTick;
+    return {
+      dailyRankingResetMs: Math.max(0, getNextDailyPeriodStartMs(new Date(now)) - now),
+      weeklyRankingResetMs: Math.max(0, getNextWeeklyPeriodStartMs(new Date(now)) - now),
+    };
+  }, [rankingCountdownTick]);
+
   useEffect(() => {
     const id = window.setInterval(() => setRouletteUrgencyTick(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setRankingCountdownTick(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -540,16 +613,25 @@ export default function HomePage() {
         <WeeklyGameLeadersHomeSection
           leaders={weeklyGameLeaders}
           loading={weeklyGameLeadersLoading}
+          weeklyResetMs={weeklyRankingResetMs}
         />
 
         <section className="mt-3 rounded-[1.2rem] border border-white/10 bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/75">
-              Atividades ao vivo
-            </p>
-            <Link href={ROUTES.ranking} className="text-[10px] font-semibold text-amber-200/90 hover:underline">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/75">
+                Atividades ao vivo
+              </p>
+              <p className="mt-0.5 text-[9px] font-semibold leading-snug text-white/50">
+                Placar diário · encerra à meia-noite ({APP_PERIOD_TZ_LABEL})
+              </p>
+            </div>
+            <Link href={ROUTES.ranking} className="shrink-0 text-[10px] font-semibold text-amber-200/90 hover:underline">
               Ver tudo
             </Link>
+          </div>
+          <div className="mt-2">
+            <RankingResetCountdownBar ms={dailyRankingResetMs} accent="amber" />
           </div>
           <ul className="mt-2 space-y-1.5">
             {ranking.length === 0 ? (
@@ -595,22 +677,30 @@ export default function HomePage() {
 function WeeklyGameLeadersHomeSection({
   leaders,
   loading,
+  weeklyResetMs,
 }: {
   leaders: Record<(typeof WEEKLY_GAME_LEADER_CARDS)[number]["gameId"], RankingEntry[]>;
   loading: boolean;
+  weeklyResetMs: number;
 }) {
   return (
     <section className="mt-3 rounded-[1.2rem] border border-cyan-400/18 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(0,0,0,0.18))] p-3 shadow-[0_0_34px_-18px_rgba(34,211,238,0.4),inset_0_1px_0_rgba(255,255,255,0.05)]">
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200/75">
             Top semanal
           </p>
           <h2 className="mt-0.5 text-sm font-black text-white">Líderes dos jogos</h2>
+          <p className="mt-0.5 text-[9px] font-semibold leading-snug text-white/45">
+            Semanal · virada de período ({APP_PERIOD_TZ_LABEL})
+          </p>
         </div>
-        <Link href={ROUTES.ranking} className="text-[10px] font-semibold text-amber-200/90 hover:underline">
+        <Link href={ROUTES.ranking} className="shrink-0 text-[10px] font-semibold text-amber-200/90 hover:underline">
           Ranking
         </Link>
+      </div>
+      <div className="mt-2">
+        <RankingResetCountdownBar ms={weeklyResetMs} accent="cyan" />
       </div>
 
       <div className="mt-3 grid gap-2">
