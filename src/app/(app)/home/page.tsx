@@ -18,7 +18,6 @@ import {
   resolveAvatarBackgroundCssValue,
 } from "@/lib/users/avatar";
 import {
-  APP_PERIOD_TIME_ZONE,
   getDailyPeriodKey,
   getNextDailyPeriodStartMs,
   getNextWeeklyPeriodStartMs,
@@ -42,9 +41,6 @@ import { getBauHomeTileLines } from "@/utils/chest";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { RaffleView } from "@/types/raffle";
 import type { RankingEntry } from "@/types/ranking";
-
-const APP_PERIOD_TZ_LABEL =
-  APP_PERIOD_TIME_ZONE === "America/Sao_Paulo" ? "Brasília" : APP_PERIOD_TIME_ZONE;
 
 const WEEKLY_GAME_LEADERS_LIMIT = 3;
 const WEEKLY_GAME_LEADER_CARDS = [
@@ -73,42 +69,22 @@ function getCountdownParts(ms: number) {
 
 function RankingResetCountdownBar({
   ms,
-  accent,
 }: {
   ms: number;
-  accent: "amber" | "cyan";
 }) {
   const { days, hours, minutes, seconds } = getCountdownParts(ms);
-  const chip =
-    accent === "amber"
-      ? "border-amber-400/30 bg-black/30 text-amber-50 shadow-[inset_0_1px_0_rgba(251,191,36,0.12)]"
-      : "border-cyan-400/30 bg-black/30 text-cyan-50 shadow-[inset_0_1px_0_rgba(34,211,238,0.12)]";
-  const labelMuted = accent === "amber" ? "text-amber-200/55" : "text-cyan-200/55";
-  const valueClass = accent === "amber" ? "text-amber-100" : "text-cyan-100";
-
-  const cells: { value: number; label: string }[] = [
-    { value: days, label: "Dias" },
-    { value: hours, label: "Horas" },
-    { value: minutes, label: "Min" },
-    { value: seconds, label: "Seg" },
-  ];
 
   return (
     <div
-      className="mt-1.5 flex flex-wrap items-stretch gap-1 sm:gap-1.5"
+      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-300/20 bg-black/25 px-2 py-1"
       aria-label={`Tempo restante: ${days} dias, ${hours} horas, ${minutes} minutos e ${seconds} segundos`}
     >
-      {cells.map((c) => (
-        <div
-          key={c.label}
-          className={`flex min-w-[2.75rem] flex-1 flex-col items-center justify-center rounded-lg border px-1.5 py-1 sm:min-w-[3rem] sm:px-2 ${chip}`}
-        >
-          <span className={`text-sm font-black tabular-nums leading-none sm:text-base ${valueClass}`}>
-            {String(c.value).padStart(2, "0")}
-          </span>
-          <span className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide ${labelMuted}`}>{c.label}</span>
-        </div>
-      ))}
+      <span className="text-[8px] font-bold uppercase text-cyan-100/45">Termina em</span>
+      <span className="text-[10px] font-black tabular-nums text-cyan-100">
+        {days > 0 ? `${days}d ` : ""}
+        {String(hours).padStart(2, "0")}:{String(minutes).padStart(2, "0")}:
+        {String(seconds).padStart(2, "0")}
+      </span>
     </div>
   );
 }
@@ -240,12 +216,9 @@ export default function HomePage() {
     [chestHubLoading, slotItems, queueItems, activeUnlockChest],
   );
 
-  const { dailyRankingResetMs, weeklyRankingResetMs } = useMemo(() => {
+  const weeklyRankingResetMs = useMemo(() => {
     const now = rankingCountdownTick;
-    return {
-      dailyRankingResetMs: Math.max(0, getNextDailyPeriodStartMs(new Date(now)) - now),
-      weeklyRankingResetMs: Math.max(0, getNextWeeklyPeriodStartMs(new Date(now)) - now),
-    };
+    return Math.max(0, getNextWeeklyPeriodStartMs(new Date(now)) - now);
   }, [rankingCountdownTick]);
 
   useEffect(() => {
@@ -616,56 +589,6 @@ export default function HomePage() {
           weeklyResetMs={weeklyRankingResetMs}
         />
 
-        <section className="mt-3 rounded-[1.2rem] border border-white/10 bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/75">
-                Atividades ao vivo
-              </p>
-              <p className="mt-0.5 text-[9px] font-semibold leading-snug text-white/50">
-                Placar diário · encerra à meia-noite ({APP_PERIOD_TZ_LABEL})
-              </p>
-            </div>
-            <Link href={ROUTES.ranking} className="shrink-0 text-[10px] font-semibold text-amber-200/90 hover:underline">
-              Ver tudo
-            </Link>
-          </div>
-          <div className="mt-2">
-            <RankingResetCountdownBar ms={dailyRankingResetMs} accent="amber" />
-          </div>
-          <ul className="mt-2 space-y-1.5">
-            {ranking.length === 0 ? (
-              <li className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/55">
-                Ninguém no placar ainda. Jogue e apareça aqui.
-              </li>
-            ) : (
-              ranking.slice(0, 4).map((e, i) => (
-                <li key={e.uid} className="flex items-center gap-2 rounded-xl bg-white/[0.035] px-2 py-1.5">
-                  <div
-                    className="h-6 w-6 shrink-0 rounded-full border border-violet-400/25 bg-cover bg-center"
-                    style={{
-                      backgroundImage: resolveAvatarBackgroundCssValue({
-                        photoUrl: e.foto,
-                        name: e.nome,
-                        username: e.username ?? null,
-                        uid: e.uid,
-                      }),
-                    }}
-                  />
-                  <p className="min-w-0 flex-1 truncate text-[11px] text-white/82">
-                    <span className="font-semibold text-white">{e.nome.trim().split(/\s+/)[0]}</span>{" "}
-                    marcou{" "}
-                    <span className="font-black text-amber-300">
-                      {e.score.toLocaleString("pt-BR")} pts
-                    </span>
-                  </p>
-                  <span className="shrink-0 text-[9px] text-white/38">há {i + 1} min</span>
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
-
         <div className="mt-3">
           <DailyMissionCallout model={dailyMissionCallout} />
         </div>
@@ -684,26 +607,18 @@ function WeeklyGameLeadersHomeSection({
   weeklyResetMs: number;
 }) {
   return (
-    <section className="mt-3 rounded-[1.2rem] border border-cyan-400/18 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(0,0,0,0.18))] p-3 shadow-[0_0_34px_-18px_rgba(34,211,238,0.4),inset_0_1px_0_rgba(255,255,255,0.05)]">
-      <div className="flex items-start justify-between gap-2">
+    <section className="mt-3 overflow-hidden rounded-[1.2rem] border border-cyan-400/22 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.13),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(0,0,0,0.22))] p-3 shadow-[0_0_34px_-18px_rgba(34,211,238,0.4),inset_0_1px_0_rgba(255,255,255,0.05)]">
+      <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200/75">
             Top semanal
           </p>
-          <h2 className="mt-0.5 text-sm font-black text-white">Líderes dos jogos</h2>
-          <p className="mt-0.5 text-[9px] font-semibold leading-snug text-white/45">
-            Semanal · virada de período ({APP_PERIOD_TZ_LABEL})
-          </p>
+          <h2 className="mt-0.5 text-sm font-black text-white">Campeões da Arena</h2>
         </div>
-        <Link href={ROUTES.ranking} className="shrink-0 text-[10px] font-semibold text-amber-200/90 hover:underline">
-          Ranking
-        </Link>
-      </div>
-      <div className="mt-2">
-        <RankingResetCountdownBar ms={weeklyResetMs} accent="cyan" />
+        <RankingResetCountdownBar ms={weeklyResetMs} />
       </div>
 
-      <div className="mt-3 grid gap-2">
+      <div className="mt-3 grid grid-cols-3 gap-1.5 sm:gap-2">
         {WEEKLY_GAME_LEADER_CARDS.map((item) => (
           <WeeklyGameLeaderHomeCard
             key={item.gameId}
@@ -713,6 +628,12 @@ function WeeklyGameLeadersHomeSection({
           />
         ))}
       </div>
+      <Link
+        href={ROUTES.ranking}
+        className="mt-2.5 flex min-h-8 items-center justify-center rounded-lg border border-white/8 bg-white/[0.035] text-[9px] font-black uppercase tracking-wide text-amber-200 transition hover:border-amber-300/25 hover:bg-amber-300/[0.06]"
+      >
+        Ver ranking completo
+      </Link>
     </section>
   );
 }
@@ -729,51 +650,43 @@ function WeeklyGameLeaderHomeCard({
   const leader = entries[0] ?? null;
 
   return (
-    <div className="rounded-[1rem] border border-white/10 bg-black/18 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="rounded-full border border-violet-300/22 bg-violet-500/12 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-violet-100">
+    <div className="flex min-w-0 flex-col items-center rounded-xl border border-white/10 bg-black/20 px-1.5 py-2 text-center">
+      <span className="rounded-full border border-violet-300/22 bg-violet-500/12 px-2 py-0.5 text-[8px] font-black uppercase text-violet-100">
           {title}
-        </span>
-        <span className="text-[9px] font-semibold uppercase tracking-wide text-white/38">
-          Semanal
-        </span>
-      </div>
+      </span>
 
       {loading ? (
-        <div className="mt-2 h-10 animate-pulse rounded-xl bg-white/[0.05]" />
+        <div className="mt-2 h-[74px] w-full animate-pulse rounded-lg bg-white/[0.05]" />
       ) : leader ? (
-        <div className="mt-2 flex items-center gap-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-400 text-amber-950 shadow-[0_0_16px_-6px_rgba(251,191,36,0.75)]">
-            <Crown className="h-4 w-4" aria-hidden />
+        <>
+          <span className="relative mt-2">
+            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-amber-950 shadow-[0_0_12px_rgba(251,191,36,0.5)]">
+              <Crown className="h-3 w-3" aria-hidden />
+            </span>
+            <span
+              aria-label={leader.nome}
+              className="block h-10 w-10 rounded-full border-2 border-amber-300/65 bg-cover bg-center shadow-[0_0_16px_-5px_rgba(251,191,36,0.7)]"
+              style={{
+                backgroundImage: resolveAvatarBackgroundCssValue({
+                  photoUrl: leader.foto,
+                  name: leader.nome,
+                  username: leader.username,
+                  uid: leader.uid,
+                }),
+              }}
+            />
           </span>
-          <div
-            aria-label={leader.nome}
-            className="h-8 w-8 shrink-0 rounded-full border border-white/10 bg-cover bg-center"
-            style={{
-              backgroundImage: resolveAvatarBackgroundCssValue({
-                photoUrl: leader.foto,
-                name: leader.nome,
-                username: leader.username,
-                uid: leader.uid,
-              }),
-            }}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-bold text-white">{leader.nome}</p>
-            <p className="text-[9px] text-white/40">
-              {leader.username ? `@${leader.username}` : `${leader.vitorias} vitórias`}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-[8px] font-black uppercase tracking-wide text-amber-200/65">Pontos</p>
-            <p className="bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-xs font-black tabular-nums text-transparent">
-              {leader.score.toLocaleString("pt-BR")}
-            </p>
-          </div>
-        </div>
+          <p className="mt-1.5 w-full truncate text-[10px] font-bold text-white">
+            {leader.nome.trim().split(/\s+/)[0]}
+          </p>
+          <p className="mt-0.5 text-xs font-black tabular-nums text-amber-300">
+            {leader.score.toLocaleString("pt-BR")}
+            <span className="ml-0.5 text-[7px] uppercase text-amber-100/45">pts</span>
+          </p>
+        </>
       ) : (
-        <p className="mt-2 rounded-xl border border-dashed border-white/10 bg-white/[0.03] px-3 py-2 text-center text-[10px] text-white/42">
-          Sem pontuação nesta semana.
+        <p className="mt-2 flex h-[74px] items-center text-[9px] leading-snug text-white/38">
+          Sem pontuação
         </p>
       )}
     </div>
