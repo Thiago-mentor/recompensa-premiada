@@ -7,6 +7,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -135,7 +136,11 @@ export default function AdminQuizPage() {
 
   useEffect(() => {
     const db = getFirebaseFirestore();
-    const q = query(collection(db, COLLECTIONS.quizQuestions), orderBy("updatedAt", "desc"));
+    const q = query(
+      collection(db, COLLECTIONS.quizQuestions),
+      orderBy("updatedAt", "desc"),
+      limit(1_000),
+    );
     return onSnapshot(
       q,
       (snap) => {

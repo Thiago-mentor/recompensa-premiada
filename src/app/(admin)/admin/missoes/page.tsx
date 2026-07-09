@@ -5,6 +5,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -73,7 +74,11 @@ export default function AdminMissoesPage() {
 
   useEffect(() => {
     const db = getFirebaseFirestore();
-    const missionsQuery = query(collection(db, COLLECTIONS.missions), orderBy("ordem", "asc"));
+    const missionsQuery = query(
+      collection(db, COLLECTIONS.missions),
+      orderBy("ordem", "asc"),
+      limit(500),
+    );
     return onSnapshot(
       missionsQuery,
       (snapshot) => {

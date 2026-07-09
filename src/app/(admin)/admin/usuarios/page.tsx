@@ -129,7 +129,7 @@ export default function AdminUsuariosPage() {
             </h2>
           </div>
           <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
-            50 registros
+            {rows.length} registros
           </span>
         </div>
 

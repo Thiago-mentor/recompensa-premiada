@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BadgeCheck, Clock3, Filter, Wallet } from "lucide-react";
-import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
@@ -99,7 +99,13 @@ async function fetchRewardClaimsDashboardData(): Promise<{
 }> {
   const db = getFirebaseFirestore();
   const [snap, rate] = await Promise.all([
-    getDocs(query(collection(db, COLLECTIONS.rewardClaims), orderBy("criadoEm", "desc"))),
+    getDocs(
+      query(
+        collection(db, COLLECTIONS.rewardClaims),
+        orderBy("criadoEm", "desc"),
+        limit(250),
+      ),
+    ),
     fetchSaldoPointsPerReal().catch(() => 100),
   ]);
   const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim);
