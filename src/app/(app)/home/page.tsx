@@ -27,6 +27,7 @@ import { getRaffleNumbersPoolProgress } from "@/utils/raffle";
 import {
   Banknote,
   Bell,
+  ChevronRight,
   Coins,
   Crown,
   Flame,
@@ -48,15 +49,6 @@ const WEEKLY_GAME_LEADER_CARDS = [
   { gameId: "quiz", label: "QUIZ" },
   { gameId: "reaction_tap", label: "REACTION" },
 ] as const;
-
-function formatCountdownClock(ms: number): string {
-  const totalSec = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
-}
 
 function getCountdownParts(ms: number) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -125,7 +117,6 @@ export default function HomePage() {
   const [grantedChestNotice, setGrantedChestNotice] = useState<GrantedChestSummary | null>(null);
   const [adLoading, setAdLoading] = useState(false);
   const [activeRaffle, setActiveRaffle] = useState<RaffleView | null>(null);
-  const [raffleTick, setRaffleTick] = useState(() => Date.now());
   const [weeklyGameLeaders, setWeeklyGameLeaders] = useState<
     Record<(typeof WEEKLY_GAME_LEADER_CARDS)[number]["gameId"], RankingEntry[]>
   >({
@@ -138,13 +129,6 @@ export default function HomePage() {
   const [rankingCountdownTick, setRankingCountdownTick] = useState(() => Date.now());
 
   const nome = profile?.nome || user?.displayName || "Jogador";
-
-  const sorteioClockDisplay = useMemo(() => {
-    if (!activeRaffle?.endsAtMs) return null;
-    const ms = activeRaffle.endsAtMs - raffleTick;
-    if (ms <= 0) return "00:00:00";
-    return formatCountdownClock(ms);
-  }, [activeRaffle, raffleTick]);
 
   const sorteioPoolProgress = useMemo(
     () => getRaffleNumbersPoolProgress(activeRaffle),
@@ -241,12 +225,6 @@ export default function HomePage() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!activeRaffle?.endsAtMs) return;
-    const id = window.setInterval(() => setRaffleTick(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [activeRaffle?.endsAtMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,65 +381,50 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        <div className="mt-3 grid grid-cols-[1fr_0.82fr] gap-2">
-          <Link
-            href={ROUTES.ranking}
-            className="casino-panel-soft flex min-h-[86px] flex-col justify-center rounded-[1.15rem] !border-rose-400/35 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,0.22),transparent_38%),linear-gradient(145deg,rgba(69,10,10,0.36),rgba(36,10,38,0.72))] px-3.5 py-3"
-          >
-            <p className="text-[10px] font-black text-white/85">
-              <Flame className="mr-1 inline h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
-              Alguém ganhou
-            </p>
-            <p className="mt-1 bg-gradient-to-r from-amber-200 via-yellow-200 to-amber-400 bg-clip-text text-xl font-black leading-tight text-transparent">
+        <Link
+          href={activeRaffle ? ROUTES.sorteios : ROUTES.ranking}
+          className="casino-panel-soft mt-3 flex min-h-[94px] items-center gap-3 rounded-[1.2rem] !border-rose-400/35 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,0.2),transparent_42%),linear-gradient(145deg,rgba(69,10,10,0.34),rgba(36,10,38,0.72))] px-3.5 py-3"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1rem] border border-amber-300/25 bg-amber-400/12 shadow-[0_0_22px_-8px_rgba(251,191,36,0.7)]">
+            <Flame className="h-6 w-6 fill-amber-400 text-amber-400" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-rose-200/75">
+              Destaque agora
+            </span>
+            <span className="mt-0.5 block truncate bg-gradient-to-r from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-lg font-black leading-tight text-transparent">
               {liveWinnerTeaser.highlight}
-            </p>
-            <p className="mt-1 line-clamp-1 text-[10px] text-white/55">{liveWinnerTeaser.sub}</p>
-          </Link>
-          <Link
-            href={ROUTES.sorteios}
-            aria-label={
-              sorteioPoolProgress
-                ? `Sorteio especial. ${sorteioPoolProgress.filledPct}% preenchido. Faltam ${sorteioPoolProgress.remaining.toLocaleString("pt-BR")} números. Participe.`
-                : "Sorteio especial — participe agora"
-            }
-            className="rounded-[1.2rem] bg-[linear-gradient(135deg,#f0abfc,#fb923c_42%,#c026d3)] p-[2px] shadow-[0_0_34px_-8px_rgba(244,114,182,0.72)]"
-          >
-            <div className="flex min-h-[86px] flex-col items-center justify-center rounded-[1.08rem] bg-[linear-gradient(180deg,rgba(35,16,62,0.98),rgba(9,8,24,0.99))] px-2 py-2.5 text-center">
-              <p className="text-[8px] font-black uppercase tracking-[0.14em] text-white/90">Sorteio especial</p>
-              <p className="mt-1 text-xl font-black tabular-nums tracking-tight text-white">
-                {sorteioClockDisplay ?? (activeRaffle ? "Ao vivo" : "Aberto")}
-              </p>
-              {sorteioPoolProgress ? (
-                <>
-                  <div
-                    className="mt-1.5 h-1 w-full max-w-[6.5rem] overflow-hidden rounded-full bg-white/12"
-                    aria-hidden
-                  >
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-400 via-rose-400 to-fuchsia-400 shadow-[0_0_8px_rgba(251,191,36,0.5)] transition-[width] duration-500"
-                      style={{ width: `${sorteioPoolProgress.filledPct}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-[8px] font-black uppercase tracking-wide text-white/88">
-                    {sorteioPoolProgress.filledPct}% preenchido
-                  </p>
-                  <p className="mt-0.5 text-[8px] font-black uppercase tracking-wide text-amber-300">
-                    {sorteioPoolProgress.remaining === 0
-                      ? "Últimos números — corre!"
-                      : `Faltam ${sorteioPoolProgress.remaining.toLocaleString("pt-BR")} números`}
-                  </p>
-                </>
-              ) : (
-                <p className="mt-1 text-[9px] font-black uppercase tracking-wide text-amber-300">
-                  Participe agora!
-                </p>
-              )}
-            </div>
-          </Link>
-        </div>
+            </span>
+            <span className="mt-1 block truncate text-[10px] text-white/55">
+              {liveWinnerTeaser.sub}
+            </span>
+            {sorteioPoolProgress ? (
+              <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/10">
+                <span
+                  className="block h-full rounded-full bg-gradient-to-r from-amber-400 via-rose-400 to-fuchsia-400 transition-[width] duration-500"
+                  style={{ width: `${sorteioPoolProgress.filledPct}%` }}
+                />
+              </span>
+            ) : null}
+          </span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05]">
+            <ChevronRight className="h-4 w-4 text-amber-200" aria-hidden />
+          </span>
+        </Link>
 
         <section className="mt-3" aria-label="Ações principais">
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="mb-2 flex items-end justify-between gap-2 px-0.5">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-violet-200/70">
+                Para você
+              </p>
+              <h2 className="text-sm font-black text-white">Jogue e ganhe</h2>
+            </div>
+            <Link href={ROUTES.recursos} className="text-[9px] font-bold text-amber-200/80">
+              Ver recursos
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
             <Link
               href={`${ROUTES.recursos}/roleta`}
               aria-label={
@@ -469,14 +432,14 @@ export default function HomePage() {
                   ? `Giro da sorte — ${rouletteHomeUrgency.line}`
                   : "Giro da sorte"
               }
-              className="casino-panel-soft relative flex min-h-[112px] flex-col items-center justify-center gap-1 rounded-[1.1rem] !border-violet-400/40 p-2.5 text-center ring-inset ring-transparent transition hover:ring-amber-300/25"
+              className="casino-panel-soft relative flex min-h-[116px] items-center gap-2.5 rounded-[1.1rem] !border-violet-400/40 px-3 py-2.5"
             >
               {rouletteHomeUrgency.freeHighlight ? (
-                <span className="absolute right-1 top-1 z-20 rounded-full border border-amber-300/55 bg-amber-500/25 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide text-amber-50 shadow-[0_0_12px_rgba(251,191,36,0.45)]">
+                <span className="absolute right-2 top-2 rounded-full border border-amber-300/55 bg-amber-500/20 px-1.5 py-0.5 text-[7px] font-black uppercase text-amber-50">
                   Grátis
                 </span>
               ) : null}
-              <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-full ring-2 ring-amber-400/35 shadow-[0_0_24px_-6px_rgba(139,92,246,0.65),inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+              <span className="flex h-14 w-14 shrink-0 overflow-hidden rounded-full ring-2 ring-amber-400/35 shadow-[0_0_24px_-6px_rgba(139,92,246,0.65)]">
                 <Image
                   src="/roulette-wheel-home.png"
                   alt=""
@@ -486,20 +449,14 @@ export default function HomePage() {
                   sizes="56px"
                 />
               </span>
-              <span className="text-[9px] font-black uppercase leading-tight tracking-wide text-white">
-                Giro da sorte
-              </span>
-              {rouletteHomeUrgency.line ? (
-                <span
-                  className={`max-w-[7.5rem] text-[8px] font-black uppercase leading-tight tracking-wide ${
-                    rouletteHomeUrgency.freeHighlight ? "text-amber-200" : "text-rose-200/90"
-                  }`}
-                >
-                  {rouletteHomeUrgency.line}
+              <span className="min-w-0">
+                <span className="block text-[10px] font-black uppercase leading-tight text-white">
+                  Giro da sorte
                 </span>
-              ) : profileLoading ? (
-                <span className="h-2.5 w-20 animate-pulse rounded bg-white/10" aria-hidden />
-              ) : null}
+                <span className="mt-1 block text-[8px] font-bold uppercase leading-tight text-amber-200/90">
+                  {rouletteHomeUrgency.line ?? "Abrir roleta"}
+                </span>
+              </span>
             </Link>
             <Link
               href={`${ROUTES.recursos}/bau`}
@@ -508,52 +465,66 @@ export default function HomePage() {
                   ? `${bauHomeTile.title} — ${bauHomeTile.subline}`
                   : bauHomeTile.title
               }
-              className="casino-panel-soft relative flex min-h-[112px] flex-col items-center justify-center gap-1 rounded-[1.1rem] !border-amber-400/45 p-2.5 text-center"
+              className="casino-panel-soft flex min-h-[116px] items-center gap-2.5 rounded-[1.1rem] !border-amber-400/45 px-3 py-2.5"
             >
-              <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[1rem] bg-[linear-gradient(180deg,#facc15,#b45309)] shadow-[0_12px_24px_-10px_rgba(0,0,0,0.8),0_0_24px_-6px_rgba(251,191,36,0.8)]">
+              <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[1rem] bg-[linear-gradient(180deg,#facc15,#b45309)] shadow-[0_0_24px_-6px_rgba(251,191,36,0.8)]">
                 <span className="absolute inset-x-1 top-5 h-2 rounded-full bg-amber-950/45" />
                 <Gift className="relative h-7 w-7 text-amber-950" aria-hidden />
               </span>
-              <span className="text-[9px] font-black uppercase leading-tight tracking-wide text-white">
-                {bauHomeTile.title}
-              </span>
-              {bauHomeTile.subline ? (
-                <span className="max-w-[7.5rem] text-[8px] font-bold uppercase leading-tight tracking-wide text-amber-200/95">
-                  {bauHomeTile.subline}
+              <span className="min-w-0">
+                <span className="block text-[10px] font-black uppercase leading-tight text-white">
+                  {bauHomeTile.title}
                 </span>
-              ) : chestHubLoading ? (
-                <span className="h-2.5 w-[90%] max-w-[7.5rem] animate-pulse rounded bg-white/10" aria-hidden />
-              ) : null}
+                <span className="mt-1 block text-[8px] font-bold uppercase leading-tight text-amber-200/90">
+                  {bauHomeTile.subline ?? (chestHubLoading ? "Carregando" : "Ver baús")}
+                </span>
+              </span>
             </Link>
             <button
               id="home-rewarded-ad"
               type="button"
               onClick={onAd}
               disabled={adLoading}
-              className="casino-panel-soft relative flex min-h-[112px] scroll-mt-28 flex-col items-center justify-center gap-2 rounded-[1.1rem] !border-fuchsia-400/50 bg-[linear-gradient(180deg,rgba(236,72,153,0.16),rgba(124,58,237,0.14),rgba(15,23,42,0.2))] p-2.5 text-center disabled:opacity-60"
+              className="casino-panel-soft col-span-2 flex min-h-[64px] scroll-mt-28 items-center gap-3 rounded-[1.1rem] !border-fuchsia-400/45 bg-[linear-gradient(90deg,rgba(236,72,153,0.14),rgba(124,58,237,0.12),rgba(15,23,42,0.2))] px-3 py-2.5 text-left disabled:opacity-60"
             >
-              <span className="absolute right-1.5 top-1.5 z-20 rounded-full border border-amber-300/50 bg-amber-400/20 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide text-amber-50 shadow-[0_0_14px_rgba(251,191,36,0.55)]">
-                +PR
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(145deg,#c4b5fd,#4f46e5_55%,#111827)] shadow-[0_0_20px_-6px_rgba(217,70,239,0.8)]">
+                <Play className="h-5 w-5 fill-white text-white" aria-hidden />
               </span>
-              <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[1rem] bg-[linear-gradient(145deg,#c4b5fd,#4f46e5_55%,#111827)] shadow-[0_12px_24px_-10px_rgba(0,0,0,0.8),0_0_24px_-6px_rgba(217,70,239,0.7)]">
-                <Play className="h-7 w-7 fill-white text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.55)]" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] font-black uppercase text-white">
+                  {adLoading ? "Carregando anúncio" : "Assistir e ganhar"}
+                </span>
+                <span className="mt-0.5 block text-[9px] text-fuchsia-100/60">
+                  Anúncio recompensado
+                </span>
               </span>
-              <span className="text-[9px] font-black uppercase leading-tight tracking-wide text-white">
-                {adLoading ? "Carregando" : "Ganhar +3 tickets agora !"}
+              <span className="rounded-full border border-amber-300/35 bg-amber-400/12 px-2.5 py-1 text-[9px] font-black text-amber-200">
+                +3 tickets
               </span>
             </button>
           </div>
         </section>
 
+        <div className="mt-3">
+          <DailyMissionCallout model={dailyMissionCallout} />
+        </div>
+
+        <WeeklyGameLeadersHomeSection
+          leaders={weeklyGameLeaders}
+          loading={weeklyGameLeadersLoading}
+          weeklyResetMs={weeklyRankingResetMs}
+        />
+
         <Link
           href={ROUTES.cla}
           aria-label={homeClanCard.ariaLabel}
-          className="casino-panel-soft mt-3 flex min-h-[92px] items-center justify-between gap-3 rounded-[1.25rem] !border-cyan-400/35 bg-[radial-gradient(circle_at_12%_18%,rgba(34,211,238,0.22),transparent_34%),radial-gradient(circle_at_92%_14%,rgba(217,70,239,0.2),transparent_32%),linear-gradient(135deg,rgba(8,47,73,0.42),rgba(49,46,129,0.52),rgba(15,23,42,0.86))] px-3.5 py-3 shadow-[0_0_40px_-16px_rgba(34,211,238,0.42),0_18px_34px_-22px_rgba(0,0,0,0.78)] transition hover:!border-cyan-300/55 hover:brightness-110"
+          className={`casino-panel-soft mt-3 flex items-center justify-between gap-3 rounded-[1.15rem] !border-cyan-400/30 bg-[linear-gradient(135deg,rgba(8,47,73,0.35),rgba(49,46,129,0.4),rgba(15,23,42,0.82))] px-3 py-2.5 transition hover:!border-cyan-300/50 ${
+            homeClanCard.ctaLabel === "Acessar" ? "min-h-[72px]" : "min-h-[88px]"
+          }`}
         >
           <div className="flex min-w-0 items-center gap-3">
-            <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.1rem] border border-cyan-300/35 bg-[linear-gradient(145deg,rgba(34,211,238,0.2),rgba(139,92,246,0.34))] shadow-[0_0_24px_-8px_rgba(34,211,238,0.7),inset_0_1px_0_rgba(255,255,255,0.12)]">
-              <span className="absolute inset-1 rounded-[0.9rem] border border-white/10" aria-hidden />
-              <Users className="relative h-7 w-7 text-cyan-100 drop-shadow-[0_0_10px_rgba(34,211,238,0.65)]" aria-hidden />
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-300/30 bg-[linear-gradient(145deg,rgba(34,211,238,0.18),rgba(139,92,246,0.3))]">
+              <Users className="h-5 w-5 text-cyan-100" aria-hidden />
             </span>
             <span className="min-w-0">
               <span className="block text-[9px] font-black uppercase tracking-[0.18em] text-cyan-200/85">
@@ -566,11 +537,11 @@ export default function HomePage() {
                 </>
               ) : (
                 <>
-                  <span className="mt-1 block text-base font-black leading-snug tracking-tight text-white">
+                  <span className="mt-0.5 block text-sm font-black leading-snug text-white">
                     {homeClanCard.title}
                   </span>
                   {homeClanCard.description ? (
-                    <span className="mt-0.5 block line-clamp-2 text-[11px] leading-snug text-white/58">
+                    <span className="mt-0.5 block line-clamp-1 text-[10px] leading-snug text-white/55">
                       {homeClanCard.description}
                     </span>
                   ) : null}
@@ -578,20 +549,10 @@ export default function HomePage() {
               )}
             </span>
           </div>
-          <span className="shrink-0 rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-wide text-amber-200">
+          <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-400/10 px-2.5 py-1 text-[8px] font-black uppercase text-amber-200">
             {homeClanCard.loading ? "…" : homeClanCard.ctaLabel}
           </span>
         </Link>
-
-        <WeeklyGameLeadersHomeSection
-          leaders={weeklyGameLeaders}
-          loading={weeklyGameLeadersLoading}
-          weeklyResetMs={weeklyRankingResetMs}
-        />
-
-        <div className="mt-3">
-          <DailyMissionCallout model={dailyMissionCallout} />
-        </div>
       </PremiumCard>
     </div>
   );
