@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
-import { ROUTES } from "@/lib/constants/routes";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import {
   getActiveRaffleCallable,
@@ -24,7 +22,7 @@ import {
   formatRaffleScopedRange,
   getRaffleProgressPercent,
 } from "@/utils/raffle";
-import { ChevronDown, ChevronUp, Clapperboard, Sparkles, Ticket } from "lucide-react";
+import { ChevronDown, ChevronUp, Clapperboard, Gift, Sparkles, Ticket, Trophy } from "lucide-react";
 
 const MAX_EXPAND_NUMBERS = 240;
 type SorteiosTab = "atual" | "meus_numeros" | "finalizados";
@@ -43,6 +41,10 @@ function prizeLabel(currency: string, amount: number): string {
   if (currency === "gems") return `${amount} TICKET`;
   if (currency === "rewardBalance") return `${amount} Saldo`;
   return `${amount} PR`;
+}
+
+function compactNumber(value: number): string {
+  return Math.max(0, value).toLocaleString("pt-BR");
 }
 
 function statusLabel(status: RaffleView["status"]): string {
@@ -222,13 +224,16 @@ export default function SorteiosPage() {
   const maxPurchase = raffle?.maxPerPurchase ?? 500;
   const entryMode = raffle?.entryMode ?? "ticket";
   const qtyNum = Math.min(maxPurchase, Math.max(1, Math.floor(Number(quantity) || 0)));
+  const totalTicketCost = raffle ? Math.max(1, qtyNum) * raffle.ticketPrice : 0;
+  const hasEnoughTickets = entryMode !== "ticket" || ticketBalance >= totalTicketCost;
   const canBuy =
     !!user &&
     raffle?.status === "active" &&
     enabled &&
     entryMode === "ticket" &&
     qtyNum >= 1 &&
-    qtyNum <= maxPurchase;
+    qtyNum <= maxPurchase &&
+    hasEnoughTickets;
   const canBuyWithAd =
     !!user && raffle?.status === "active" && enabled && entryMode === "rewarded_ad";
 
@@ -307,23 +312,52 @@ export default function SorteiosPage() {
   }, [raffle]);
 
   return (
-    <div className="space-y-6 pb-4">
-      <section className="overflow-hidden rounded-[1.85rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(236,72,153,0.14),transparent_32%),radial-gradient(circle_at_top_right,rgba(139,92,246,0.2),transparent_38%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-5 shadow-[0_0_56px_-28px_rgba(236,72,153,0.35)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-5 pb-4">
+      <section className="overflow-hidden rounded-[1.75rem] border border-fuchsia-300/15 bg-[radial-gradient(circle_at_15%_0%,rgba(236,72,153,0.2),transparent_34%),radial-gradient(circle_at_85%_0%,rgba(34,211,238,0.14),transparent_32%),linear-gradient(180deg,rgba(13,7,31,0.98),rgba(2,6,23,0.96))] shadow-[0_0_56px_-30px_rgba(236,72,153,0.6)]">
+        <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-fuchsia-200/70">Sorteios</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Números da sorte</h1>
-            <p className="mt-2 max-w-2xl text-sm text-white/60">
-              Participe com TICKET ou, quando o sorteio estiver em modo anúncio, assista a um vídeo recompensado para
-              ganhar 1 número. Os números saem da faixa liberada pelo admin.
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-100/80">
+              <Gift className="h-3.5 w-3.5" />
+              Sorteios
+            </div>
+            <h1 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">
+              Números da sorte
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-white/62">
+              Entre no sorteio ativo, acompanhe seus números e consulte resultados anteriores sem sair da mesma tela.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <SummaryChip icon={<Ticket className="h-3.5 w-3.5" />} label={`${compactNumber(ticketBalance)} TICKET`} />
+              <SummaryChip
+                icon={<Trophy className="h-3.5 w-3.5" />}
+                label={raffle ? statusLabel(raffle.status) : "Aguardando sorteio"}
+              />
+            </div>
           </div>
-          <Link
-            href={ROUTES.carteira}
-            className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-semibold text-white/85 transition hover:bg-white/10"
-          >
-            Voltar à carteira
-          </Link>
+
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Destaque</p>
+            <p className="mt-2 text-2xl font-black text-white">
+              {raffle ? prizeLabel(raffle.prizeCurrency, raffle.prizeAmount) : "Prêmio em breve"}
+            </p>
+            <p className="mt-1 line-clamp-2 text-sm text-white/50">
+              {raffle?.title ?? "Quando um sorteio for aberto, o prêmio e os números disponíveis aparecem aqui."}
+            </p>
+            {hero ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-xs text-white/50">
+                  <span>{compactNumber(hero.remaining)} disponíveis</span>
+                  <span>{hero.progressPercent}%</span>
+                </div>
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-fuchsia-400 via-violet-400 to-cyan-300"
+                    style={{ width: `${hero.progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </section>
 
@@ -342,10 +376,10 @@ export default function SorteiosPage() {
         </AlertBanner>
       ) : null}
 
-      <section className="rounded-2xl border border-white/10 bg-slate-950/75 p-2">
-        <div className="grid grid-cols-3 gap-2">
+      <section className="rounded-2xl border border-white/10 bg-slate-950/75 p-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           {([
-            { id: "atual", label: "Atual" },
+            { id: "atual", label: "Sorteio" },
             { id: "meus_numeros", label: `Meus números (${purchases.length})` },
             { id: "finalizados", label: `Finalizados (${finalizedRaffles.length})` },
           ] as const).map((tab) => (
@@ -354,7 +388,7 @@ export default function SorteiosPage() {
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "rounded-xl px-4 py-3 text-sm font-semibold transition",
+                "min-h-11 rounded-xl px-2 py-2 text-center text-xs font-bold transition sm:px-4 sm:text-sm",
                 activeTab === tab.id
                   ? "bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white"
                   : "bg-white/[0.03] text-white/65 hover:bg-white/[0.06]",
@@ -377,30 +411,40 @@ export default function SorteiosPage() {
         </div>
       ) : (
         <>
-          <section className="rounded-[1.75rem] border border-fuchsia-500/25 bg-gradient-to-br from-fuchsia-950/35 via-slate-950/90 to-slate-950 p-5 sm:p-6">
+          <section className="overflow-hidden rounded-[1.75rem] border border-fuchsia-500/25 bg-[linear-gradient(180deg,rgba(76,29,149,0.22),rgba(2,6,23,0.95))]">
+            <div className={cn("grid gap-0", raffle.prizeImageUrl && "lg:grid-cols-[0.95fr_1.05fr]")}>
+              {raffle.prizeImageUrl ? (
+                <div className="relative min-h-[220px] overflow-hidden bg-black/30 lg:min-h-full">
+                  <Image
+                    src={raffle.prizeImageUrl}
+                    alt={`Imagem do prêmio: ${raffle.title}`}
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 1024px) 100vw, 420px"
+                    priority={false}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent lg:bg-gradient-to-r lg:from-transparent lg:to-slate-950/55" />
+                  <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/10 bg-black/45 p-3 backdrop-blur">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">Prêmio</p>
+                    <p className="mt-1 text-xl font-black text-white">
+                      {prizeLabel(raffle.prizeCurrency, raffle.prizeAmount)}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
+              <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-200/70">
                   {statusLabel(raffle.status)}
                 </p>
-                <h2 className="mt-1 text-2xl font-black text-white">{raffle.title}</h2>
+                <h2 className="mt-1 text-2xl font-black text-white sm:text-3xl">{raffle.title}</h2>
                 {raffle.description ? (
                   <p className="mt-2 max-w-2xl text-sm text-white/60">{raffle.description}</p>
                 ) : null}
-                {raffle.prizeImageUrl ? (
-                  <div className="relative mt-4 aspect-[16/10] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                    <Image
-                      src={raffle.prizeImageUrl}
-                      alt={`Imagem do prêmio: ${raffle.title}`}
-                      fill
-                      className="object-cover"
-                      sizes="(max-width: 768px) 100vw, 448px"
-                      priority={false}
-                    />
-                  </div>
-                ) : null}
               </div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-right">
+              <div className={cn("rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-right", raffle.prizeImageUrl && "lg:hidden")}>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">Prêmio</p>
                 <p className="mt-1 text-lg font-bold text-emerald-200">
                   {prizeLabel(raffle.prizeCurrency, raffle.prizeAmount)}
@@ -408,7 +452,7 @@ export default function SorteiosPage() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
               <StatPill
                 label={entryMode === "rewarded_ad" ? "Inscrição" : "Preço / número"}
                 value={
@@ -417,9 +461,9 @@ export default function SorteiosPage() {
                     : `${raffle.ticketPrice} TICKET`
                 }
               />
-              <StatPill label="Números liberados" value={String(raffle.releasedCount)} />
-              <StatPill label="Já vendidos" value={String(raffle.soldCount)} />
-              <StatPill label="Disponíveis" value={hero ? String(hero.remaining) : "—"} />
+              <StatPill label="Liberados" value={compactNumber(raffle.releasedCount)} />
+              <StatPill label="Vendidos" value={compactNumber(raffle.soldCount)} />
+              <StatPill label="Disponíveis" value={hero ? compactNumber(hero.remaining) : "—"} />
               <StatPill label="Progresso" value={hero ? `${hero.progressPercent}%` : "—"} />
               <StatPill label="Premiados" value={hero ? String(hero.instantPrizeCount) : "0"} />
             </div>
@@ -503,8 +547,11 @@ export default function SorteiosPage() {
                     </p>
                     <p>
                       Custo desta compra:{" "}
-                      <strong className="text-white">{Math.max(1, qtyNum) * raffle.ticketPrice} TICKET</strong>
+                      <strong className="text-white">{totalTicketCost} TICKET</strong>
                     </p>
+                    {!hasEnoughTickets ? (
+                      <p className="font-semibold text-amber-200">Você precisa de mais TICKET para essa compra.</p>
+                    ) : null}
                   </div>
                   <Button
                     type="button"
@@ -557,6 +604,8 @@ export default function SorteiosPage() {
                 )}
               </div>
             )}
+              </div>
+            </div>
           </section>
 
           {raffle.instantPrizeTiers && raffle.instantPrizeTiers.length > 0 ? (
@@ -669,11 +718,20 @@ export default function SorteiosPage() {
   );
 }
 
+function SummaryChip({ icon, label }: { icon: ReactNode; label: string }) {
+  return (
+    <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-white/10 bg-black/25 px-3 text-xs font-bold text-white/75">
+      <span className="text-fuchsia-100/80">{icon}</span>
+      {label}
+    </span>
+  );
+}
+
 function StatPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+    <div className="min-h-[76px] rounded-2xl border border-white/10 bg-black/25 px-3 py-3 sm:px-4">
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">{label}</p>
-      <p className="mt-1 text-base font-bold text-white">{value}</p>
+      <p className="mt-1 break-words text-base font-black text-white">{value}</p>
     </div>
   );
 }
