@@ -125,7 +125,14 @@ export function normalizeGameCatalogConfig(raw: unknown): GameCatalogConfig {
         : undefined;
     const orderRaw = Math.floor(Number(item.order));
     const order = Number.isFinite(orderRaw) ? orderRaw : undefined;
-    out[gameId] = { category, title, subtitle, badgeLabel, order };
+    out[gameId] = {
+      category,
+      enabled: item.enabled !== false,
+      title,
+      subtitle,
+      badgeLabel,
+      order,
+    };
   }
   return out;
 }
@@ -145,6 +152,10 @@ export function resolveConfiguredGameCatalog(config?: GameCatalogConfig): GameCa
           typeof cfg?.order === "number" && Number.isFinite(cfg.order) ? cfg.order : game.sortOrder,
       };
     })
+    .filter(
+      (game) =>
+        (config?.[game.id]?.enabled ?? (game.id !== "card_battle")) !== false,
+    )
     .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
 }
 

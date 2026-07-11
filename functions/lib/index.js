@@ -709,6 +709,7 @@ async function getEconomy() {
         referralBonusIndicador: typeof d.referralBonusIndicador === "number" ? d.referralBonusIndicador : 200,
         referralBonusConvidado: typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
         matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
+        experienceCatalog: normalizeExperienceCatalog(d.experienceCatalog),
         rouletteTable: normalizeWeightedPrizeTable(d.rouletteTable, gameEconomy_1.DEFAULT_ROULETTE_TABLE),
         rouletteSpinCostAmount: Math.max(0, Math.floor(Number(d.rouletteSpinCostAmount) || 0)),
         rouletteSpinCostCurrency: normalizeRewardCurrency(d.rouletteSpinCostCurrency, "gems"),
@@ -723,6 +724,17 @@ async function getEconomy() {
         saldoPointsPerReal: Number.isFinite(rawSaldoPointsPerReal) && rawSaldoPointsPerReal >= 1 ? rawSaldoPointsPerReal : 100,
         rewardedAdRewardsByPlacement: normalizeRewardedAdRewardsByPlacement(d.rewardedAdRewardsByPlacement),
     };
+}
+function normalizeExperienceCatalog(raw) {
+    if (!raw || typeof raw !== "object")
+        return {};
+    const out = {};
+    for (const [gameId, value] of Object.entries(raw)) {
+        if (!value || typeof value !== "object")
+            continue;
+        out[gameId] = { enabled: value.enabled !== false };
+    }
+    return out;
 }
 function normalizeRewardedAdRewardsByPlacement(raw) {
     if (!raw || typeof raw !== "object")
@@ -7906,6 +7918,10 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     if (!gameId || !AUTO_QUEUE_GAMES.has(gameId)) {
         throw new https_1.HttpsError("invalid-argument", "Jogo não suporta fila automática.");
     }
+    const economy = await getEconomy();
+    if ((economy.experienceCatalog[gameId]?.enabled ?? gameId !== "card_battle") === false) {
+        throw new https_1.HttpsError("failed-precondition", "Este jogo está temporariamente desativado.");
+    }
     const userRef = db.doc(`${COL.users}/${uid}`);
     let uSnap = await userRef.get();
     if (!uSnap.exists)
@@ -8009,7 +8025,7 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     }
     const partnerId = partnerDoc.id;
     const roomRef = db.collection(COL.gameRooms).doc();
-    const econMatch = await getEconomy();
+    const econMatch = economy;
     const pptMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "ppt");
     const quizMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "quiz");
     const reactionMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "reaction_tap");

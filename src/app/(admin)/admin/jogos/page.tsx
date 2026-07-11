@@ -74,6 +74,7 @@ const EMPTY_EXPERIENCE_FORM = Object.fromEntries(
     experience.id,
     {
       category: experience.defaultCategory,
+      enabled: experience.id !== "card_battle",
       title: "",
       subtitle: "",
       badgeLabel: "",
@@ -84,6 +85,7 @@ const EMPTY_EXPERIENCE_FORM = Object.fromEntries(
   string,
   {
     category: ExperienceCategory;
+    enabled: boolean;
     title: string;
     subtitle: string;
     badgeLabel: string;
@@ -134,6 +136,8 @@ export default function AdminJogosPage() {
               experience.id,
               {
                 category: experienceCatalog[experience.id]?.category ?? experience.defaultCategory,
+                enabled:
+                  experienceCatalog[experience.id]?.enabled ?? experience.id !== "card_battle",
                 title: experienceCatalog[experience.id]?.title ?? "",
                 subtitle: experienceCatalog[experience.id]?.subtitle ?? "",
                 badgeLabel: experienceCatalog[experience.id]?.badgeLabel ?? "",
@@ -235,6 +239,8 @@ export default function AdminJogosPage() {
           experience.id,
           {
             category: experienceCatalog[experience.id]?.category ?? experience.defaultCategory,
+            enabled:
+              experienceCatalog[experience.id]?.enabled ?? experience.id !== "card_battle",
             title: experienceCatalog[experience.id]?.title ?? "",
             subtitle: experienceCatalog[experience.id]?.subtitle ?? "",
             badgeLabel: experienceCatalog[experience.id]?.badgeLabel ?? "",
@@ -423,6 +429,23 @@ export default function AdminJogosPage() {
                 {experienceForm[experience.id]?.subtitle?.trim() || experience.subtitle}
               </p>
               <div className="mt-3 grid gap-3">
+                <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white">
+                  <span>Disponível no app</span>
+                  <input
+                    type="checkbox"
+                    checked={experienceForm[experience.id]?.enabled !== false}
+                    onChange={(e) =>
+                      setExperienceForm((current) => ({
+                        ...current,
+                        [experience.id]: {
+                          ...current[experience.id],
+                          enabled: e.target.checked,
+                        },
+                      }))
+                    }
+                    className="h-4 w-4 accent-cyan-400"
+                  />
+                </label>
                 <div>
                   <label className="text-xs text-slate-400">Categoria visual</label>
                   <select
@@ -564,6 +587,7 @@ function buildExperienceCatalogEntry(
   form:
     | {
         category: ExperienceCategory;
+        enabled: boolean;
         title: string;
         subtitle: string;
         badgeLabel: string;
@@ -574,6 +598,7 @@ function buildExperienceCatalogEntry(
 ): ExperienceCatalogConfigEntry {
   return compactDefined({
     category: form?.category ?? defaultCategory,
+    enabled: form?.enabled !== false,
     title: textOrUndefined(form?.title),
     subtitle: textOrUndefined(form?.subtitle),
     badgeLabel: textOrUndefined(form?.badgeLabel),

@@ -87,6 +87,7 @@ export type ExperienceCategory = "arena" | "utility";
 
 export interface ExperienceCatalogConfigEntry {
   category: ExperienceCategory;
+  enabled?: boolean;
   title?: string;
   subtitle?: string;
   badgeLabel?: string;

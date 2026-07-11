@@ -849,6 +849,7 @@ async function getEconomy() {
     referralBonusConvidado:
       typeof d.referralBonusConvidado === "number" ? d.referralBonusConvidado : 100,
     matchRewardOverrides: normalizeMatchRewardOverrides(rawOverrides),
+    experienceCatalog: normalizeExperienceCatalog(d.experienceCatalog),
     rouletteTable: normalizeWeightedPrizeTable(d.rouletteTable, DEFAULT_ROULETTE_TABLE),
     rouletteSpinCostAmount: Math.max(0, Math.floor(Number(d.rouletteSpinCostAmount) || 0)),
     rouletteSpinCostCurrency: normalizeRewardCurrency(d.rouletteSpinCostCurrency, "gems"),
@@ -864,6 +865,16 @@ async function getEconomy() {
       Number.isFinite(rawSaldoPointsPerReal) && rawSaldoPointsPerReal >= 1 ? rawSaldoPointsPerReal : 100,
     rewardedAdRewardsByPlacement: normalizeRewardedAdRewardsByPlacement(d.rewardedAdRewardsByPlacement),
   };
+}
+
+function normalizeExperienceCatalog(raw: unknown): Record<string, { enabled: boolean }> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, { enabled: boolean }> = {};
+  for (const [gameId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    out[gameId] = { enabled: (value as Record<string, unknown>).enabled !== false };
+  }
+  return out;
 }
 
 function normalizeRewardedAdRewardsByPlacement(raw: unknown): Record<
@@ -9817,6 +9828,11 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
     throw new HttpsError("invalid-argument", "Jogo não suporta fila automática.");
   }
 
+  const economy = await getEconomy();
+  if ((economy.experienceCatalog[gameId]?.enabled ?? gameId !== "card_battle") === false) {
+    throw new HttpsError("failed-precondition", "Este jogo está temporariamente desativado.");
+  }
+
   const userRef = db.doc(`${COL.users}/${uid}`);
   let uSnap = await userRef.get();
   if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
@@ -9956,7 +9972,7 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
   const partnerId = partnerDoc.id;
   const roomRef = db.collection(COL.gameRooms).doc();
 
-  const econMatch = await getEconomy();
+  const econMatch = economy;
   const pptMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "ppt");
   const quizMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "quiz");
   const reactionMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "reaction_tap");
