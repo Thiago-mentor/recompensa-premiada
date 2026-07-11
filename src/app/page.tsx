@@ -22,7 +22,7 @@ export default function RootPage() {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center p-6 text-white">
         <CasinoCard className="max-w-sm text-center">
-          <h1 className="text-xl font-bold">Recompensa Premiada</h1>
+          <h1 className="text-xl font-bold">Rivaliza</h1>
           <p className="mt-3 text-sm text-white/75">
             Configure o Firebase em <code className="text-violet-300">.env.local</code> (veja{" "}
             <code className="text-violet-300">.env.example</code>).

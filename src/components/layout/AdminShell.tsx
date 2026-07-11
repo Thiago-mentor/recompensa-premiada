@@ -35,7 +35,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-[100] border-b border-violet-400/20 bg-slate-950/95 shadow-[0_18px_44px_-28px_rgba(0,0,0,0.75),inset_0_-1px_0_rgba(255,255,255,0.06)] backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 py-3">
           <Link href={ROUTES.admin.dashboard} className="font-bold text-white">
-            Admin · Recompensa Premiada
+            Admin · Rivaliza
           </Link>
           <nav className="flex flex-wrap gap-1 text-sm">
             {links.map((l) => (

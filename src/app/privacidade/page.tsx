@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Política de Privacidade | Recompensa Premiada",
-  description: "Política de privacidade do aplicativo Recompensa Premiada.",
+  title: "Política de Privacidade | Rivaliza",
+  description: "Política de privacidade do aplicativo Rivaliza.",
 };
 
 export default function PrivacyPolicyPage() {
@@ -10,7 +10,7 @@ export default function PrivacyPolicyPage() {
     <main className="min-h-screen bg-[#070b18] px-4 py-10 text-slate-200 sm:px-6">
       <article className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-slate-950/80 p-6 shadow-2xl shadow-cyan-950/20 sm:p-10">
         <Link href="/" className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">
-          Recompensa Premiada
+          Rivaliza
         </Link>
         <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
           Política de Privacidade
@@ -21,7 +21,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">1. Sobre esta política</h2>
             <p className="mt-2">
-              Esta política explica como o Recompensa Premiada coleta, usa e protege informações
+              Esta política explica como o Rivaliza coleta, usa e protege informações
               quando você utiliza o site ou o aplicativo. Ao utilizar o serviço, você declara que
               leu esta política.
             </p>

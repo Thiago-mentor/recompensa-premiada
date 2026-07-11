@@ -90,7 +90,7 @@ export default function LoginPage() {
     <div className="space-y-6">
       <div className="text-center space-y-1">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-300 to-fuchsia-300 bg-clip-text text-transparent">
-          Recompensa Premiada
+          Rivaliza
         </h1>
         <p className="text-sm text-white/60">Entre para continuar sua jornada</p>
       </div>

@@ -3,13 +3,13 @@ import { AppProviders } from "@/components/providers/AppProviders";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Recompensa Premiada",
+  title: "Rivaliza",
   description: "Missões, jogos, ranking e recompensas — gamificação com economia virtual segura.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Recompensa Premiada",
+    title: "Rivaliza",
   },
 };
 

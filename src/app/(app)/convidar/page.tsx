@@ -270,7 +270,7 @@ export default function ConvidarPage() {
   );
   const promoMessage = profile
     ? [
-        `Entre no Recompensa Premiada com meu código ${inviteCode}.`,
+        `Entre no Rivaliza com meu código ${inviteCode}.`,
         invitedRewardEnabled
           ? `Você pode ganhar ${formatRewardLabel(invitedRewardAmount, invitedRewardCurrency)} e eu recebo ${formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)} quando o convite for validado.`
           : `Quando o convite for validado, eu recebo ${formatRewardLabel(inviterRewardAmount, inviterRewardCurrency)}.`,
@@ -290,7 +290,7 @@ export default function ConvidarPage() {
     if (typeof navigator !== "undefined" && "share" in navigator) {
       try {
         await navigator.share({
-          title: "Entre no Recompensa Premiada",
+          title: "Entre no Rivaliza",
           text: `Use meu código ${inviteCode} e entre no app.`,
           url: inviteLink,
         });

@@ -9,7 +9,7 @@ const serverUrl = process.env.CAPACITOR_SERVER_URL?.trim();
 
 const config: CapacitorConfig = {
   appId: "com.recompensapremiada.app",
-  appName: "Recompensa Premiada",
+  appName: "Rivaliza",
   webDir: "capacitor-www",
   ...(serverUrl
     ? {
