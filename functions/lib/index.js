@@ -6066,6 +6066,8 @@ exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
         tx.set(ref, {
             id: ref.id,
             userId: uid,
+            userName: String(u.nome || u.displayName || "Jogador").trim().slice(0, 80),
+            userUsername: typeof u.username === "string" ? u.username.trim().slice(0, 40) : null,
             valor,
             tipo,
             chavePix,

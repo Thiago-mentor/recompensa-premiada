@@ -479,6 +479,21 @@ body::after {
     filter: drop-shadow(0 10px 16px rgb(0 0 0 / 0.35));
   }
 
+  .adaptive-fx-panel {
+    box-shadow:
+      0 14px 34px -24px rgb(0 0 0 / 0.82),
+      inset 0 1px 0 rgb(255 255 255 / 0.06) !important;
+    backdrop-filter: none !important;
+  }
+
+  .adaptive-fx-glow {
+    display: none !important;
+  }
+
+  .adaptive-fx :where(.blur-3xl, .blur-2xl) {
+    filter: blur(18px) !important;
+  }
+
   /* Links no app mobile: sem delay de toque (iOS) e menos “flash” ao tocar */
   main a[href] {
     touch-action: manipulation;

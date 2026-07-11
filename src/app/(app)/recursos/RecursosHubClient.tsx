@@ -23,7 +23,7 @@ export function RecursosHubClient() {
   return (
     <ArenaShell>
       <motion.div
-        className="space-y-6"
+        className="adaptive-fx space-y-6"
         variants={staggerContainer}
         initial="hidden"
         animate="show"

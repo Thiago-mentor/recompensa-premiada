@@ -3,10 +3,12 @@
 import {
   collection,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
+  where,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
@@ -14,7 +16,7 @@ import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS, SUBCOLLECTIONS } from "@/lib/constants/collections";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { callFunction } from "@/services/callables/client";
-import { getWeeklyPeriodKey } from "@/utils/date";
+import { getDailyPeriodKey, getMonthlyPeriodKey, getWeeklyPeriodKey } from "@/utils/date";
 import type {
   ChangeClanMemberRoleInput,
   Clan,
@@ -207,7 +209,47 @@ export function subscribeDiscoverableClans(
   });
 }
 
-/** Uma só subscrição Firestore partilhada por todos os consumidores (evita listens duplicados). */
+export type ClanRankingBoardMode = "total" | "daily" | "weekly" | "monthly";
+
+export async function fetchClanRankingBoard(
+  mode: ClanRankingBoardMode,
+  maxItems = 100,
+): Promise<Clan[]> {
+  const db = getFirebaseFirestore();
+  const clansRef = collection(db, COLLECTIONS.clans);
+  const cap = Math.min(100, Math.max(5, Math.floor(maxItems)));
+  const now = new Date();
+  const clanQuery =
+    mode === "daily"
+      ? query(
+          clansRef,
+          where("scoreDailyKey", "==", getDailyPeriodKey(now)),
+          orderBy("scoreDaily", "desc"),
+          limit(cap),
+        )
+      : mode === "weekly"
+        ? query(
+            clansRef,
+            where("scoreWeeklyKey", "==", getWeeklyPeriodKey(now)),
+            orderBy("scoreWeekly", "desc"),
+            limit(cap),
+          )
+        : mode === "monthly"
+          ? query(
+              clansRef,
+              where("scoreMonthlyKey", "==", getMonthlyPeriodKey(now)),
+              orderBy("scoreMonthly", "desc"),
+              limit(cap),
+            )
+          : query(clansRef, orderBy("scoreTotal", "desc"), limit(cap));
+
+  const snapshot = await getDocs(clanQuery);
+  return snapshot.docs.map((docSnap) =>
+    normalizeClan(docSnap.id, docSnap.data() as Record<string, unknown>),
+  );
+}
+
+/** Uma só subscrição Firestore partilhada por consumidores que precisam do ranking geral em tempo real. */
 const clanRankingBoardMulticast: {
   listeners: Set<(clans: Clan[]) => void>;
   unsub: Unsubscribe | null;
@@ -221,7 +263,8 @@ const clanRankingBoardMulticast: {
 function ensureClanRankingBoardListener(): void {
   if (clanRankingBoardMulticast.unsub) return;
   const clansRef = collection(getFirebaseFirestore(), COLLECTIONS.clans);
-  clanRankingBoardMulticast.unsub = onSnapshot(clansRef, (snapshot) => {
+  const clansQuery = query(clansRef, orderBy("scoreTotal", "desc"), limit(100));
+  clanRankingBoardMulticast.unsub = onSnapshot(clansQuery, (snapshot) => {
     clanRankingBoardMulticast.last = snapshot.docs.map((docSnap) =>
       normalizeClan(docSnap.id, docSnap.data() as Record<string, unknown>),
     );

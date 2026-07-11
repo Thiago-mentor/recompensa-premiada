@@ -63,10 +63,10 @@ export function ArenaShell({
   hudFrame = true,
 }: ArenaShellProps) {
   return (
-    <div className={cn("relative mx-auto w-full", maxWidth, className)}>
+    <div className={cn("adaptive-fx relative mx-auto w-full", maxWidth, className)}>
       <motion.div
         aria-hidden
-        className="pointer-events-none absolute -inset-2 rounded-[2rem] opacity-60 blur-3xl"
+        className="adaptive-fx-glow pointer-events-none absolute -inset-2 rounded-[2rem] opacity-60 blur-3xl"
         style={{
           background:
             "linear-gradient(135deg, rgb(34 211 238 / 0.22), rgb(139 92 246 / 0.26), rgb(217 70 239 / 0.16))",
@@ -75,7 +75,7 @@ export function ArenaShell({
         animate={{ opacity: 0.5, scale: 1 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
       />
-      <div className="game-panel rounded-[1.95rem] border-cyan-400/20 shadow-[0_0_58px_-16px_rgba(34,211,238,0.24)]">
+      <div className="adaptive-fx-panel game-panel rounded-[1.95rem] border-cyan-400/20 shadow-[0_0_58px_-16px_rgba(34,211,238,0.24)]">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.1]"
           style={{

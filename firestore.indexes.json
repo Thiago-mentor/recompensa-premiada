@@ -178,6 +178,30 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "requestedAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scoreDailyKey", "order": "ASCENDING" },
+        { "fieldPath": "scoreDaily", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scoreWeeklyKey", "order": "ASCENDING" },
+        { "fieldPath": "scoreWeekly", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scoreMonthlyKey", "order": "ASCENDING" },
+        { "fieldPath": "scoreMonthly", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

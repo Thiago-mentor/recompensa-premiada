@@ -8,6 +8,8 @@ export type RewardClaimTipo = "pix" | "voucher" | "outro";
 export interface RewardClaim {
   id: string;
   userId: string;
+  userName?: string | null;
+  userUsername?: string | null;
   valor: number;
   tipo: RewardClaimTipo;
   chavePix: string;

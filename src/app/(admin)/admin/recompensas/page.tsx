@@ -92,6 +92,15 @@ function downloadBlob(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+function rewardClaimUserLabel(claim: RewardClaim): string | null {
+  const name = typeof claim.userName === "string" ? claim.userName.trim() : "";
+  const username = typeof claim.userUsername === "string" ? claim.userUsername.trim() : "";
+  if (name && username) return `${name} (@${username})`;
+  if (name) return name;
+  if (username) return `@${username}`;
+  return null;
+}
+
 async function fetchRewardClaimsDashboardData(): Promise<{
   rows: RewardClaim[];
   saldoPointsPerReal: number;
@@ -109,7 +118,18 @@ async function fetchRewardClaimsDashboardData(): Promise<{
     fetchSaldoPointsPerReal().catch(() => 100),
   ]);
   const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as RewardClaim);
-  const uids = [...new Set(rows.map((r) => r.userId))];
+  const embeddedNames = Object.fromEntries(
+    rows
+      .map((row) => [row.userId, rewardClaimUserLabel(row)] as const)
+      .filter((pair): pair is readonly [string, string] => Boolean(pair[1])),
+  );
+  const uids = [
+    ...new Set(
+      rows
+        .filter((row) => !embeddedNames[row.userId])
+        .map((r) => r.userId),
+    ),
+  ];
   const pairs = await Promise.all(
     uids.map(async (uid) => {
       const dref = await getDoc(doc(db, COLLECTIONS.users, uid));
@@ -121,7 +141,7 @@ async function fetchRewardClaimsDashboardData(): Promise<{
   return {
     rows,
     saldoPointsPerReal: rate,
-    nomeByUid: Object.fromEntries(pairs),
+    nomeByUid: { ...embeddedNames, ...Object.fromEntries(pairs) },
   };
 }
 
@@ -308,11 +328,13 @@ export default function AdminRecompensasPage() {
   );
 
   async function review(id: string, status: "aprovado" | "recusado") {
+    setExportMsg(null);
     try {
       await callFunction("reviewRewardClaim", { claimId: id, status });
       await refresh();
+      setExportMsg(status === "aprovado" ? "Pedido aprovado." : "Pedido recusado.");
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Erro ao analisar.");
+      setExportMsg(e instanceof Error ? e.message : "Erro ao analisar pedido.");
     }
   }
 
@@ -369,7 +391,7 @@ export default function AdminRecompensasPage() {
       setExportMsg("Dados do pedido copiados.");
       setTimeout(() => setExportMsg(null), 2500);
     } catch {
-      window.alert("Não foi possível copiar. Use Baixar CSV ou JSON.");
+      setExportMsg("Não foi possível copiar. Use Baixar CSV ou JSON.");
     }
   }
 

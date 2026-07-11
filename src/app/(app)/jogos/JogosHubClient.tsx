@@ -26,17 +26,17 @@ export function JogosHubClient() {
   return (
     <ArenaShell className="template-3d-scene" maxWidth="max-w-6xl" padding="sm">
       <motion.div
-        className="space-y-5 sm:space-y-6"
+        className="adaptive-fx space-y-5 sm:space-y-6"
         variants={staggerContainer}
         initial="hidden"
         animate="show"
       >
         <motion.header
           variants={fadeUpItem}
-          className="relative overflow-hidden rounded-[1.7rem] border border-amber-300/24 bg-[radial-gradient(circle_at_14%_10%,rgba(251,191,36,0.2),transparent_32%),radial-gradient(circle_at_88%_18%,rgba(217,70,239,0.18),transparent_34%),linear-gradient(140deg,rgba(17,24,39,0.98),rgba(30,27,75,0.82)_48%,rgba(7,11,26,0.98))] p-4 shadow-[0_0_56px_-20px_rgba(251,191,36,0.38),0_26px_64px_-30px_rgba(0,0,0,0.82),inset_0_1px_0_rgba(255,255,255,0.1)] sm:p-6"
+          className="adaptive-fx-panel relative overflow-hidden rounded-[1.7rem] border border-amber-300/24 bg-[radial-gradient(circle_at_14%_10%,rgba(251,191,36,0.2),transparent_32%),radial-gradient(circle_at_88%_18%,rgba(217,70,239,0.18),transparent_34%),linear-gradient(140deg,rgba(17,24,39,0.98),rgba(30,27,75,0.82)_48%,rgba(7,11,26,0.98))] p-4 shadow-[0_0_56px_-20px_rgba(251,191,36,0.38),0_26px_64px_-30px_rgba(0,0,0,0.82),inset_0_1px_0_rgba(255,255,255,0.1)] sm:p-6"
         >
           <div className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent,transparent_18px,rgba(255,255,255,0.025)_18px,rgba(255,255,255,0.025)_19px)] opacity-70" />
-          <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-fuchsia-400/15 blur-3xl" />
+          <div className="adaptive-fx-glow pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-fuchsia-400/15 blur-3xl" />
           <div className="relative grid gap-4">
             <div>
               <p className="casino-kicker text-amber-200/85">
@@ -73,7 +73,7 @@ export function JogosHubClient() {
               </div>
             </div>
 
-            <div className="relative w-full rounded-[1.35rem] border border-white/10 bg-black/24 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_22px_42px_-26px_rgba(0,0,0,0.8)]">
+            <div className="adaptive-fx-panel relative w-full rounded-[1.35rem] border border-white/10 bg-black/24 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_22px_42px_-26px_rgba(0,0,0,0.8)]">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[9px] font-black uppercase tracking-[0.24em] text-white/45">
                   Mesas ativas

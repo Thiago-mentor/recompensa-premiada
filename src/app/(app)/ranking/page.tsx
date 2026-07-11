@@ -10,16 +10,26 @@ import { ROUTES, routeClaPublico } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
 import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import {
-  formatClanTime,
   resolveClanDailyBreakdown,
   resolveClanMonthlyBreakdown,
   resolveClanWeeklyBreakdown,
 } from "@/lib/clan/ui";
 import { resolveClanAvatarUrl } from "@/lib/clan/visuals";
+import {
+  clanPrizePeriodLabel,
+  compareClanDailyEntry,
+  compareClanMonthlyEntry,
+  compareClanTotalEntry,
+  compareClanWeeklyEntry,
+  formatClanCatalogActivity,
+  formatClanStats,
+  type ClanRankingMode,
+  type RankedClanEntry,
+} from "@/lib/clan/ranking";
 import { fetchRankingPrizeConfig } from "@/services/ranking/rankingConfigService";
 import { fetchTopRanking, fetchMyRankingEntry } from "@/services/ranking/rankingService";
 import { fetchArenaOverallRanking } from "@/services/ranking/overallArenaRankingService";
-import { subscribeClanRankingBoard } from "@/services/clans/clanService";
+import { fetchClanRankingBoard, type ClanRankingBoardMode } from "@/services/clans/clanService";
 import {
   buildDefaultRankingPrizeConfig,
   createEmptyRankingPrizePeriodConfig,
@@ -81,25 +91,9 @@ type PrizeSelectionId =
   | "monthly_ppt"
   | "monthly_quiz"
   | "monthly_reaction_tap";
-type RankedClanEntry = Clan & {
-  position: number;
-  totalScore: number;
-  totalWins: number;
-  totalAds: number;
-  dailyScore: number;
-  dailyWins: number;
-  dailyAds: number;
-  weeklyScore: number;
-  weeklyWins: number;
-  weeklyAds: number;
-  monthlyScore: number;
-  monthlyWins: number;
-  monthlyAds: number;
-};
-type RankedClanComparable = Omit<RankedClanEntry, "position">;
-type ClanRankingMode = "total" | "daily" | "weekly" | "monthly";
 
 const TOP_FETCH_LIMIT = 100;
+const CLAN_RANKING_FETCH_LIMIT = 100;
 const TOP_OPTIONS = [5, 10, 25, 50, 100] as const;
 const PERIOD_TABS: Array<{ id: RankingPeriod; label: string; key: () => string }> = [
   { id: "diario", label: "Diário", key: getDailyPeriodKey },
@@ -292,25 +286,36 @@ export default function RankingPage() {
     };
   }, []);
 
-  const needsClanRankingBoard =
-    activeRankingSelection === "total_clan" ||
-    activeRankingSelection === "daily_clan" ||
-    activeRankingSelection === "weekly_clan" ||
-    activeRankingSelection === "monthly_clan";
+  const activeClanRankingMode = useMemo<ClanRankingBoardMode | null>(() => {
+    if (activeRankingSelection === "total_clan") return "total";
+    if (activeRankingSelection === "daily_clan") return "daily";
+    if (activeRankingSelection === "weekly_clan") return "weekly";
+    if (activeRankingSelection === "monthly_clan") return "monthly";
+    return null;
+  }, [activeRankingSelection]);
 
   useEffect(() => {
-    if (!needsClanRankingBoard) {
+    if (!activeClanRankingMode) {
       setClanBoard([]);
       setClanLoading(false);
       return;
     }
+    let cancelled = false;
     setClanLoading(true);
-    const unsubscribe = subscribeClanRankingBoard((nextBoard) => {
-      setClanBoard(nextBoard);
-      setClanLoading(false);
-    });
-    return unsubscribe;
-  }, [needsClanRankingBoard]);
+    void fetchClanRankingBoard(activeClanRankingMode, CLAN_RANKING_FETCH_LIMIT)
+      .then((nextBoard) => {
+        if (!cancelled) setClanBoard(nextBoard);
+      })
+      .catch(() => {
+        if (!cancelled) setClanBoard([]);
+      })
+      .finally(() => {
+        if (!cancelled) setClanLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClanRankingMode]);
 
   const activeRankingGameSelection = useMemo(
     () => parseArenaSelection(activeRankingSelection),
@@ -1252,83 +1257,4 @@ function parseArenaSelection(
   const period =
     periodRaw === "daily" ? "diario" : periodRaw === "weekly" ? "semanal" : "mensal";
   return { mode: "period", period, gameId };
-}
-
-function compareClanTotalEntry(a: RankedClanComparable, b: RankedClanComparable): number {
-  if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-  if (b.totalWins !== a.totalWins) return b.totalWins - a.totalWins;
-  if (b.totalAds !== a.totalAds) return b.totalAds - a.totalAds;
-  if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
-  const activityDiff = clanActivityMs(b) - clanActivityMs(a);
-  if (activityDiff !== 0) return activityDiff;
-  return a.name.localeCompare(b.name, "pt-BR");
-}
-
-function compareClanWeeklyEntry(a: RankedClanComparable, b: RankedClanComparable): number {
-  if (b.weeklyScore !== a.weeklyScore) return b.weeklyScore - a.weeklyScore;
-  if (b.weeklyWins !== a.weeklyWins) return b.weeklyWins - a.weeklyWins;
-  if (b.weeklyAds !== a.weeklyAds) return b.weeklyAds - a.weeklyAds;
-  if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
-  const activityDiff = clanActivityMs(b) - clanActivityMs(a);
-  if (activityDiff !== 0) return activityDiff;
-  return a.name.localeCompare(b.name, "pt-BR");
-}
-
-function compareClanDailyEntry(a: RankedClanComparable, b: RankedClanComparable): number {
-  if (b.dailyScore !== a.dailyScore) return b.dailyScore - a.dailyScore;
-  if (b.dailyWins !== a.dailyWins) return b.dailyWins - a.dailyWins;
-  if (b.dailyAds !== a.dailyAds) return b.dailyAds - a.dailyAds;
-  if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
-  const activityDiff = clanActivityMs(b) - clanActivityMs(a);
-  if (activityDiff !== 0) return activityDiff;
-  return a.name.localeCompare(b.name, "pt-BR");
-}
-
-function compareClanMonthlyEntry(a: RankedClanComparable, b: RankedClanComparable): number {
-  if (b.monthlyScore !== a.monthlyScore) return b.monthlyScore - a.monthlyScore;
-  if (b.monthlyWins !== a.monthlyWins) return b.monthlyWins - a.monthlyWins;
-  if (b.monthlyAds !== a.monthlyAds) return b.monthlyAds - a.monthlyAds;
-  if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
-  const activityDiff = clanActivityMs(b) - clanActivityMs(a);
-  if (activityDiff !== 0) return activityDiff;
-  return a.name.localeCompare(b.name, "pt-BR");
-}
-
-function formatClanStats(entry: RankedClanEntry, mode: ClanRankingMode) {
-  if (mode === "daily") {
-    return `${entry.dailyScore} pts hoje · ${entry.dailyWins} vitórias · ${entry.dailyAds} anúncios`;
-  }
-  if (mode === "weekly") {
-    return `${entry.weeklyScore} pts · ${entry.weeklyWins} vitórias · ${entry.weeklyAds} anúncios`;
-  }
-  if (mode === "monthly") {
-    return `${entry.monthlyScore} pts no mês · ${entry.monthlyWins} vitórias · ${entry.monthlyAds} anúncios`;
-  }
-  return `${entry.totalScore} pts totais · ${entry.totalWins} vitórias · ${entry.totalAds} anúncios`;
-}
-
-function clanPrizePeriodLabel(mode: ClanRankingMode) {
-  return mode === "daily" ? "diária" : mode === "weekly" ? "semanal" : "mensal";
-}
-
-function timestampToMs(value: unknown): number {
-  if (value && typeof value === "object" && "toMillis" in value) {
-    try {
-      return (value as { toMillis: () => number }).toMillis();
-    } catch {
-      return 0;
-    }
-  }
-  return 0;
-}
-
-function clanActivityMs(item: Clan): number {
-  return timestampToMs(item.lastMessageAt ?? item.updatedAt);
-}
-
-function formatClanCatalogActivity(item: Clan): string {
-  if (item.lastMessageAt) return `Chat às ${formatClanTime(item.lastMessageAt)}`;
-  if (item.lastScoreAt) return `Pontuou às ${formatClanTime(item.lastScoreAt)}`;
-  if (item.updatedAt) return `Atualizado às ${formatClanTime(item.updatedAt)}`;
-  return "Sem atividade";
 }
