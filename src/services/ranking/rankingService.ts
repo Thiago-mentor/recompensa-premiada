@@ -20,7 +20,12 @@ export type RankingQueryOptions = {
   gameId?: GameId | string | null;
 };
 
-const VICTORY_RANKED_GAME_IDS = new Set<GameId | string>(["ppt", "quiz", "reaction_tap"]);
+const VICTORY_RANKED_GAME_IDS = new Set<GameId | string>([
+  "ppt",
+  "quiz",
+  "reaction_tap",
+  "card_battle",
+]);
 
 function collectionForPeriod(tipo: RankingPeriod): string {
   switch (tipo) {

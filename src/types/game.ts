@@ -4,6 +4,7 @@ export type GameId =
   | "ppt"
   | "quiz"
   | "reaction_tap"
+  | "card_battle"
   | "numero_secreto"
   | "roleta"
   | "bau";

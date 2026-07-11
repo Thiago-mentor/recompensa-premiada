@@ -24,6 +24,7 @@ const GAME_KEYS = [
   { id: "ppt", label: "PPT" },
   { id: "quiz", label: "Quiz" },
   { id: "reaction_tap", label: "Reaction Tap" },
+  { id: "card_battle", label: "Batalha de Cartas" },
 ] as const;
 const EXPERIENCE_KEYS = GAME_CATALOG.map((game) => ({
   id: game.id,
@@ -66,6 +67,7 @@ const EMPTY_FORM: RewardForm = {
   ppt: { ...EMPTY_GAME_FORM },
   quiz: { ...EMPTY_GAME_FORM },
   reaction_tap: { ...EMPTY_GAME_FORM },
+  card_battle: { ...EMPTY_GAME_FORM },
 };
 const EMPTY_EXPERIENCE_FORM = Object.fromEntries(
   EXPERIENCE_KEYS.map((experience) => [
@@ -115,6 +117,7 @@ export default function AdminJogosPage() {
           ppt: fromConfig(overrides.ppt),
           quiz: fromConfig(overrides.quiz),
           reaction_tap: fromConfig(overrides.reaction_tap),
+          card_battle: fromConfig(overrides.card_battle),
         });
         if (typeof data.gameEntryCost?.ppt === "number") setPptEntryCost(String(data.gameEntryCost.ppt));
         if (typeof data.gameEntryCost?.quiz === "number") setQuizEntryCost(String(data.gameEntryCost.quiz));
@@ -217,6 +220,7 @@ export default function AdminJogosPage() {
       ppt: fromConfig(overrides.ppt),
       quiz: fromConfig(overrides.quiz),
       reaction_tap: fromConfig(overrides.reaction_tap),
+      card_battle: fromConfig(overrides.card_battle),
     });
     setPptEntryCost(String(parsePositiveInteger(data.gameEntryCost?.ppt)));
     setQuizEntryCost(String(parsePositiveInteger(data.gameEntryCost?.quiz)));

@@ -5,17 +5,19 @@ import { cn } from "@/lib/utils/cn";
 import type { GameId } from "@/types/game";
 import { routeJogosFilaBuscar } from "@/lib/constants/routes";
 
-type SwitcherGameId = Extract<GameId, "ppt" | "quiz" | "reaction_tap">;
+type SwitcherGameId = Extract<GameId, "ppt" | "quiz" | "reaction_tap" | "card_battle">;
 
 const OPTIONS: { id: SwitcherGameId; label: string; short: string }[] = [
   { id: "ppt", label: "Pedra, papel e tesoura", short: "PPT" },
   { id: "quiz", label: "Quiz rápido", short: "Quiz" },
   { id: "reaction_tap", label: "Reaction tap", short: "Reaction" },
+  { id: "card_battle", label: "Batalha de cartas", short: "Cartas" },
 ];
 
 function soloHref(gameId: SwitcherGameId) {
   if (gameId === "ppt") return "/jogos/pedra-papel-tesoura?teste=1";
   if (gameId === "quiz") return routeJogosFilaBuscar("quiz");
+  if (gameId === "card_battle") return routeJogosFilaBuscar("card_battle");
   return "/jogos/reaction?teste=1";
 }
 

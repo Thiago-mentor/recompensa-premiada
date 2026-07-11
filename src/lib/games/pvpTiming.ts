@@ -4,12 +4,14 @@ export const DEFAULT_PVP_CHOICE_SECONDS = {
   ppt: 10,
   quiz: 10,
   reaction_tap: 10,
+  card_battle: 12,
 } as const;
 
 export type PvpChoiceSecondsConfig = {
   ppt: number;
   quiz: number;
   reaction_tap: number;
+  card_battle: number;
 };
 
 export function clampPvpChoiceSeconds(n: unknown, fallback: number): number {
@@ -28,7 +30,9 @@ export function parsePvpChoiceSeconds(raw: unknown): PvpChoiceSecondsConfig {
   const o =
     nested && typeof nested === "object"
       ? (nested as Record<string, unknown>)
-      : Object.keys(root).some((k) => k === "ppt" || k === "quiz" || k === "reaction_tap")
+      : Object.keys(root).some(
+          (k) => k === "ppt" || k === "quiz" || k === "reaction_tap" || k === "card_battle",
+        )
         ? root
         : {};
   return {
@@ -37,6 +41,10 @@ export function parsePvpChoiceSeconds(raw: unknown): PvpChoiceSecondsConfig {
     reaction_tap: clampPvpChoiceSeconds(
       o.reaction_tap,
       DEFAULT_PVP_CHOICE_SECONDS.reaction_tap,
+    ),
+    card_battle: clampPvpChoiceSeconds(
+      o.card_battle,
+      DEFAULT_PVP_CHOICE_SECONDS.card_battle,
     ),
   };
 }

@@ -64,18 +64,22 @@ type RankingSelectionId =
   | "total_ppt"
   | "total_quiz"
   | "total_reaction_tap"
+  | "total_card_battle"
   | "total_clan"
   | "daily_ppt"
   | "daily_quiz"
   | "daily_reaction_tap"
+  | "daily_card_battle"
   | "daily_clan"
   | "weekly_ppt"
   | "weekly_quiz"
   | "weekly_reaction_tap"
+  | "weekly_card_battle"
   | "weekly_clan"
   | "monthly_ppt"
   | "monthly_quiz"
   | "monthly_reaction_tap"
+  | "monthly_card_battle"
   | "monthly_clan";
 type PrizeSelectionId =
   | ""
@@ -83,14 +87,17 @@ type PrizeSelectionId =
   | "daily_ppt"
   | "daily_quiz"
   | "daily_reaction_tap"
+  | "daily_card_battle"
   | "weekly_ppt"
   | "weekly_quiz"
   | "weekly_reaction_tap"
+  | "weekly_card_battle"
   | "weekly_clan"
   | "monthly_clan"
   | "monthly_ppt"
   | "monthly_quiz"
-  | "monthly_reaction_tap";
+  | "monthly_reaction_tap"
+  | "monthly_card_battle";
 
 const TOP_FETCH_LIMIT = 100;
 const CLAN_RANKING_FETCH_LIMIT = 100;
@@ -110,6 +117,7 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "total_ppt", label: "PPT" },
       { id: "total_quiz", label: "QUIZ" },
       { id: "total_reaction_tap", label: "REACTION" },
+      { id: "total_card_battle", label: "CARTAS" },
       { id: "total_clan", label: "CLÃ" },
     ],
   },
@@ -119,6 +127,8 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "daily_ppt", label: "PPT" },
       { id: "daily_quiz", label: "QUIZ" },
       { id: "daily_reaction_tap", label: "REACTION" },
+      { id: "daily_card_battle", label: "CARTAS" },
+      { id: "daily_card_battle", label: "CARTAS" },
       { id: "daily_clan", label: "CLÃ" },
     ],
   },
@@ -128,6 +138,8 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "weekly_ppt", label: "PPT" },
       { id: "weekly_quiz", label: "QUIZ" },
       { id: "weekly_reaction_tap", label: "REACTION" },
+      { id: "weekly_card_battle", label: "CARTAS" },
+      { id: "weekly_card_battle", label: "CARTAS" },
       { id: "weekly_clan", label: "CLÃ" },
     ],
   },
@@ -137,6 +149,8 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "monthly_ppt", label: "PPT" },
       { id: "monthly_quiz", label: "QUIZ" },
       { id: "monthly_reaction_tap", label: "REACTION" },
+      { id: "monthly_card_battle", label: "CARTAS" },
+      { id: "monthly_card_battle", label: "CARTAS" },
       { id: "monthly_clan", label: "CLÃ" },
     ],
   },
@@ -1242,15 +1256,21 @@ function parseArenaSelection(
 ): {
   mode: "total" | "period";
   period?: RankingPeriod;
-  gameId: "ppt" | "quiz" | "reaction_tap";
+  gameId: "ppt" | "quiz" | "reaction_tap" | "card_battle";
 } | null {
   if (!selection) return null;
   const parts = selection.split("_");
   if (parts.includes("clan")) return null;
   const [periodRaw, gameRaw, maybeTap] = parts;
   const gameId =
-    gameRaw === "reaction" ? "reaction_tap" : maybeTap === "tap" ? "reaction_tap" : gameRaw;
-  if (gameId !== "ppt" && gameId !== "quiz" && gameId !== "reaction_tap") return null;
+    gameRaw === "reaction"
+      ? "reaction_tap"
+      : gameRaw === "card" && maybeTap === "battle"
+        ? "card_battle"
+        : maybeTap === "tap"
+          ? "reaction_tap"
+          : gameRaw;
+  if (gameId !== "ppt" && gameId !== "quiz" && gameId !== "reaction_tap" && gameId !== "card_battle") return null;
   if (periodRaw === "total") {
     return { mode: "total", gameId };
   }

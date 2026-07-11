@@ -45,6 +45,7 @@ export const CALLABLES = {
   submitPptPick: "submitPptPick",
   submitQuizAnswer: "submitQuizAnswer",
   submitReactionTap: "submitReactionTap",
+  submitCardBattleCard: "submitCardBattleCard",
   forfeitPvpRoom: "forfeitPvpRoom",
   resolvePvpRoomTimeout: "resolvePvpRoomTimeout",
   pvpPptPresence: "pvpPptPresence",

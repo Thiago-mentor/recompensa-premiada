@@ -14,6 +14,7 @@ exports.GAME_COOLDOWN_SEC = {
     ppt: 2,
     quiz: 3,
     reaction_tap: 4,
+    card_battle: 4,
     roleta: 12,
     bau: 4 * 3600,
     numero_secreto: 2,
@@ -266,6 +267,18 @@ function resolveMatchEconomy(gameId, resultado, clientScore, metadata, rewardOve
             rewardCoins: resolved.rewardCoins,
             rankingPoints: resolved.rankingPoints,
             resolvedMetadata: { ...baseMeta, reactionMs },
+        };
+    }
+    if (gameId === "card_battle") {
+        const power = Number(metadata.cardPower ?? clientScore);
+        const win = resultado === "vitoria";
+        const normalizedScore = win ? clampScore(520 + power * 18) : clampScore(160 + power * 8);
+        const resolved = applyRewardOverrides(resultado, win ? Math.min(90, Math.max(25, 34 + Math.floor(power / 2))) : 4, rankingPointsFrom(normalizedScore, resultado), rewardOverrides?.card_battle);
+        return {
+            normalizedScore,
+            rewardCoins: resolved.rewardCoins,
+            rankingPoints: resolved.rankingPoints,
+            resolvedMetadata: { ...baseMeta, cardPower: power },
         };
     }
     const normalizedScore = clampScore(clientScore);

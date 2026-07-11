@@ -89,6 +89,21 @@ export interface GameRoomDocument {
   reactionOutcome?: "host_win" | "guest_win" | "draw";
   reactionRewardsApplied?: boolean;
   /** Prazo server-side da jogada/resposta atual. Ao expirar, a sala é resolvida no backend. */
+  cardBattleHostScore?: number;
+  cardBattleGuestScore?: number;
+  cardBattleTargetScore?: number;
+  cardBattleRound?: number;
+  cardBattlePickedUids?: string[];
+  cardBattleLastHostCardId?: string;
+  cardBattleLastGuestCardId?: string;
+  cardBattleLastHostPower?: number;
+  cardBattleLastGuestPower?: number;
+  cardBattleLastRoundWinner?: "host" | "guest" | "draw";
+  cardBattleMatchWinner?: "host" | "guest";
+  cardBattleOutcome?: "host_win" | "guest_win" | "draw";
+  cardBattleRewardsApplied?: boolean;
+  cardBattleEndedByForfeit?: boolean;
+  cardBattleForfeitedByUid?: string;
   actionDeadlineAt?: Timestamp;
   /** Rodadas seguidas sem nenhuma ação dos dois lados; usado para anti-loop. */
   timeoutEmptyRounds?: number;

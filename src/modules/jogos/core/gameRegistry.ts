@@ -58,6 +58,18 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     sortOrder: 30,
   },
   {
+    id: "card_battle",
+    slug: "cartas",
+    title: "Batalha de cartas",
+    subtitle: "1v1 real - estrategia rapida - melhor de 5",
+    href: routeJogosFilaBuscar("card_battle"),
+    cooldownSec: GAME_COOLDOWN_SEC.card_battle,
+    multiplayerReady: true,
+    experienceKind: "arena",
+    highlightLabel: "Novo 1v1",
+    sortOrder: 35,
+  },
+  {
     id: "roleta",
     slug: "roleta",
     title: "Roleta de PR",

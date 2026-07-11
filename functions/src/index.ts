@@ -67,9 +67,17 @@ const COL = {
   multiplayerSlots: "multiplayer_slots",
 } as const;
 
-const AUTO_QUEUE_GAMES = new Set<GameId>(["ppt", "quiz", "reaction_tap"]);
-const RANKING_GAME_IDS: GameId[] = ["ppt", "quiz", "reaction_tap", "roleta", "bau", "numero_secreto"];
-const VICTORY_RANKED_GAME_IDS = new Set<GameId>(["ppt", "quiz", "reaction_tap"]);
+const AUTO_QUEUE_GAMES = new Set<GameId>(["ppt", "quiz", "reaction_tap", "card_battle"]);
+const RANKING_GAME_IDS: GameId[] = [
+  "ppt",
+  "quiz",
+  "reaction_tap",
+  "card_battle",
+  "roleta",
+  "bau",
+  "numero_secreto",
+];
+const VICTORY_RANKED_GAME_IDS = new Set<GameId>(["ppt", "quiz", "reaction_tap", "card_battle"]);
 const DEFAULT_AVATAR_UPLOAD_REPUTATION_THRESHOLDS = {
   ads: 50,
   pptMatches: 10,
@@ -103,6 +111,7 @@ const GAME_TITLES: Record<GameId, string> = {
   ppt: "Pedra, papel e tesoura",
   quiz: "Quiz rápido 1x1",
   reaction_tap: "Reaction tap",
+  card_battle: "Batalha de cartas",
   roleta: "Roleta de PR",
   bau: "Baú com cooldown",
   numero_secreto: "Número secreto",
@@ -114,9 +123,11 @@ const PPT_ROUND_REVEAL_MS = 3200;
 const QUIZ_MATCH_TARGET_POINTS = 5;
 const QUIZ_ROUND_REVEAL_MS = 1800;
 const REACTION_MATCH_TARGET_POINTS = 5;
+const CARD_BATTLE_MATCH_TARGET_POINTS = 5;
+const CARD_BATTLE_ROUND_REVEAL_MS = 1800;
 const QUIZ_RESPONSE_MS_CAP = 30_000;
 
-const DEFAULT_PVP_CHOICE_SEC = { ppt: 10, quiz: 10, reaction_tap: 10 } as const;
+const DEFAULT_PVP_CHOICE_SEC = { ppt: 10, quiz: 10, reaction_tap: 10, card_battle: 12 } as const;
 
 function clampPvpChoiceSec(raw: unknown, fallback: number): number {
   const n = Math.floor(Number(raw));
@@ -128,6 +139,7 @@ function parsePvpChoiceSecondsFromDoc(d: Record<string, unknown>): {
   ppt: number;
   quiz: number;
   reaction_tap: number;
+  card_battle: number;
 } {
   const pcs = d.pvpChoiceSeconds;
   const o = pcs && typeof pcs === "object" ? (pcs as Record<string, unknown>) : {};
@@ -135,11 +147,12 @@ function parsePvpChoiceSecondsFromDoc(d: Record<string, unknown>): {
     ppt: clampPvpChoiceSec(o.ppt, DEFAULT_PVP_CHOICE_SEC.ppt),
     quiz: clampPvpChoiceSec(o.quiz, DEFAULT_PVP_CHOICE_SEC.quiz),
     reaction_tap: clampPvpChoiceSec(o.reaction_tap, DEFAULT_PVP_CHOICE_SEC.reaction_tap),
+    card_battle: clampPvpChoiceSec(o.card_battle, DEFAULT_PVP_CHOICE_SEC.card_battle),
   };
 }
 
 function pvpChoiceWindowMs(
-  secs: { ppt: number; quiz: number; reaction_tap: number },
+  secs: { ppt: number; quiz: number; reaction_tap: number; card_battle: number },
   gameId: GameId,
 ): number {
   const s =
@@ -149,7 +162,9 @@ function pvpChoiceWindowMs(
         ? secs.quiz
         : gameId === "reaction_tap"
           ? secs.reaction_tap
-          : secs.ppt;
+          : gameId === "card_battle"
+            ? secs.card_battle
+            : secs.ppt;
   return s * 1000;
 }
 
@@ -163,6 +178,54 @@ const REACTION_FALSE_START_MS = 9999;
 const REACTION_TIE_MS = 120;
 const REACTION_MIN_VALID_MS = 120;
 const REACTION_NETWORK_GRACE_MS = 140;
+
+type CardBattleCardId = "guardiao" | "lamina" | "chama" | "mare" | "raiz" | "vento" | "timeout";
+type CardBattleRoundWinner = "host" | "guest" | "draw";
+
+const CARD_BATTLE_DECK: Record<
+  CardBattleCardId,
+  { id: CardBattleCardId; name: string; element: "fogo" | "agua" | "terra" | "ar" | "neutro"; attack: number; defense: number }
+> = {
+  guardiao: { id: "guardiao", name: "Guardiao", element: "terra", attack: 4, defense: 8 },
+  lamina: { id: "lamina", name: "Lamina", element: "ar", attack: 8, defense: 3 },
+  chama: { id: "chama", name: "Chama", element: "fogo", attack: 7, defense: 4 },
+  mare: { id: "mare", name: "Mare", element: "agua", attack: 5, defense: 6 },
+  raiz: { id: "raiz", name: "Raiz", element: "terra", attack: 6, defense: 5 },
+  vento: { id: "vento", name: "Vento", element: "ar", attack: 5, defense: 7 },
+  timeout: { id: "timeout", name: "Sem jogada", element: "neutro", attack: 0, defense: 0 },
+};
+
+function isCardBattleCardId(value: string): value is CardBattleCardId {
+  return Object.prototype.hasOwnProperty.call(CARD_BATTLE_DECK, value) && value !== "timeout";
+}
+
+function cardBattleElementBonus(
+  a: (typeof CARD_BATTLE_DECK)[CardBattleCardId]["element"],
+  b: (typeof CARD_BATTLE_DECK)[CardBattleCardId]["element"],
+): number {
+  if (a === "neutro" || b === "neutro" || a === b) return 0;
+  if (
+    (a === "agua" && b === "fogo") ||
+    (a === "fogo" && b === "ar") ||
+    (a === "ar" && b === "terra") ||
+    (a === "terra" && b === "agua")
+  ) {
+    return 4;
+  }
+  return -2;
+}
+
+function resolveCardBattleRound(hostCardId: CardBattleCardId, guestCardId: CardBattleCardId) {
+  const hostCard = CARD_BATTLE_DECK[hostCardId] ?? CARD_BATTLE_DECK.timeout;
+  const guestCard = CARD_BATTLE_DECK[guestCardId] ?? CARD_BATTLE_DECK.timeout;
+  const hostPower =
+    hostCard.attack * 2 + hostCard.defense + cardBattleElementBonus(hostCard.element, guestCard.element);
+  const guestPower =
+    guestCard.attack * 2 + guestCard.defense + cardBattleElementBonus(guestCard.element, hostCard.element);
+  const winner: CardBattleRoundWinner =
+    hostPower > guestPower ? "host" : guestPower > hostPower ? "guest" : "draw";
+  return { hostCard, guestCard, hostPower, guestPower, winner };
+}
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -574,6 +637,7 @@ function gameMatchCounterPatch(gameId: GameId) {
   if (gameId === "ppt") return { totalPptPartidas: FieldValue.increment(1) };
   if (gameId === "quiz") return { totalQuizPartidas: FieldValue.increment(1) };
   if (gameId === "reaction_tap") return { totalReactionPartidas: FieldValue.increment(1) };
+  if (gameId === "card_battle") return { totalCardBattlePartidas: FieldValue.increment(1) };
   return {};
 }
 
@@ -2529,14 +2593,19 @@ type RankingPrizeConfigResolved = {
   byGame: Partial<Record<GameId, Record<RankingPeriodMode, RankingPrizeTierResolved[]>>>;
   clans: Record<RankingPeriodMode, RankingPrizeTierResolved[]>;
 };
-type ArenaOverallGameId = Extract<GameId, "ppt" | "quiz" | "reaction_tap">;
+type ArenaOverallGameId = Extract<GameId, "ppt" | "quiz" | "reaction_tap" | "card_battle">;
 type ArenaOverallStats = { score: number; partidas: number; vitorias: number };
 type ArenaOverallAccumulator = {
   total: ArenaOverallStats;
   byGame: Record<ArenaOverallGameId, ArenaOverallStats>;
 };
 
-const ARENA_OVERALL_GAME_IDS = ["ppt", "quiz", "reaction_tap"] as const satisfies readonly ArenaOverallGameId[];
+const ARENA_OVERALL_GAME_IDS = [
+  "ppt",
+  "quiz",
+  "reaction_tap",
+  "card_battle",
+] as const satisfies readonly ArenaOverallGameId[];
 
 type ReferralConfig = {
   enabled: boolean;
@@ -4583,6 +4652,328 @@ async function postReactionTapRanking(
   if (matchWinner) {
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
   }
+}
+
+async function postCardBattleRankingFromWinner(
+  roomId: string,
+  hostUid: string,
+  guestUid: string,
+  matchWinner: "host" | "guest",
+  hostPower: number,
+  guestPower: number,
+  forfeitMeta?: { forfeitedByUid: string },
+) {
+  const hostRes: "vitoria" | "derrota" = matchWinner === "host" ? "vitoria" : "derrota";
+  const guestRes: "vitoria" | "derrota" = matchWinner === "guest" ? "vitoria" : "derrota";
+  const economyConfig = await getEconomy();
+  const baseMeta: Record<string, unknown> = {
+    pvpRoomId: roomId,
+    cardBattleMatchWinner: matchWinner,
+    hostPower,
+    guestPower,
+  };
+  if (forfeitMeta) {
+    baseMeta.forfeit = true;
+    baseMeta.forfeitedBy = forfeitMeta.forfeitedByUid;
+  }
+  const ecoH = resolveMatchEconomy(
+    "card_battle",
+    hostRes,
+    hostPower,
+    { ...baseMeta, cardPower: hostPower },
+    economyConfig.matchRewardOverrides,
+  );
+  const ecoG = resolveMatchEconomy(
+    "card_battle",
+    guestRes,
+    guestPower,
+    { ...baseMeta, cardPower: guestPower },
+    economyConfig.matchRewardOverrides,
+  );
+  const [hSnap, gSnap] = await Promise.all([
+    db.doc(`${COL.users}/${hostUid}`).get(),
+    db.doc(`${COL.users}/${guestUid}`).get(),
+  ]);
+  await upsertRanking({
+    uid: hostUid,
+    nome: String(hSnap.data()?.nome || "Jogador"),
+    username: String(hSnap.data()?.username || "") || null,
+    foto: (hSnap.data()?.foto as string | null) ?? null,
+    deltaScore: ecoH.rankingPoints,
+    win: hostRes === "vitoria",
+    gameId: "card_battle",
+    idempotencyKey: `${roomId}:host`,
+  });
+  await upsertRanking({
+    uid: guestUid,
+    nome: String(gSnap.data()?.nome || "Jogador"),
+    username: String(gSnap.data()?.username || "") || null,
+    foto: (gSnap.data()?.foto as string | null) ?? null,
+    deltaScore: ecoG.rankingPoints,
+    win: guestRes === "vitoria",
+    gameId: "card_battle",
+    idempotencyKey: `${roomId}:guest`,
+  });
+  await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+  await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
+  await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
+  await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+}
+
+async function applyCardBattleMatchCompletionInTransaction(
+  tx: Transaction,
+  roomRef: DocumentReference,
+  roomId: string,
+  r: Record<string, unknown>,
+  matchWinner: "host" | "guest",
+  hostCardId: CardBattleCardId,
+  guestCardId: CardBattleCardId,
+  hostPower: number,
+  guestPower: number,
+  forfeitByUid?: string,
+) {
+  const hostUid = String(r.hostUid);
+  const guestUid = String(r.guestUid);
+  const hostScore = Number(r.cardBattleHostScore ?? 0);
+  const guestScore = Number(r.cardBattleGuestScore ?? 0);
+  const nextHostScore = Math.max(hostScore, Number(r.cardBattleNextHostScore ?? hostScore));
+  const nextGuestScore = Math.max(guestScore, Number(r.cardBattleNextGuestScore ?? guestScore));
+  const hostRes: "vitoria" | "derrota" = matchWinner === "host" ? "vitoria" : "derrota";
+  const guestRes: "vitoria" | "derrota" = matchWinner === "guest" ? "vitoria" : "derrota";
+  const outcome: "host_win" | "guest_win" = matchWinner === "host" ? "host_win" : "guest_win";
+
+  const hostUserRef = db.doc(`${COL.users}/${hostUid}`);
+  const guestUserRef = db.doc(`${COL.users}/${guestUid}`);
+  const [hUSnap, gUSnap] = await Promise.all([tx.get(hostUserRef), tx.get(guestUserRef)]);
+  if (!hUSnap.exists || !gUSnap.exists) {
+    throw new HttpsError("failed-precondition", "Perfil ausente.");
+  }
+  const hu = hUSnap.data()!;
+  const gu = gUSnap.data()!;
+  if (hu.banido || gu.banido) {
+    throw new HttpsError("permission-denied", "Conta suspensa.");
+  }
+
+  const metaBase = {
+    pvpRoomId: roomId,
+    cardBattleMatchWinner: matchWinner,
+    cardBattleFinalHostScore: nextHostScore,
+    cardBattleFinalGuestScore: nextGuestScore,
+    hostCardId,
+    guestCardId,
+    hostPower,
+    guestPower,
+    ...(forfeitByUid ? { forfeit: true, forfeitedBy: forfeitByUid } : {}),
+  };
+  const economyConfig = await getEconomy();
+  const ecoH = resolveMatchEconomy(
+    "card_battle",
+    hostRes,
+    hostPower,
+    { ...metaBase, cardPower: hostPower },
+    economyConfig.matchRewardOverrides,
+  );
+  const ecoG = resolveMatchEconomy(
+    "card_battle",
+    guestRes,
+    guestPower,
+    { ...metaBase, cardPower: guestPower },
+    economyConfig.matchRewardOverrides,
+  );
+  const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu as Record<string, unknown>, economyConfig);
+  const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu as Record<string, unknown>, economyConfig);
+  const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
+  const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, { wins: hostRes === "vitoria" ? 1 : 0 });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, { wins: guestRes === "vitoria" ? 1 : 0 });
+
+  const finishedTs = Timestamp.now();
+  const mHost = db.collection(COL.matches).doc();
+  const mGuest = db.collection(COL.matches).doc();
+  const wHost = db.collection(COL.wallet).doc();
+  const wGuest = db.collection(COL.wallet).doc();
+  tx.set(mHost, {
+    id: mHost.id,
+    gameId: "card_battle",
+    gameType: "card_battle",
+    userId: hostUid,
+    opponentId: guestUid,
+    resultado: hostRes,
+    result: hostRes,
+    score: ecoH.normalizedScore,
+    rewardCoins: boostedH.totalCoins,
+    rankingPoints: ecoH.rankingPoints,
+    startedAt: null,
+    finishedAt: finishedTs,
+    metadata: ecoH.resolvedMetadata,
+    detalhes: ecoH.resolvedMetadata,
+    antiSpamToken: null,
+    criadoEm: FieldValue.serverTimestamp(),
+  });
+  tx.set(mGuest, {
+    id: mGuest.id,
+    gameId: "card_battle",
+    gameType: "card_battle",
+    userId: guestUid,
+    opponentId: hostUid,
+    resultado: guestRes,
+    result: guestRes,
+    score: ecoG.normalizedScore,
+    rewardCoins: boostedG.totalCoins,
+    rankingPoints: ecoG.rankingPoints,
+    startedAt: null,
+    finishedAt: finishedTs,
+    metadata: ecoG.resolvedMetadata,
+    detalhes: ecoG.resolvedMetadata,
+    antiSpamToken: null,
+    criadoEm: FieldValue.serverTimestamp(),
+  });
+  tx.update(hostUserRef, {
+    totalPartidas: FieldValue.increment(1),
+    ...gameMatchCounterPatch("card_battle"),
+    totalVitorias: FieldValue.increment(hostRes === "vitoria" ? 1 : 0),
+    totalDerrotas: FieldValue.increment(hostRes === "derrota" ? 1 : 0),
+    coins: FieldValue.increment(boostedH.totalCoins),
+    xp: FieldValue.increment(hostRes === "vitoria" ? 15 : 5),
+    atualizadoEm: FieldValue.serverTimestamp(),
+  });
+  tx.update(guestUserRef, {
+    totalPartidas: FieldValue.increment(1),
+    ...gameMatchCounterPatch("card_battle"),
+    totalVitorias: FieldValue.increment(guestRes === "vitoria" ? 1 : 0),
+    totalDerrotas: FieldValue.increment(guestRes === "derrota" ? 1 : 0),
+    coins: FieldValue.increment(boostedG.totalCoins),
+    xp: FieldValue.increment(guestRes === "vitoria" ? 15 : 5),
+    atualizadoEm: FieldValue.serverTimestamp(),
+  });
+  if (boostedH.totalCoins > 0) {
+    tx.set(wHost, {
+      userId: hostUid,
+      tipo: "jogo_pvp",
+      moeda: "coins",
+      valor: boostedH.totalCoins,
+      saldoApos: Number(hu.coins ?? 0) + boostedH.totalCoins,
+      descricao: withBoostDescription("Batalha de cartas 1v1", boostedH.boostCoins),
+      referenciaId: mHost.id,
+      criadoEm: FieldValue.serverTimestamp(),
+    });
+  }
+  if (boostedG.totalCoins > 0) {
+    tx.set(wGuest, {
+      userId: guestUid,
+      tipo: "jogo_pvp",
+      moeda: "coins",
+      valor: boostedG.totalCoins,
+      saldoApos: Number(gu.coins ?? 0) + boostedG.totalCoins,
+      descricao: withBoostDescription("Batalha de cartas 1v1", boostedG.boostCoins),
+      referenciaId: mGuest.id,
+      criadoEm: FieldValue.serverTimestamp(),
+    });
+  }
+
+  tx.update(roomRef, {
+    status: "completed",
+    phase: "completed",
+    cardBattleHostScore: nextHostScore,
+    cardBattleGuestScore: nextGuestScore,
+    cardBattleLastHostCardId: hostCardId,
+    cardBattleLastGuestCardId: guestCardId,
+    cardBattleLastHostPower: hostPower,
+    cardBattleLastGuestPower: guestPower,
+    cardBattleLastRoundWinner: matchWinner,
+    cardBattleMatchWinner: matchWinner,
+    cardBattleOutcome: outcome,
+    cardBattleRewardsApplied: true,
+    cardBattlePickedUids: [],
+    cardBattleEndedByForfeit: Boolean(forfeitByUid),
+    ...(forfeitByUid ? { cardBattleForfeitedByUid: forfeitByUid } : {}),
+    timeoutEmptyRounds: 0,
+    actionDeadlineAt: FieldValue.delete(),
+    atualizadoEm: FieldValue.serverTimestamp(),
+  });
+  tx.set(slotRef(hostUid), {
+    uid: hostUid,
+    gameId: "card_battle",
+    queueStatus: "idle",
+    roomId: null,
+    atualizadoEm: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  tx.set(slotRef(guestUid), {
+    uid: guestUid,
+    gameId: "card_battle",
+    queueStatus: "idle",
+    roomId: null,
+    atualizadoEm: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { hostUid, guestUid, matchWinner, hostPower, guestPower };
+}
+
+async function applyCardBattleRoundResultInTransaction(
+  tx: Transaction,
+  roomRef: DocumentReference,
+  roomId: string,
+  r: Record<string, unknown>,
+  hostCardId: CardBattleCardId,
+  guestCardId: CardBattleCardId,
+  cardWindowMs: number,
+  pickRefs?: { hostRef: DocumentReference; guestRef: DocumentReference },
+) {
+  const resolved = resolveCardBattleRound(hostCardId, guestCardId);
+  const hostScore = Number(r.cardBattleHostScore ?? 0);
+  const guestScore = Number(r.cardBattleGuestScore ?? 0);
+  const nextHostScore = hostScore + (resolved.winner === "host" ? 1 : 0);
+  const nextGuestScore = guestScore + (resolved.winner === "guest" ? 1 : 0);
+  const target = Number(r.cardBattleTargetScore ?? CARD_BATTLE_MATCH_TARGET_POINTS);
+  if (pickRefs) {
+    tx.delete(pickRefs.hostRef);
+    tx.delete(pickRefs.guestRef);
+  }
+
+  if (
+    resolved.winner !== "draw" &&
+    ((resolved.winner === "host" && nextHostScore >= target) ||
+      (resolved.winner === "guest" && nextGuestScore >= target))
+  ) {
+    return {
+      status: "completed" as const,
+      ...(await applyCardBattleMatchCompletionInTransaction(
+        tx,
+        roomRef,
+        roomId,
+        { ...r, cardBattleNextHostScore: nextHostScore, cardBattleNextGuestScore: nextGuestScore },
+        resolved.winner,
+        hostCardId,
+        guestCardId,
+        resolved.hostPower,
+        resolved.guestPower,
+      )),
+    };
+  }
+
+  tx.update(roomRef, {
+    status: "playing",
+    phase: "card_battle_playing",
+    cardBattleHostScore: nextHostScore,
+    cardBattleGuestScore: nextGuestScore,
+    cardBattleRound: Number(r.cardBattleRound ?? 1) + 1,
+    cardBattlePickedUids: [],
+    cardBattleLastHostCardId: hostCardId,
+    cardBattleLastGuestCardId: guestCardId,
+    cardBattleLastHostPower: resolved.hostPower,
+    cardBattleLastGuestPower: resolved.guestPower,
+    cardBattleLastRoundWinner: resolved.winner,
+    timeoutEmptyRounds: 0,
+    actionDeadlineAt: pvpActionDeadlineTs(Date.now() + CARD_BATTLE_ROUND_REVEAL_MS, cardWindowMs),
+    atualizadoEm: FieldValue.serverTimestamp(),
+  });
+  return {
+    status: "round" as const,
+    roundWinner: resolved.winner,
+    hostScore: nextHostScore,
+    guestScore: nextGuestScore,
+    hostPower: resolved.hostPower,
+    guestPower: resolved.guestPower,
+  };
 }
 
 async function applyQuizMatchCompletionInTransaction(
@@ -9569,6 +9960,7 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
   const pptMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "ppt");
   const quizMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "quiz");
   const reactionMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "reaction_tap");
+  const cardBattleMatchWinMs = pvpChoiceWindowMs(econMatch.pvpChoiceSeconds, "card_battle");
 
   try {
     const result = await db.runTransaction(async (tx) => {
@@ -9737,7 +10129,13 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
           ? pvpActionDeadlineTs(reactionGoLiveAt.toMillis(), reactionMatchWinMs)
           : pvpActionDeadlineTs(
               Date.now(),
-              gameId === "ppt" ? pptMatchWinMs : gameId === "quiz" ? quizMatchWinMs : reactionMatchWinMs,
+              gameId === "ppt"
+                ? pptMatchWinMs
+                : gameId === "quiz"
+                  ? quizMatchWinMs
+                  : gameId === "card_battle"
+                    ? cardBattleMatchWinMs
+                    : reactionMatchWinMs,
             );
       tx.set(roomRef, {
         id: roomRef.id,
@@ -9784,6 +10182,17 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
               reactionRound: 1,
               reactionGoLiveAt,
               reactionAnsweredUids: [],
+            }
+          : {}),
+        ...(gameId === "card_battle"
+          ? {
+              status: "playing",
+              phase: "card_battle_playing",
+              cardBattleHostScore: 0,
+              cardBattleGuestScore: 0,
+              cardBattleTargetScore: CARD_BATTLE_MATCH_TARGET_POINTS,
+              cardBattleRound: 1,
+              cardBattlePickedUids: [],
             }
           : {}),
         timeoutEmptyRounds: 0,
@@ -10226,6 +10635,105 @@ export const submitPptPick = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
   };
 });
 
+export const submitCardBattleCard = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+  const roomId = String(request.data?.roomId || "").trim();
+  const cardIdRaw = String(request.data?.cardId || "").trim().toLowerCase();
+  if (!roomId || !isCardBattleCardId(cardIdRaw)) {
+    throw new HttpsError("invalid-argument", "roomId ou carta invalidos.");
+  }
+  const cardId = cardIdRaw as CardBattleCardId;
+  const roomRef = db.doc(`${COL.gameRooms}/${roomId}`);
+  const choicesColl = roomRef.collection("card_battle_choices");
+  const econCardSubmit = await getEconomy();
+  const cardSubmitWindowMs = pvpChoiceWindowMs(econCardSubmit.pvpChoiceSeconds, "card_battle");
+
+  const result = await db.runTransaction(async (tx) => {
+    const roomSnap = await tx.get(roomRef);
+    if (!roomSnap.exists) {
+      throw new HttpsError("not-found", "Sala inexistente.");
+    }
+    const room = roomSnap.data() as Record<string, unknown>;
+    if (String(room.gameId) !== "card_battle") {
+      throw new HttpsError("failed-precondition", "Esta sala nao e Batalha de cartas.");
+    }
+    if (uid !== room.hostUid && uid !== room.guestUid) {
+      throw new HttpsError("permission-denied", "Voce nao esta nesta sala.");
+    }
+    if (room.cardBattleRewardsApplied === true || room.phase === "completed" || room.status === "completed") {
+      throw new HttpsError("failed-precondition", "Partida ja finalizada.");
+    }
+    if (
+      millisFromFirestoreTime(room.actionDeadlineAt) > 0 &&
+      Date.now() > millisFromFirestoreTime(room.actionDeadlineAt)
+    ) {
+      throw new HttpsError("failed-precondition", "Tempo da rodada esgotado.");
+    }
+
+    const hostUid = String(room.hostUid);
+    const guestUid = String(room.guestUid);
+    const otherUid = uid === hostUid ? guestUid : hostUid;
+    const myChoiceRef = choicesColl.doc(uid);
+    const otherChoiceRef = choicesColl.doc(otherUid);
+    const [myChoiceSnap, otherChoiceSnap] = await Promise.all([
+      tx.get(myChoiceRef),
+      tx.get(otherChoiceRef),
+    ]);
+    if (myChoiceSnap.exists) {
+      throw new HttpsError("failed-precondition", "Voce ja escolheu carta nesta rodada.");
+    }
+    const picked = new Set<string>(
+      Array.isArray(room.cardBattlePickedUids)
+        ? room.cardBattlePickedUids.map((x) => String(x))
+        : [],
+    );
+    picked.add(uid);
+
+    if (!otherChoiceSnap.exists) {
+      tx.set(myChoiceRef, {
+        uid,
+        cardId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(roomRef, {
+        status: "playing",
+        phase: "card_battle_waiting",
+        cardBattlePickedUids: Array.from(picked),
+        timeoutEmptyRounds: 0,
+        atualizadoEm: FieldValue.serverTimestamp(),
+      });
+      return { status: "queued" as const };
+    }
+
+    const otherCardId = String(otherChoiceSnap.data()?.cardId || "timeout") as CardBattleCardId;
+    const hostCardId = uid === hostUid ? cardId : otherCardId;
+    const guestCardId = uid === guestUid ? cardId : otherCardId;
+    return applyCardBattleRoundResultInTransaction(
+      tx,
+      roomRef,
+      roomId,
+      room,
+      hostCardId,
+      guestCardId,
+      cardSubmitWindowMs,
+      { hostRef: choicesColl.doc(hostUid), guestRef: choicesColl.doc(guestUid) },
+    );
+  });
+
+  if (result.status === "completed") {
+    await postCardBattleRankingFromWinner(
+      roomId,
+      result.hostUid,
+      result.guestUid,
+      result.matchWinner,
+      result.hostPower,
+      result.guestPower,
+    );
+  }
+  return result;
+});
+
 export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
@@ -10590,13 +11098,14 @@ export const forfeitPvpRoom = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) 
       throw new HttpsError("permission-denied", "Você não está nesta sala.");
     }
     const gameId = String(r.gameId);
-    if (gameId !== "ppt" && gameId !== "quiz" && gameId !== "reaction_tap") {
+    if (gameId !== "ppt" && gameId !== "quiz" && gameId !== "reaction_tap" && gameId !== "card_battle") {
       throw new HttpsError("failed-precondition", "W.O. disponível só em salas PvP.");
     }
     if (
       r.pptRewardsApplied === true ||
       r.quizRewardsApplied === true ||
       r.reactionRewardsApplied === true ||
+      r.cardBattleRewardsApplied === true ||
       r.phase === "completed" ||
       r.status === "completed"
     ) {
@@ -10609,6 +11118,29 @@ export const forfeitPvpRoom = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) 
     if (gameId === "quiz") {
       const out = await applyQuizForfeitInTransaction(tx, roomRef, roomId, r, uid);
       return { applied: true as const, gameId: "quiz" as const, ...out };
+    }
+    if (gameId === "card_battle") {
+      const hostUid = String(r.hostUid);
+      const matchWinner: "host" | "guest" = uid === hostUid ? "guest" : "host";
+      const hostPower = matchWinner === "host" ? 24 : 0;
+      const guestPower = matchWinner === "guest" ? 24 : 0;
+      const out = await applyCardBattleMatchCompletionInTransaction(
+        tx,
+        roomRef,
+        roomId,
+        {
+          ...r,
+          cardBattleNextHostScore: Number(r.cardBattleHostScore ?? 0) + (matchWinner === "host" ? 1 : 0),
+          cardBattleNextGuestScore: Number(r.cardBattleGuestScore ?? 0) + (matchWinner === "guest" ? 1 : 0),
+        },
+        matchWinner,
+        matchWinner === "host" ? "guardiao" : "timeout",
+        matchWinner === "guest" ? "guardiao" : "timeout",
+        hostPower,
+        guestPower,
+        uid,
+      );
+      return { applied: true as const, gameId: "card_battle" as const, ...out };
     }
     const out = await applyReactionForfeitInTransaction(tx, roomRef, roomId, r, uid);
     return { applied: true as const, gameId: "reaction_tap" as const, ...out };
@@ -10641,6 +11173,23 @@ export const forfeitPvpRoom = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) 
           gameId: result.applied ? result.gameId : null,
         };
       }
+      if (result.gameId === "card_battle") {
+        await postCardBattleRankingFromWinner(
+          roomId,
+          result.hostUid,
+          result.guestUid,
+          result.matchWinner,
+          result.hostPower,
+          result.guestPower,
+          { forfeitedByUid: uid },
+        );
+        return {
+          ok: true,
+          applied: result.applied,
+          matchWinner: result.matchWinner,
+          gameId: result.gameId,
+        };
+      }
       await postQuizMatchRankingFromWinner(
         roomId,
         result.hostUid,
@@ -10664,6 +11213,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
   const pptTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "ppt");
   const quizTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "quiz");
   const reactionTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "reaction_tap");
+  const cardBattleTimeoutMs = pvpChoiceWindowMs(econTimeout.pvpChoiceSeconds, "card_battle");
 
   const result = await db.runTransaction(async (tx) => {
     const rs = await tx.get(roomRef);
@@ -10681,7 +11231,8 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
       r.status === "cancelled" ||
       r.pptRewardsApplied === true ||
       r.quizRewardsApplied === true ||
-      r.reactionRewardsApplied === true
+      r.reactionRewardsApplied === true ||
+      r.cardBattleRewardsApplied === true
     ) {
       return { kind: "noop" as const };
     }
@@ -10893,6 +11444,63 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
       return { kind: "quiz_round" as const };
     }
 
+    if (gameId === "card_battle") {
+      const choicesColl = roomRef.collection("card_battle_choices");
+      const hostUid = String(r.hostUid);
+      const guestUid = String(r.guestUid);
+      const [hostChoiceSnap, guestChoiceSnap] = await Promise.all([
+        tx.get(choicesColl.doc(hostUid)),
+        tx.get(choicesColl.doc(guestUid)),
+      ]);
+      if (hostChoiceSnap.exists && guestChoiceSnap.exists) {
+        return { kind: "noop" as const };
+      }
+      if (!hostChoiceSnap.exists && !guestChoiceSnap.exists) {
+        const strikes = Math.max(0, Number(r.timeoutEmptyRounds ?? 0));
+        if (strikes >= 1) {
+          await applyGenericPvpTimeoutVoidInTransaction(tx, roomRef, r, {
+            cardBattleOutcome: "draw",
+            cardBattleLastRoundWinner: "draw",
+            cardBattlePickedUids: [],
+            cardBattleRewardsApplied: true,
+            cardBattleMatchWinner: FieldValue.delete(),
+            timeoutEmptyRounds: 0,
+          });
+          return { kind: "void" as const, gameId };
+        }
+        tx.update(roomRef, {
+          status: "playing",
+          phase: "card_battle_playing",
+          cardBattleRound: Number(r.cardBattleRound ?? 1) + 1,
+          cardBattlePickedUids: [],
+          cardBattleLastRoundWinner: "draw",
+          timeoutEmptyRounds: strikes + 1,
+          actionDeadlineAt: pvpActionDeadlineTs(Date.now(), cardBattleTimeoutMs),
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+        return { kind: "card_battle_round" as const };
+      }
+      const hostCard = hostChoiceSnap.exists
+        ? (String(hostChoiceSnap.data()?.cardId || "timeout") as CardBattleCardId)
+        : "timeout";
+      const guestCard = guestChoiceSnap.exists
+        ? (String(guestChoiceSnap.data()?.cardId || "timeout") as CardBattleCardId)
+        : "timeout";
+      const out = await applyCardBattleRoundResultInTransaction(
+        tx,
+        roomRef,
+        roomId,
+        r,
+        hostCard,
+        guestCard,
+        cardBattleTimeoutMs,
+        { hostRef: choicesColl.doc(hostUid), guestRef: choicesColl.doc(guestUid) },
+      );
+      return out.status === "completed"
+        ? { kind: "card_battle_match" as const, ...out }
+        : { kind: "card_battle_round" as const };
+    }
+
     if (gameId === "reaction_tap") {
       const resultsColl = roomRef.collection("reaction_results");
       const hostUid = String(r.hostUid);
@@ -10988,6 +11596,15 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
       result.guestRes,
       result.hostMs,
       result.guestMs,
+    );
+  } else if (result.kind === "card_battle_match") {
+    await postCardBattleRankingFromWinner(
+      roomId,
+      result.hostUid,
+      result.guestUid,
+      result.matchWinner,
+      result.hostPower,
+      result.guestPower,
     );
   }
 
@@ -11993,6 +12610,7 @@ export const getArenaOverallRanking = onCall(DEFAULT_CALLABLE_OPTS, async (reque
     ppt: buildArenaOverallRows(statsByUser, usersById, "ppt"),
     quiz: buildArenaOverallRows(statsByUser, usersById, "quiz"),
     reaction_tap: buildArenaOverallRows(statsByUser, usersById, "reaction_tap"),
+    card_battle: buildArenaOverallRows(statsByUser, usersById, "card_battle"),
   };
   const packRows = <
     T extends {
@@ -12027,6 +12645,7 @@ export const getArenaOverallRanking = onCall(DEFAULT_CALLABLE_OPTS, async (reque
       ppt: packRows(byGameRows.ppt),
       quiz: packRows(byGameRows.quiz),
       reaction_tap: packRows(byGameRows.reaction_tap),
+      card_battle: packRows(byGameRows.card_battle),
     },
   };
 });
@@ -12492,6 +13111,7 @@ function createArenaOverallAccumulator(): ArenaOverallAccumulator {
       ppt: createArenaOverallStats(),
       quiz: createArenaOverallStats(),
       reaction_tap: createArenaOverallStats(),
+      card_battle: createArenaOverallStats(),
     },
   };
 }

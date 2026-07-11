@@ -32,6 +32,17 @@ import { AnimatePresence, motion } from "framer-motion";
 const PPT_HANDS = ["pedra", "papel", "tesoura"] as const;
 type PptHand = (typeof PPT_HANDS)[number];
 
+const CARD_BATTLE_CARDS = [
+  { id: "guardiao", name: "Guardiao", element: "Terra", attack: 4, defense: 8, hint: "segura dano" },
+  { id: "lamina", name: "Lamina", element: "Ar", attack: 8, defense: 3, hint: "ataque alto" },
+  { id: "chama", name: "Chama", element: "Fogo", attack: 7, defense: 4, hint: "vence Ar" },
+  { id: "mare", name: "Mare", element: "Agua", attack: 5, defense: 6, hint: "vence Fogo" },
+  { id: "raiz", name: "Raiz", element: "Terra", attack: 6, defense: 5, hint: "vence Agua" },
+  { id: "vento", name: "Vento", element: "Ar", attack: 5, defense: 7, hint: "vence Terra" },
+] as const;
+
+type CardBattleCardId = (typeof CARD_BATTLE_CARDS)[number]["id"];
+
 /** Tempo para exibir o resultado da rodada antes de abrir a próxima pergunta (sem toque). */
 const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1800;
 const PPT_ROUND_REVEAL_MS = 3200;
@@ -646,6 +657,7 @@ function gameDisplayName(id: string) {
   if (id === "ppt") return "Pedra, papel e tesoura";
   if (id === "quiz") return "Quiz rápido";
   if (id === "reaction_tap") return "Reaction tap";
+  if (id === "card_battle") return "Batalha de cartas";
   return id;
 }
 
@@ -657,6 +669,8 @@ function phaseDisplay(phase?: string) {
     ppt_waiting: "Aguardando jogadas",
     quiz_playing: "Quiz ao vivo",
     reaction_waiting: "Aguardando sinal",
+    card_battle_playing: "Cartas ao vivo",
+    card_battle_waiting: "Aguardando carta",
     completed: "Encerrada",
   };
   return m[phase] ?? phase;
@@ -1166,6 +1180,21 @@ function reactionRoundHeadline(room: GameRoomDocument, isHost: boolean): {
     : { title: "Voce perdeu a rodada", tone: "rose" };
 }
 
+function cardBattleCardLabel(cardId?: string | null) {
+  if (cardId === "timeout") return "Sem jogada";
+  return CARD_BATTLE_CARDS.find((card) => card.id === cardId)?.name ?? "Carta";
+}
+
+function cardBattleRoundSummary(room: GameRoomDocument, isHost: boolean): string | null {
+  const winner = room.cardBattleLastRoundWinner;
+  if (!winner) return null;
+  const hostCard = cardBattleCardLabel(room.cardBattleLastHostCardId);
+  const guestCard = cardBattleCardLabel(room.cardBattleLastGuestCardId);
+  if (winner === "draw") return `${hostCard} empatou com ${guestCard}.`;
+  const youWon = (winner === "host" && isHost) || (winner === "guest" && !isHost);
+  return youWon ? `Voce venceu a rodada: ${hostCard} x ${guestCard}.` : `Oponente venceu: ${hostCard} x ${guestCard}.`;
+}
+
 type SubmitPptResult =
   | { status: "queued" }
   | {
@@ -1220,6 +1249,23 @@ type SubmitReactionResult =
       guestScore: number;
     };
 
+type SubmitCardBattleResult =
+  | { status: "queued" }
+  | {
+      status: "round";
+      roundWinner: "host" | "guest" | "draw";
+      hostScore: number;
+      guestScore: number;
+      hostPower: number;
+      guestPower: number;
+    }
+  | {
+      status: "completed";
+      matchWinner: "host" | "guest";
+      hostPower: number;
+      guestPower: number;
+    };
+
 export function SalaClient({ roomId }: { roomId: string }) {
   const router = useRouter();
   const { user, profile } = useAuth();
@@ -1234,6 +1280,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const [quizSelected, setQuizSelected] = useState<number | null>(null);
   const [reactionSending, setReactionSending] = useState(false);
   const [reactionErr, setReactionErr] = useState<string | null>(null);
+  const [cardSending, setCardSending] = useState(false);
+  const [cardErr, setCardErr] = useState<string | null>(null);
   const [reactionClock, setReactionClock] = useState(() => Date.now());
   const [quizSecondsLeft, setQuizSecondsLeft] = useState<number>(DEFAULT_PVP_CHOICE_SECONDS.quiz);
   const [quizTimeoutAnswer, setQuizTimeoutAnswer] = useState(false);
@@ -1251,6 +1299,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const timeoutFiredRef = useRef(false);
   const pptSubmitLockedRef = useRef(false);
   const reactionSubmitLockedRef = useRef(false);
+  const cardSubmitLockedRef = useRef(false);
   const matchDoneRef = useRef(false);
   const quizMatchFinalScrollRef = useRef<HTMLDivElement>(null);
   const prevQuizMatchDoneRef = useRef(false);
@@ -1310,11 +1359,13 @@ export function SalaClient({ roomId }: { roomId: string }) {
     setPptErr(null);
     setQuizErr(null);
     setReactionErr(null);
+    setCardErr(null);
     setForfeitBusy(false);
     setLeaveIntent(null);
     setPptSending(false);
     setQuizSending(false);
     setReactionSending(false);
+    setCardSending(false);
     setQuizSelected(null);
     setReactionClock(Date.now());
     setQuizSecondsLeft(pvpChoiceSecRef.current.quiz);
@@ -1325,6 +1376,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     timeoutFiredRef.current = false;
     pptSubmitLockedRef.current = false;
     reactionSubmitLockedRef.current = false;
+    cardSubmitLockedRef.current = false;
     setRoundFlash(null);
     lastShownRoundFlashKeyRef.current = null;
     skipInitialRoundFlashRef.current = true;
@@ -1477,12 +1529,35 @@ export function SalaClient({ roomId }: { roomId: string }) {
     [uid, roomId, reactionSending],
   );
 
+  const submitCard = useCallback(
+    async (cardId: CardBattleCardId) => {
+      if (!uid || cardSending || cardSubmitLockedRef.current) return;
+      cardSubmitLockedRef.current = true;
+      setCardErr(null);
+      setCardSending(true);
+      try {
+        await callFunction<{ roomId: string; cardId: string }, SubmitCardBattleResult>(
+          "submitCardBattleCard",
+          { roomId, cardId },
+        );
+      } catch (e) {
+        const msg = formatFirebaseError(e);
+        setCardErr(msg);
+        cardSubmitLockedRef.current = false;
+      } finally {
+        setCardSending(false);
+      }
+    },
+    [uid, roomId, cardSending],
+  );
+
   const matchDone =
     room?.phase === "completed" ||
     room?.status === "completed" ||
     room?.pptRewardsApplied === true ||
     room?.quizRewardsApplied === true ||
-    room?.reactionRewardsApplied === true;
+    room?.reactionRewardsApplied === true ||
+    room?.cardBattleRewardsApplied === true;
 
   matchDoneRef.current = matchDone;
 
@@ -1550,6 +1625,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const isPpt = room?.gameId === "ppt";
   const isQuiz = room?.gameId === "quiz";
   const isReaction = room?.gameId === "reaction_tap";
+  const isCardBattle = room?.gameId === "card_battle";
 
   useEffect(() => {
     if (!isQuiz || !matchDone) {
@@ -1574,6 +1650,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const myReactionAnswered = !!(uid && reactionAnswered.has(uid));
   const oppReactionAnswered = !!(uid && reactionAnswered.size === 1 && !reactionAnswered.has(uid));
   const showReactionPlay = !!(isReaction && !matchDone && uid);
+  const cardPicked = room ? new Set(room.cardBattlePickedUids ?? []) : new Set<string>();
+  const myCardPicked = !!(uid && cardPicked.has(uid));
+  const oppCardPicked = !!(uid && cardPicked.size === 1 && !cardPicked.has(uid));
+  const showCardBattlePlay = !!(isCardBattle && !matchDone && uid);
   const reactionGoLiveAtMs =
     room?.reactionGoLiveAt && typeof room.reactionGoLiveAt.toMillis === "function"
       ? room.reactionGoLiveAt.toMillis()
@@ -1718,6 +1798,14 @@ export function SalaClient({ roomId }: { roomId: string }) {
   }, [showReactionPlay, reactionGoLiveAtMs, myReactionAnswered]);
 
   useEffect(() => {
+    if (!showCardBattlePlay || matchDone) return;
+    if (!myCardPicked) {
+      cardSubmitLockedRef.current = false;
+      setCardErr(null);
+    }
+  }, [showCardBattlePlay, matchDone, myCardPicked, room?.cardBattleRound]);
+
+  useEffect(() => {
     if (!uid || denied || !room || matchDone) return;
     if (actionDeadlineAtMs == null) return;
 
@@ -1767,8 +1855,16 @@ export function SalaClient({ roomId }: { roomId: string }) {
     room !== null &&
     room.gameId === "reaction_tap" &&
     !matchDone;
+  const inLiveCardBattleMatch =
+    !!uid &&
+    !denied &&
+    room !== undefined &&
+    room !== null &&
+    room.gameId === "card_battle" &&
+    !matchDone;
 
-  const liveMatchActive = inLivePptMatch || inLiveQuizMatch || inLiveReactionMatch;
+  const liveMatchActive =
+    inLivePptMatch || inLiveQuizMatch || inLiveReactionMatch || inLiveCardBattleMatch;
 
   useEffect(() => {
     if (!inLivePptMatch) {
@@ -1848,6 +1944,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
       setLeaveIntent(null);
       if (room?.gameId === "quiz") setQuizErr(msg);
       else if (room?.gameId === "reaction_tap") setReactionErr(msg);
+      else if (room?.gameId === "card_battle") setCardErr(msg);
       else setPptErr(msg);
       setForfeitBusy(false);
     }
@@ -1919,11 +2016,17 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const reactionGuestPts = room.reactionGuestScore ?? 0;
   const myReactionPts = isHost ? reactionHostPts : reactionGuestPts;
   const oppReactionPts = isHost ? reactionGuestPts : reactionHostPts;
+  const cardHostPts = Number(room.cardBattleHostScore ?? 0);
+  const cardGuestPts = Number(room.cardBattleGuestScore ?? 0);
+  const cardTarget = Number(room.cardBattleTargetScore ?? 5);
+  const myCardPts = isHost ? cardHostPts : cardGuestPts;
+  const oppCardPts = isHost ? cardGuestPts : cardHostPts;
 
   const roundHint = !matchDone ? lastRoundSummary(isHost, room.pptLastRoundOutcome) : null;
   const quizRoundHint = !matchDone && isQuiz ? quizRoundSummary(room) : null;
   const reactionHint = !matchDone && isReaction ? reactionRoundSummary(room, isHost) : null;
   const reactionHeadline = !matchDone && isReaction ? reactionRoundHeadline(room, isHost) : null;
+  const cardRoundHint = !matchDone && isCardBattle ? cardBattleRoundSummary(room, isHost) : null;
   const oppLockedIn = !!(uid && picked.size === 1 && !picked.has(uid));
   const myLockedHand: PptHand | null =
     myPickDone && highlightHand && (PPT_HANDS as readonly string[]).includes(highlightHand)
@@ -1958,6 +2061,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const reactionYouWonMatch =
     !!room.reactionMatchWinner &&
     ((room.reactionMatchWinner === "host" && isHost) || (room.reactionMatchWinner === "guest" && !isHost));
+  const cardYouWonMatch =
+    !!room.cardBattleMatchWinner &&
+    ((room.cardBattleMatchWinner === "host" && isHost) || (room.cardBattleMatchWinner === "guest" && !isHost));
   const myReactionMs = isHost ? room.reactionHostMs : room.reactionGuestMs;
   const oppReactionMs = isHost ? room.reactionGuestMs : room.reactionHostMs;
   const myQuizResponseMs = isHost ? room.quizLastHostResponseMs : room.quizLastGuestResponseMs;
@@ -1974,9 +2080,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const activeBoostUntilMs = firestoreTimeToMs(profile?.activeBoostUntil);
   const rewardBoostActive =
     boostSystemEnabled && activeBoostUntilMs != null && activeBoostUntilMs > rewardResolvedAtMs;
-  const duelTarget = isQuiz ? quizTarget : isReaction ? reactionTarget : target;
-  const duelMyPts = isQuiz ? myQuizPts : isReaction ? myReactionPts : myPts;
-  const duelOppPts = isQuiz ? oppQuizPts : isReaction ? oppReactionPts : oppPts;
+  const duelTarget = isQuiz ? quizTarget : isReaction ? reactionTarget : isCardBattle ? cardTarget : target;
+  const duelMyPts = isQuiz ? myQuizPts : isReaction ? myReactionPts : isCardBattle ? myCardPts : myPts;
+  const duelOppPts = isQuiz ? oppQuizPts : isReaction ? oppReactionPts : isCardBattle ? oppCardPts : oppPts;
   const youWonMatch =
     !!room.pptMatchWinner &&
     ((room.pptMatchWinner === "host" && isHost) || (room.pptMatchWinner === "guest" && !isHost));
@@ -1999,6 +2105,19 @@ export function SalaClient({ roomId }: { roomId: string }) {
           const eco = resolveMatchEconomy("reaction_tap", result, 0, {
             reactionMs: Number(myReactionMs ?? 9999),
           });
+          const boosted = resolveClientBoostedReward(
+            eco.rewardCoins,
+            boostRewardPercent,
+            rewardBoostActive,
+          );
+          return { ranking: eco.rankingPoints, coins: boosted.totalCoins, boostCoins: boosted.boostCoins };
+        }
+        if (isCardBattle && room.cardBattleMatchWinner) {
+          const result = cardYouWonMatch ? "vitoria" : "derrota";
+          const cardPower = Number(
+            isHost ? room.cardBattleLastHostPower ?? 0 : room.cardBattleLastGuestPower ?? 0,
+          );
+          const eco = resolveMatchEconomy("card_battle", result, cardPower, { cardPower });
           const boosted = resolveClientBoostedReward(
             eco.rewardCoins,
             boostRewardPercent,
@@ -2101,6 +2220,28 @@ export function SalaClient({ roomId }: { roomId: string }) {
             : {
                 title: "Reaction tap 1v1",
                 subtitle: "Espere o sinal verde. Toques antecipados ficam bloqueados até a rodada liberar.",
+              }
+    : isCardBattle
+      ? matchDone
+        ? {
+            title: cardYouWonMatch ? "Vitoria nas cartas" : "Batalha encerrada",
+            subtitle: cardYouWonMatch
+              ? "Sua leitura venceu a mesa."
+              : "O oponente montou a melhor resposta.",
+          }
+        : myCardPicked
+          ? {
+              title: "Carta travada",
+              subtitle: "Aguarde o oponente escolher para revelar a rodada.",
+            }
+          : oppCardPicked
+            ? {
+                title: "Oponente ja escolheu",
+                subtitle: "Escolha sua carta antes do tempo acabar.",
+              }
+            : {
+                title: "Batalha de cartas 1v1",
+                subtitle: "Ataque, defesa e elemento decidem a rodada. Primeiro a 5 pontos vence.",
               }
     : matchDone
       ? {
@@ -2473,6 +2614,29 @@ export function SalaClient({ roomId }: { roomId: string }) {
             />
           ) : null}
 
+          {isCardBattle && matchDone && room.cardBattleMatchWinner ? (
+            <ResultSummaryPanel
+              gameLabel="Batalha de cartas"
+              title={cardYouWonMatch ? "Voce venceu a batalha!" : "O oponente venceu a batalha."}
+              victory={cardYouWonMatch}
+              myName={myDisplayName}
+              opponentName={opponentNome}
+              myScore={myCardPts}
+              oppScore={oppCardPts}
+              primaryLine={
+                rewardSummary
+                  ? `+${rewardSummary.ranking} ranking e +${rewardSummary.coins} PR.`
+                  : "Partida fechada pelo servidor."
+              }
+              secondaryLine={cardBattleRoundSummary(room, isHost)}
+              tertiaryLine={rewardBoostLine}
+              rankingPoints={rewardSummary?.ranking ?? null}
+              rewardCoins={rewardSummary?.coins ?? null}
+              boostCoins={rewardSummary?.boostCoins ?? null}
+              grantedChest={myGrantedChest}
+            />
+          ) : null}
+
           {showPptPlay ? (
             <section
               className={pptSectionClass}
@@ -2794,6 +2958,99 @@ export function SalaClient({ roomId }: { roomId: string }) {
                   })}
                 </div>
               )}
+            </section>
+          ) : null}
+
+          {showCardBattlePlay ? (
+            <section className="relative space-y-4 overflow-hidden rounded-[1.35rem] border border-amber-400/25 bg-gradient-to-b from-amber-950/25 via-slate-950/95 to-cyan-950/20 p-3 sm:space-y-5 sm:rounded-[1.9rem] sm:p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-amber-200/80 sm:text-[10px]">
+                    Batalha de cartas
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-white sm:text-base">
+                    Escolha uma carta para a rodada {room.cardBattleRound ?? 1}.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-right">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/40">Meta</p>
+                  <p className="text-lg font-black text-amber-100">{cardTarget}</p>
+                </div>
+              </div>
+
+              <FaceoffBoard
+                myName={myDisplayName}
+                oppName={opponentNome}
+                myScore={myCardPts}
+                oppScore={oppCardPts}
+                target={cardTarget}
+                myDetail={myCardPicked ? "Carta travada" : "Escolhendo"}
+                oppDetail={oppCardPicked ? "Carta travada" : "Aguardando"}
+                centerCaption="cartas"
+                actionLabel="Desistir"
+                actionBusy={forfeitBusy}
+                onAction={() => requestLeave("forfeit")}
+              />
+
+              {cardRoundHint ? (
+                <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 px-3 py-3 text-sm text-amber-100">
+                  {cardRoundHint}
+                </div>
+              ) : null}
+
+              {cardErr ? (
+                <AlertBanner tone="error" className="text-sm">
+                  {cardErr}
+                </AlertBanner>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {CARD_BATTLE_CARDS.map((card) => {
+                  const disabled = cardSending || myCardPicked || matchDone;
+                  return (
+                    <button
+                      key={card.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => void submitCard(card.id)}
+                      className={cn(
+                        "min-h-[8.4rem] rounded-[1.1rem] border-2 bg-gradient-to-b from-white/[0.08] to-slate-950/90 p-3 text-left transition sm:min-h-[9.5rem]",
+                        "border-white/10 text-white hover:border-amber-300/50 hover:bg-amber-500/10",
+                        disabled && "pointer-events-none opacity-55",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-black uppercase tracking-wide">{card.name}</p>
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/75">
+                            {card.element}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-white/10 bg-black/25 px-2 py-1 text-[10px] font-black text-white/80">
+                          {card.attack + card.defense}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-center">
+                        <div className="rounded-xl border border-red-400/20 bg-red-500/10 py-2">
+                          <p className="text-[9px] uppercase tracking-widest text-white/40">ATQ</p>
+                          <p className="font-black text-red-100">{card.attack}</p>
+                        </div>
+                        <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 py-2">
+                          <p className="text-[9px] uppercase tracking-widest text-white/40">DEF</p>
+                          <p className="font-black text-cyan-100">{card.defense}</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-[11px] text-white/45">{card.hint}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {myCardPicked ? (
+                <p className="text-center text-xs text-white/50">
+                  Carta enviada. O servidor revela a rodada quando o oponente escolher ou o tempo acabar.
+                </p>
+              ) : null}
             </section>
           ) : null}
 
@@ -3159,7 +3416,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
             </section>
           ) : null}
 
-          {!isPpt && !isQuiz && !isReaction ? (
+          {!isPpt && !isQuiz && !isReaction && !isCardBattle ? (
             <AlertBanner tone="info" className="text-sm">
               Este jogo ainda não tem modo de sala sincronizado nesta tela — só PPT 1v1 está ligado por
               enquanto.

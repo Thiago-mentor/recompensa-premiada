@@ -4,7 +4,7 @@ import { getFirebaseAuth } from "@/lib/firebase/client";
 import { callFunction } from "@/services/callables/client";
 import type { GameId } from "@/types/game";
 
-const QUEUE_GAMES: GameId[] = ["ppt", "quiz", "reaction_tap"];
+const QUEUE_GAMES: GameId[] = ["ppt", "quiz", "reaction_tap", "card_battle"];
 
 export function isAutoQueueGame(id: string): id is GameId {
   return QUEUE_GAMES.includes(id as GameId);

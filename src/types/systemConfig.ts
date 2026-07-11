@@ -183,6 +183,7 @@ export interface SystemEconomyConfig {
     ppt: number;
     quiz: number;
     reaction_tap: number;
+    card_battle: number;
   }>;
   atualizadoEm: Timestamp;
 }

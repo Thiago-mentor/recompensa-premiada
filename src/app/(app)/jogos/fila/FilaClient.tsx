@@ -81,6 +81,7 @@ const OPTIONS: { id: GameId; label: string; short: string }[] = [
   { id: "ppt", label: "Pedra, papel e tesoura", short: "PPT" },
   { id: "quiz", label: "Quiz rápido", short: "Quiz" },
   { id: "reaction_tap", label: "Reaction tap", short: "Reaction" },
+  { id: "card_battle", label: "Batalha de cartas", short: "Cartas" },
 ];
 
 const MATCHMAKING_RETRY_MS = 2500;
@@ -104,6 +105,12 @@ function queueCopy(gameId: GameId) {
     return {
       summary: "Reflexo em tempo real e 1 carga consumida ao emparelhar.",
       searching: "Cancelando antes do emparelhamento não consome duelo.",
+    };
+  }
+  if (gameId === "card_battle") {
+    return {
+      summary: "Duelo de cartas em tempo real, sem deck pago nesta primeira versao.",
+      searching: "Cada rodada consome uma escolha de carta validada pelo servidor.",
     };
   }
   return {
@@ -439,7 +446,8 @@ export function FilaClient() {
 
   const activeLabel = OPTIONS.find((x) => x.id === gameId)?.label ?? gameId;
   const activeCopy = queueCopy(gameId);
-  const switcherGameId = gameId === "quiz" || gameId === "reaction_tap" ? gameId : "ppt";
+  const switcherGameId =
+    gameId === "quiz" || gameId === "reaction_tap" || gameId === "card_battle" ? gameId : "ppt";
 
   return (
     <div className="relative mx-auto max-w-lg">
