@@ -82,6 +82,15 @@ function firestoreTimeToMs(value: unknown): number | null {
   return null;
 }
 
+function safeScore(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
+}
+
+function safeTarget(value: unknown, fallback = 5): number {
+  return Math.max(1, safeScore(value, fallback));
+}
+
 function resolveClientBoostedReward(baseCoins: number, boostPercent: number, boostActive: boolean) {
   const normalizedBase = Math.max(0, Math.floor(Number(baseCoins) || 0));
   if (normalizedBase <= 0 || !boostActive || boostPercent <= 0) {
@@ -879,6 +888,7 @@ function PlayerPillar({
   detail?: string | null;
   simple?: boolean;
 }) {
+  const safeScoreValue = safeScore(score);
   const progressPercent = Math.max(0, Math.min(100, progressRatio * 100));
   return (
     <div
@@ -924,7 +934,7 @@ function PlayerPillar({
             !simple && "drop-shadow-[0_0_12px_rgba(255,255,255,0.35)]",
           )}
         >
-          {score}
+          {safeScoreValue}
         </span>
         {!simple ? (
           <span
@@ -2035,24 +2045,24 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const isHost = uid === room.hostUid;
   const opponentNome = isHost ? room.guestNome : room.hostNome;
 
-  const target = room.pptTargetScore ?? 5;
-  const hostPts = room.pptHostScore ?? 0;
-  const guestPts = room.pptGuestScore ?? 0;
+  const target = safeTarget(room.pptTargetScore);
+  const hostPts = safeScore(room.pptHostScore);
+  const guestPts = safeScore(room.pptGuestScore);
   const myPts = isHost ? hostPts : guestPts;
   const oppPts = isHost ? guestPts : hostPts;
-  const quizTarget = Math.max(5, Number(room.quizTargetScore ?? 5) || 5);
-  const quizHostPts = room.quizHostScore ?? 0;
-  const quizGuestPts = room.quizGuestScore ?? 0;
+  const quizTarget = Math.max(5, safeTarget(room.quizTargetScore));
+  const quizHostPts = safeScore(room.quizHostScore);
+  const quizGuestPts = safeScore(room.quizGuestScore);
   const myQuizPts = isHost ? quizHostPts : quizGuestPts;
   const oppQuizPts = isHost ? quizGuestPts : quizHostPts;
-  const reactionTarget = room.reactionTargetScore ?? 5;
-  const reactionHostPts = room.reactionHostScore ?? 0;
-  const reactionGuestPts = room.reactionGuestScore ?? 0;
+  const reactionTarget = safeTarget(room.reactionTargetScore);
+  const reactionHostPts = safeScore(room.reactionHostScore);
+  const reactionGuestPts = safeScore(room.reactionGuestScore);
   const myReactionPts = isHost ? reactionHostPts : reactionGuestPts;
   const oppReactionPts = isHost ? reactionGuestPts : reactionHostPts;
-  const cardHostPts = Number(room.cardBattleHostScore ?? 0);
-  const cardGuestPts = Number(room.cardBattleGuestScore ?? 0);
-  const cardTarget = Number(room.cardBattleTargetScore ?? 5);
+  const cardHostPts = safeScore(room.cardBattleHostScore);
+  const cardGuestPts = safeScore(room.cardBattleGuestScore);
+  const cardTarget = safeTarget(room.cardBattleTargetScore);
   const myCardPts = isHost ? cardHostPts : cardGuestPts;
   const oppCardPts = isHost ? cardGuestPts : cardHostPts;
 
