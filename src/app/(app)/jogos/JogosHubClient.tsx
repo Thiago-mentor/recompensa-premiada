@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { GameCard, MatchHistoryList } from "@/modules/jogos";
@@ -14,6 +15,7 @@ import {
   staggerItem,
 } from "@/components/arena/ArenaShell";
 import { cn } from "@/lib/utils/cn";
+import { fetchMatchmakingStats } from "@/services/matchmaking/autoQueueService";
 import { Gift, Gem, Swords, Trophy, Zap } from "lucide-react";
 
 const linkBtn =
@@ -21,7 +23,25 @@ const linkBtn =
 
 export function JogosHubClient() {
   const { arena: arenaCatalog } = useExperienceCatalogBuckets();
+  const [onlineByGame, setOnlineByGame] = useState<Record<string, number>>({});
   const featuredGames = arenaCatalog.slice(0, 3);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void fetchMatchmakingStats()
+        .then((stats) => {
+          if (!cancelled) setOnlineByGame(stats.waiting as Record<string, number>);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   return (
     <ArenaShell className="template-3d-scene" maxWidth="max-w-6xl" padding="sm">
@@ -131,7 +151,7 @@ export function JogosHubClient() {
             ) : (
               arenaCatalog.map((g) => (
                 <motion.div key={g.id} variants={staggerItem} className="h-full min-h-0">
-                  <GameCard game={g} />
+                  <GameCard game={g} onlineCount={onlineByGame[g.id] ?? 0} />
                 </motion.div>
               ))
             )}

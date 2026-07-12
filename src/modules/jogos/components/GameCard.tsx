@@ -39,9 +39,11 @@ function CardBackdrop({ className }: { className?: string }) {
 
 export function GameCard({
   game,
+  onlineCount,
   className,
 }: {
   game: GameCatalogEntry;
+  onlineCount?: number;
   className?: string;
 }) {
   const cooldownLabel =
@@ -119,9 +121,10 @@ export function GameCard({
           <div className="relative z-10 flex flex-1 flex-col gap-3 border-t border-white/8 bg-[linear-gradient(180deg,rgba(15,23,42,0.36),rgba(7,11,26,0.96))] p-4 sm:p-5">
             <p className="text-sm leading-relaxed text-white/62">{game.subtitle}</p>
             {isArena ? (
-              <span className="template-3d-button mt-auto flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400/55 bg-[linear-gradient(180deg,rgba(251,191,36,0.24),rgba(146,64,14,0.34)_48%,rgba(15,23,42,0.96))] px-3 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-amber-50 shadow-[0_0_30px_-8px_rgba(251,191,36,0.5),inset_0_1px_0_rgba(253,230,138,0.25),inset_0_-3px_10px_rgba(0,0,0,0.32)]">
+              <span className="template-3d-button mt-auto flex w-full items-center justify-between gap-2 rounded-xl border border-amber-400/55 bg-[linear-gradient(180deg,rgba(251,191,36,0.24),rgba(146,64,14,0.34)_48%,rgba(15,23,42,0.96))] px-3 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-amber-50 shadow-[0_0_30px_-8px_rgba(251,191,36,0.5),inset_0_1px_0_rgba(253,230,138,0.25),inset_0_-3px_10px_rgba(0,0,0,0.32)]">
                 <Zap className="h-3.5 w-3.5 shrink-0 text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.65)]" />
-                1v1 · matchmaking
+                <span>1v1 · matchmaking</span>
+                <span className="text-[9px] text-emerald-100">{onlineCount ?? 0} na fila</span>
               </span>
             ) : (
               <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-xl border border-cyan-400/38 bg-[linear-gradient(180deg,rgba(8,51,68,0.45),rgba(15,23,42,0.9))] px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_22px_-8px_rgba(34,211,238,0.32),inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-2px_6px_rgba(0,0,0,0.22)]">

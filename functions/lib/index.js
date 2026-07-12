@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeDailyRanking = exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = void 0;
+exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
+exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const vision_1 = require("@google-cloud/vision");
@@ -8036,6 +8036,11 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     const snap = await coll.orderBy("joinedAt", "asc").limit(2).get();
     const others = snap.docs.filter((d) => d.id !== uid);
     const partnerDoc = others[0];
+    console.info("joinAutoMatch queue check", {
+        gameId,
+        waitingCandidates: snap.size,
+        hasPartner: Boolean(partnerDoc),
+    });
     if (!partnerDoc) {
         return { status: "waiting" };
     }
@@ -8375,8 +8380,10 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
             return { host, guest };
         });
         if (!result) {
+            console.warn("joinAutoMatch transaction did not commit", { gameId });
             return { status: "waiting" };
         }
+        console.info("joinAutoMatch matched", { gameId });
         return {
             status: "matched",
             roomId: roomRef.id,
@@ -8385,9 +8392,22 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
             yourSeat: uid === result.host ? 0 : 1,
         };
     }
-    catch {
+    catch (error) {
+        console.error("joinAutoMatch transaction failed", {
+            gameId,
+            code: error instanceof Error ? error.name : "unknown",
+        });
         return { status: "waiting" };
     }
+});
+/** Retorna uma contagem leve dos jogadores atualmente aguardando em cada fila. */
+exports.getMatchmakingStats = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    assertAuthed(request.auth?.uid);
+    const counts = await Promise.all(Array.from(AUTO_QUEUE_GAMES, async (gameId) => {
+        const snapshot = await waitingColl(gameId).count().get();
+        return [gameId, snapshot.data().count];
+    }));
+    return { waiting: Object.fromEntries(counts) };
 });
 /** Agenda ou aplica recuperação de duelos por tempo (10 min); não entra na fila. */
 exports.pptSyncDuelRefill = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req) => {

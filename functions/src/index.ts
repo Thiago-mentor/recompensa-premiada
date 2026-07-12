@@ -9983,6 +9983,11 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
   const snap = await coll.orderBy("joinedAt", "asc").limit(2).get();
   const others = snap.docs.filter((d) => d.id !== uid);
   const partnerDoc = others[0];
+  console.info("joinAutoMatch queue check", {
+    gameId,
+    waitingCandidates: snap.size,
+    hasPartner: Boolean(partnerDoc),
+  });
   if (!partnerDoc) {
     return { status: "waiting" as const };
   }
@@ -10346,9 +10351,11 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
     });
 
     if (!result) {
+      console.warn("joinAutoMatch transaction did not commit", { gameId });
       return { status: "waiting" as const };
     }
 
+    console.info("joinAutoMatch matched", { gameId });
     return {
       status: "matched" as const,
       roomId: roomRef.id,
@@ -10356,9 +10363,25 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
       guestUid: result.guest,
       yourSeat: uid === result.host ? 0 : 1,
     };
-  } catch {
+  } catch (error) {
+    console.error("joinAutoMatch transaction failed", {
+      gameId,
+      code: error instanceof Error ? error.name : "unknown",
+    });
     return { status: "waiting" as const };
   }
+});
+
+/** Retorna uma contagem leve dos jogadores atualmente aguardando em cada fila. */
+export const getMatchmakingStats = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  assertAuthed(request.auth?.uid);
+  const counts = await Promise.all(
+    Array.from(AUTO_QUEUE_GAMES, async (gameId) => {
+      const snapshot = await waitingColl(gameId).count().get();
+      return [gameId, snapshot.data().count] as const;
+    }),
+  );
+  return { waiting: Object.fromEntries(counts) };
 });
 
 /** Agenda ou aplica recuperação de duelos por tempo (10 min); não entra na fila. */

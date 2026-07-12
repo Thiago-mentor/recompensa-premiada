@@ -20,7 +20,11 @@ export type JoinAutoMatchResponse =
       hostUid?: string;
       guestUid?: string;
       yourSeat?: number;
-    };
+  };
+
+export type MatchmakingStats = {
+  waiting: Partial<Record<GameId, number>>;
+};
 
 export async function joinAutoMatchQueue(gameId: GameId): Promise<JoinAutoMatchResponse> {
   if (!getFirebaseAuth().currentUser?.uid) {
@@ -34,6 +38,11 @@ export async function joinAutoMatchQueue(gameId: GameId): Promise<JoinAutoMatchR
 
 export async function leaveAutoMatchQueue(gameId: GameId): Promise<void> {
   await callFunction("leaveAutoMatch", { gameId });
+}
+
+export async function fetchMatchmakingStats(): Promise<MatchmakingStats> {
+  const res = await callFunction<Record<string, never>, MatchmakingStats>("getMatchmakingStats", {});
+  return res.data;
 }
 
 /** Sincroniza timer / recuperação de duelos PPT (10 min) sem entrar na fila. */

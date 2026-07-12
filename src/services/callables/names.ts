@@ -41,6 +41,7 @@ export const CALLABLES = {
   updateUserAvatar: "updateUserAvatar",
   getArenaOverallRanking: "getArenaOverallRanking",
   joinAutoMatch: "joinAutoMatch",
+  getMatchmakingStats: "getMatchmakingStats",
   leaveAutoMatch: "leaveAutoMatch",
   submitPptPick: "submitPptPick",
   submitQuizAnswer: "submitQuizAnswer",
