@@ -4446,7 +4446,7 @@ const PPT_BOTH_IDLE_NO_PICK_MS = 22_000;
  * O cliente renova o slot a cada ~1,2s enquanto busca partida (`joinAutoMatch`).
  * Sem atualização neste intervalo → considerado offline (app fechado / suspenso) e removido da fila.
  */
-const MATCHMAKING_SLOT_STALE_MS = 90_000;
+const MATCHMAKING_SLOT_STALE_MS = 30_000;
 
 const CLIENT_RISK_WINDOW_MS = 60_000;
 const CLIENT_RISK_MAX_EVENTS_PER_WINDOW = 6;
@@ -10018,18 +10018,16 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
         tx.get(slotRef(host)),
         tx.get(slotRef(guest)),
       ]);
-      const matchmakingSlotStillActive = (snap: DocumentSnapshot, queueSnap: DocumentSnapshot) => {
+      const matchmakingSlotStillActive = (snap: DocumentSnapshot) => {
         if (!snap.exists) return false;
         const sd = snap.data() as Record<string, unknown>;
         if (String(sd.queueStatus) !== "waiting") return false;
         if (String(sd.gameId) !== gameId) return false;
         const updatedMs = millisFromFirestoreTime(sd.atualizadoEm);
-        if (updatedMs > 0 && nowForSlots - updatedMs <= MATCHMAKING_SLOT_STALE_MS) return true;
-        const joinedMs = millisFromFirestoreTime((queueSnap.data() as Record<string, unknown> | undefined)?.joinedAt);
-        return joinedMs > 0 && nowForSlots - joinedMs <= MATCHMAKING_SLOT_STALE_MS;
+        return updatedMs > 0 && nowForSlots - updatedMs <= MATCHMAKING_SLOT_STALE_MS;
       };
-      const hostSlotActive = matchmakingSlotStillActive(hostSlotSnap, selfSnap.id === host ? selfSnap : pSnap);
-      const guestSlotActive = matchmakingSlotStillActive(guestSlotSnap, selfSnap.id === guest ? selfSnap : pSnap);
+      const hostSlotActive = matchmakingSlotStillActive(hostSlotSnap);
+      const guestSlotActive = matchmakingSlotStillActive(guestSlotSnap);
       if (!hostSlotActive || !guestSlotActive) {
         console.warn("joinAutoMatch invalid queue slot", {
           gameId,
@@ -10394,13 +10392,20 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
 /** Retorna uma contagem leve dos jogadores atualmente aguardando em cada fila. */
 export const getMatchmakingStats = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   assertAuthed(request.auth?.uid);
-  const counts = await Promise.all(
-    Array.from(AUTO_QUEUE_GAMES, async (gameId) => {
-      const snapshot = await waitingColl(gameId).count().get();
-      return [gameId, snapshot.data().count] as const;
-    }),
-  );
-  return { waiting: Object.fromEntries(counts) };
+  const cutoff = Timestamp.fromMillis(Date.now() - MATCHMAKING_SLOT_STALE_MS);
+  const snapshot = await db
+    .collection(COL.multiplayerSlots)
+    .where("queueStatus", "==", "waiting")
+    .where("atualizadoEm", ">=", cutoff)
+    .limit(500)
+    .get();
+  const waiting: Partial<Record<GameId, number>> = {};
+  snapshot.docs.forEach((slot) => {
+    const gameId = String(slot.data().gameId || "") as GameId;
+    if (!AUTO_QUEUE_GAMES.has(gameId)) return;
+    waiting[gameId] = (waiting[gameId] ?? 0) + 1;
+  });
+  return { waiting };
 });
 
 /** Agenda ou aplica recuperação de duelos por tempo (10 min); não entra na fila. */
