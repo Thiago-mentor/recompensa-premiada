@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "load:probe": "node scripts/load-probe.cjs",
     "reset:daily-login": "node scripts/reset-daily-streak.cjs",
     "grant-admin": "node scripts/grant-admin-claims.cjs",
     "emulators": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions,storage",
