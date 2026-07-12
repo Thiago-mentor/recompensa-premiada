@@ -8081,7 +8081,20 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
                     return false;
                 return nowForSlots - updatedMs <= MATCHMAKING_SLOT_STALE_MS;
             };
-            if (!matchmakingSlotStillActive(hostSlotSnap) || !matchmakingSlotStillActive(guestSlotSnap)) {
+            const hostSlotActive = matchmakingSlotStillActive(hostSlotSnap);
+            const guestSlotActive = matchmakingSlotStillActive(guestSlotSnap);
+            if (!hostSlotActive || !guestSlotActive) {
+                console.warn("joinAutoMatch invalid queue slot", {
+                    gameId,
+                    hostSlotActive,
+                    guestSlotActive,
+                    hostSlotAgeMs: hostSlotActive ? 0 : nowForSlots - millisFromFirestoreTime(hostSlotSnap.data()?.atualizadoEm),
+                    guestSlotAgeMs: guestSlotActive ? 0 : nowForSlots - millisFromFirestoreTime(guestSlotSnap.data()?.atualizadoEm),
+                });
+                if (!hostSlotActive)
+                    tx.delete(coll.doc(host));
+                if (!guestSlotActive)
+                    tx.delete(coll.doc(guest));
                 return null;
             }
             const hostData = host === uid ? selfSnap.data() : pSnap.data();
@@ -8093,11 +8106,13 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
                 tx.get(guestUserRef),
             ]);
             if (!hostUSnap.exists || !guestUSnap.exists) {
+                console.warn("joinAutoMatch missing user profile", { gameId });
                 return null;
             }
             const hu = hostUSnap.data();
             const gu = guestUSnap.data();
             if (hu.banido || gu.banido) {
+                console.warn("joinAutoMatch banned user in queue", { gameId });
                 return null;
             }
             let pptHostC = 0;
@@ -8130,6 +8145,11 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
                     }, { merge: true });
                 }
                 if (pptHostC < 1 || pptGuestC < 1) {
+                    console.warn("joinAutoMatch insufficient ppt charges", {
+                        gameId,
+                        hostCharges: pptHostC,
+                        guestCharges: pptGuestC,
+                    });
                     return null;
                 }
             }
