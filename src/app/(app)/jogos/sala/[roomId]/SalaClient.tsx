@@ -45,7 +45,7 @@ const CARD_BATTLE_CARDS = [
 type CardBattleCardId = (typeof CARD_BATTLE_CARDS)[number]["id"];
 
 /** Tempo para exibir o resultado da rodada antes de abrir a próxima pergunta (sem toque). */
-const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1800;
+const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1200;
 const PPT_ROUND_REVEAL_MS = 3200;
 
 type LeaveIntent = "forfeit" | "lobby" | "rematch";
@@ -1321,7 +1321,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const pvpChoiceSecRef = useRef(pvpChoiceSec);
   pvpChoiceSecRef.current = pvpChoiceSec;
   const reducedRoomFx = isNativeAndroid || prefersReducedPptFx;
-  const simplifiedPptFx = reducedRoomFx && room?.gameId === "ppt";
+  // Quiz prioritizes stable input and low paint cost on mobile; the server still owns timing.
+  const simplifiedPptFx = reducedRoomFx || room?.gameId === "quiz";
 
   useEffect(() => {
     setIsNativeAndroid(isNativeAndroidPlatform());
@@ -1796,7 +1797,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
       if (quizTimeoutFiredRef.current) {
         window.clearInterval(tick);
       }
-    }, 200);
+    }, 1000);
 
     return () => window.clearInterval(tick);
   }, [
@@ -3273,9 +3274,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
                             disabled={quizSending || myQuizAnswered || quizTimeoutAnswer || matchDone}
                             onClick={() => void submitQuiz(index)}
                             className={cn(
-                              "group relative overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold transition-all duration-200 sm:rounded-[1.35rem] sm:px-5 sm:py-4",
+                              "group relative overflow-hidden rounded-[1.1rem] border-2 px-4 py-3 text-left text-sm font-semibold transition-colors duration-150 sm:rounded-[1.35rem] sm:px-5 sm:py-4",
                               "bg-gradient-to-b from-white/[0.08] to-slate-950/90 text-white",
-                              !reducedRoomFx &&
+                              !simplifiedPptFx &&
                                 "hover:-translate-y-0.5 hover:border-fuchsia-300/45 hover:shadow-[0_12px_30px_-16px_rgba(217,70,239,0.45)]",
                               "disabled:pointer-events-none disabled:opacity-55",
                               selected ? "border-fuchsia-300/60 bg-fuchsia-500/12" : "border-white/10",
