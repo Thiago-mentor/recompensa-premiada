@@ -178,6 +178,7 @@ const REACTION_FALSE_START_MS = 9999;
 const REACTION_TIE_MS = 120;
 const REACTION_MIN_VALID_MS = 120;
 const REACTION_NETWORK_GRACE_MS = 140;
+const REACTION_CLIENT_CLOCK_TOLERANCE_MS = 450;
 
 type CardBattleCardId = "guardiao" | "lamina" | "chama" | "mare" | "raiz" | "vento" | "timeout";
 type CardBattleRoundWinner = "host" | "guest" | "draw";
@@ -4450,6 +4451,23 @@ const PPT_BOTH_IDLE_NO_PICK_MS = 22_000;
  */
 const MATCHMAKING_SLOT_STALE_MS = 90_000;
 
+const CLIENT_RISK_WINDOW_MS = 60_000;
+const CLIENT_RISK_MAX_EVENTS_PER_WINDOW = 6;
+const clientRiskWindows = new Map<string, { startedAtMs: number; count: number }>();
+
+function assertClientRiskRateLimit(uid: string): void {
+  const nowMs = Date.now();
+  const current = clientRiskWindows.get(uid);
+  if (!current || nowMs - current.startedAtMs >= CLIENT_RISK_WINDOW_MS) {
+    clientRiskWindows.set(uid, { startedAtMs: nowMs, count: 1 });
+    return;
+  }
+  if (current.count >= CLIENT_RISK_MAX_EVENTS_PER_WINDOW) {
+    throw new HttpsError("resource-exhausted", "Muitos sinais de atividade. Tente novamente em instantes.");
+  }
+  current.count += 1;
+}
+
 async function postPptMatchRankingFromWinner(
   roomId: string,
   hostUid: string,
@@ -4584,7 +4602,10 @@ function resolveBalancedReactionMs(clientRaw: unknown, serverElapsedRaw: unknown
     return clientMs;
   }
   const serverMs = clampReactionResponseMs(serverElapsed);
-  return Math.max(clientMs, serverMs - REACTION_NETWORK_GRACE_MS);
+  // O servidor continua sendo o piso anti-fraude, mas um relogio adiantado nao pode
+  // transformar um toque rapido em varios segundos de desvantagem.
+  const boundedClientMs = Math.min(clientMs, serverMs + REACTION_CLIENT_CLOCK_TOLERANCE_MS);
+  return Math.max(boundedClientMs, serverMs - REACTION_NETWORK_GRACE_MS);
 }
 
 function nextReactionGoLiveAt(): Timestamp {
@@ -11704,8 +11725,25 @@ export const pvpPptPresence = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) 
 export const riskAnalysisOnUserEvent = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
-  const tipo = String(request.data?.tipo || "evento").slice(0, 120);
-  const detalhes = request.data?.detalhes || {};
+  const tipo = String(request.data?.tipo || "evento").trim().slice(0, 60);
+  if (!/^[a-zA-Z0-9:_-]+$/.test(tipo)) {
+    throw new HttpsError("invalid-argument", "Tipo de evento invÃ¡lido.");
+  }
+  const rawDetails = request.data?.detalhes;
+  const detalhes =
+    rawDetails && typeof rawDetails === "object" && !Array.isArray(rawDetails)
+      ? rawDetails
+      : {};
+  let detailsSize = 0;
+  try {
+    detailsSize = JSON.stringify(detalhes).length;
+  } catch {
+    throw new HttpsError("invalid-argument", "Detalhes do evento invÃ¡lidos.");
+  }
+  if (detailsSize > 2_000) {
+    throw new HttpsError("invalid-argument", "Detalhes do evento muito extensos.");
+  }
+  assertClientRiskRateLimit(uid);
   await db.collection(COL.fraudLogs).add({
     uid,
     tipo,

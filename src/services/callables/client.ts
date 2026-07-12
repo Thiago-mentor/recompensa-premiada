@@ -1,7 +1,7 @@
 "use client";
 
 import { httpsCallable, type HttpsCallableResult } from "firebase/functions";
-import { getFirebaseFunctions } from "@/lib/firebase/client";
+import { getFirebaseFunctions, reportClientError } from "@/lib/firebase/client";
 import { CALLABLES } from "./names";
 
 export async function callFunction<TReq extends Record<string, unknown>, TRes>(
@@ -9,5 +9,10 @@ export async function callFunction<TReq extends Record<string, unknown>, TRes>(
   data: TReq,
 ): Promise<HttpsCallableResult<TRes>> {
   const fn = httpsCallable(getFirebaseFunctions(), CALLABLES[name]);
-  return fn(data) as Promise<HttpsCallableResult<TRes>>;
+  try {
+    return (await fn(data)) as HttpsCallableResult<TRes>;
+  } catch (error) {
+    reportClientError(`callable:${String(name)}`, error);
+    throw error;
+  }
 }

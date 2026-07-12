@@ -1,7 +1,7 @@
 "use client";
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
+import { getAnalytics, isSupported, logEvent, type Analytics } from "firebase/analytics";
 import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
 import {
   getFirestore,
@@ -186,4 +186,30 @@ export async function initFirebaseAnalytics(): Promise<Analytics | null> {
   } catch {
     return null;
   }
+}
+
+/** Registra falhas operacionais sem enviar mensagem, UID ou dados da conta. */
+export function reportClientError(scope: string, error: unknown): void {
+  if (typeof window === "undefined" || useFirebaseEmulators) return;
+
+  const errorCode =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code || "unknown")
+      : error instanceof Error
+        ? error.name
+        : "unknown";
+
+  void initFirebaseAnalytics()
+    .then((instance) => {
+      if (!instance) return;
+      logEvent(instance, "app_error", {
+        scope: scope.slice(0, 40),
+        error_code: errorCode.slice(0, 40),
+        online: navigator.onLine ? "true" : "false",
+        route: window.location.pathname.slice(0, 100),
+      });
+    })
+    .catch(() => {
+      /* Telemetria nunca pode interromper a experiencia. */
+    });
 }

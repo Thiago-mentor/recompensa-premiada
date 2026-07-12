@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { doc, onSnapshot } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getFirebaseFirestore } from "@/lib/firebase/client";
+import { getFirebaseFirestore, reportClientError } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
 import { ROUTES, routeJogosFilaBuscar } from "@/lib/constants/routes";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
@@ -24,10 +24,10 @@ import { callFunction } from "@/services/callables/client";
 import { isAutoQueueGame } from "@/services/matchmaking/autoQueueService";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { GameId } from "@/types/game";
-import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { isNativeAndroidPlatform } from "@/lib/anuncios/admobConfig";
 import { cn } from "@/lib/utils/cn";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import { AnimatePresence, motion } from "framer-motion";
 
 const PPT_HANDS = ["pedra", "papel", "tesoura"] as const;
@@ -1292,7 +1292,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const [forfeitBusy, setForfeitBusy] = useState(false);
   const [leaveIntent, setLeaveIntent] = useState<LeaveIntent | null>(null);
   const [highlightHand, setHighlightHand] = useState<PptHand | null>(null);
-  const quizStartedAtRef = useRef<number>(Date.now());
+  const quizStartedAtRef = useRef<number>(performance.now());
   const reactionStartPerfRef = useRef<number | null>(null);
   const quizTimeoutFiredRef = useRef(false);
   const prevMyPickDoneRef = useRef(false);
@@ -1306,6 +1306,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const quizMatchFinalScrollRef = useRef<HTMLDivElement>(null);
   const prevQuizMatchDoneRef = useRef(false);
   const timeoutResolveKeyRef = useRef("");
+  const serverClockOffsetMsRef = useRef(0);
   const [roundFlash, setRoundFlash] = useState<RoundFlashPayload | null>(null);
   const lastShownRoundFlashKeyRef = useRef<string | null>(null);
   const skipInitialRoundFlashRef = useRef(true);
@@ -1331,13 +1332,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
   }, []);
 
   useEffect(() => {
-    const db = getFirebaseFirestore();
-    const ref = doc(db, COLLECTIONS.systemConfigs, "economy");
-    return onSnapshot(
-      ref,
-      (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data() as Partial<SystemEconomyConfig>;
+    let active = true;
+    void fetchEconomyConfigDocument()
+      .then((data) => {
+        if (!active || !data) return;
         setBoostSystemEnabled(isBoostSystemEnabled(data));
         setPvpChoiceSec(parsePvpChoiceSeconds(data));
         setBoostRewardPercent(
@@ -1345,17 +1343,22 @@ export function SalaClient({ roomId }: { roomId: string }) {
             ? Math.max(0, Math.floor(data.boostRewardPercent))
             : 25,
         );
-      },
-      (err) => {
+      })
+      .catch((error) => {
+        if (!active) return;
+        reportClientError("firestore:economy", error);
         console.error(
           "[PvP] Não foi possível ler system_configs/economy (tempo de resposta). Verifique login, regras do Firestore e deploy.",
-          err,
+          error,
         );
-      },
-    );
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
+    serverClockOffsetMsRef.current = 0;
     setRoom(undefined);
     setDenied(false);
     setPptErr(null);
@@ -1393,7 +1396,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
   }, [roomId]);
 
   useEffect(() => {
-    quizStartedAtRef.current = Date.now();
+    quizStartedAtRef.current = performance.now();
     setQuizSelected(null);
     setQuizErr(null);
     setQuizSecondsLeft(pvpChoiceSecRef.current.quiz);
@@ -1419,6 +1422,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
         }
         const d = snap.data() as Omit<GameRoomDocument, "id">;
         const r = { id: snap.id, ...d } as GameRoomDocument;
+        const serverUpdatedAtMs = firestoreTimeToMs(r.atualizadoEm);
+        if (serverUpdatedAtMs != null) {
+          const measuredOffset = serverUpdatedAtMs - Date.now();
+          serverClockOffsetMsRef.current = Math.max(-15_000, Math.min(15_000, measuredOffset));
+        }
         setRoom(r);
         if (uid && r.hostUid !== uid && r.guestUid !== uid) {
           setDenied(true);
@@ -1426,7 +1434,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
           setDenied(false);
         }
       },
-      () => setRoom(null),
+      (error) => {
+        reportClientError("firestore:game_room", error);
+        setRoom(null);
+      },
     );
   }, [roomId, uid]);
 
@@ -1486,7 +1497,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
           {
             roomId,
             answerIndex,
-            responseTimeMs: Math.max(0, Date.now() - quizStartedAtRef.current),
+            responseTimeMs: Math.max(0, performance.now() - quizStartedAtRef.current),
           },
         );
       } catch (e: unknown) {
@@ -1724,12 +1735,13 @@ export function SalaClient({ roomId }: { roomId: string }) {
     }
 
     const syncTimer = () => {
-      const roundDelayMs = actionDeadlineAtMs - Date.now() - pvpChoiceSec.ppt * 1000;
+      const nowMs = Date.now() + serverClockOffsetMsRef.current;
+      const roundDelayMs = actionDeadlineAtMs - nowMs - pvpChoiceSec.ppt * 1000;
       if (roundDelayMs > 0) {
         setSecondsLeft(pvpChoiceSec.ppt);
         return;
       }
-      const remainingMs = Math.max(0, actionDeadlineAtMs - Date.now());
+      const remainingMs = Math.max(0, actionDeadlineAtMs - nowMs);
       const left = Math.max(0, Math.ceil(remainingMs / 1000));
       setSecondsLeft(left);
       if (remainingMs <= 0 && !timeoutFiredRef.current) {
@@ -1766,7 +1778,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
     }
 
     const syncQuizTimer = () => {
-      const remainingMs = Math.max(0, actionDeadlineAtMs - Date.now());
+      const remainingMs = Math.max(
+        0,
+        actionDeadlineAtMs - (Date.now() + serverClockOffsetMsRef.current),
+      );
       const left = Math.max(0, Math.ceil(remainingMs / 1000));
       setQuizSecondsLeft(left);
       if (remainingMs <= 0 && !quizTimeoutFiredRef.current) {
@@ -1796,11 +1811,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
   useEffect(() => {
     reactionStartPerfRef.current = null;
-    setReactionClock(Date.now());
+    setReactionClock(Date.now() + serverClockOffsetMsRef.current);
     if (!showReactionPlay || !reactionGoLiveAtMs) return;
 
     const syncReactionStart = () => {
-      const delta = Date.now() - reactionGoLiveAtMs;
+      const delta = Date.now() + serverClockOffsetMsRef.current - reactionGoLiveAtMs;
       if (delta >= 0 && reactionStartPerfRef.current === null) {
         reactionStartPerfRef.current = performance.now() - delta;
       }
@@ -1808,7 +1823,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
 
     syncReactionStart();
     const tick = window.setInterval(() => {
-      setReactionClock(Date.now());
+      setReactionClock(Date.now() + serverClockOffsetMsRef.current);
       syncReactionStart();
     }, 50);
 
@@ -1839,7 +1854,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
       });
     };
 
-    const waitMs = actionDeadlineAtMs - Date.now();
+    const waitMs = actionDeadlineAtMs - (Date.now() + serverClockOffsetMsRef.current);
     if (waitMs <= 0) {
       runResolve();
       return;
