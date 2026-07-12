@@ -10018,17 +10018,18 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
         tx.get(slotRef(host)),
         tx.get(slotRef(guest)),
       ]);
-      const matchmakingSlotStillActive = (snap: DocumentSnapshot) => {
+      const matchmakingSlotStillActive = (snap: DocumentSnapshot, queueSnap: DocumentSnapshot) => {
         if (!snap.exists) return false;
         const sd = snap.data() as Record<string, unknown>;
         if (String(sd.queueStatus) !== "waiting") return false;
         if (String(sd.gameId) !== gameId) return false;
         const updatedMs = millisFromFirestoreTime(sd.atualizadoEm);
-        if (updatedMs <= 0) return false;
-        return nowForSlots - updatedMs <= MATCHMAKING_SLOT_STALE_MS;
+        if (updatedMs > 0 && nowForSlots - updatedMs <= MATCHMAKING_SLOT_STALE_MS) return true;
+        const joinedMs = millisFromFirestoreTime((queueSnap.data() as Record<string, unknown> | undefined)?.joinedAt);
+        return joinedMs > 0 && nowForSlots - joinedMs <= MATCHMAKING_SLOT_STALE_MS;
       };
-      const hostSlotActive = matchmakingSlotStillActive(hostSlotSnap);
-      const guestSlotActive = matchmakingSlotStillActive(guestSlotSnap);
+      const hostSlotActive = matchmakingSlotStillActive(hostSlotSnap, selfSnap.id === host ? selfSnap : pSnap);
+      const guestSlotActive = matchmakingSlotStillActive(guestSlotSnap, selfSnap.id === guest ? selfSnap : pSnap);
       if (!hostSlotActive || !guestSlotActive) {
         console.warn("joinAutoMatch invalid queue slot", {
           gameId,
