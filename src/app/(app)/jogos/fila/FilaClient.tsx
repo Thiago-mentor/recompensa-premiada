@@ -44,6 +44,7 @@ import {
   runReactionDuelRewardedAdFlow,
 } from "@/services/anuncios/rewardedAdService";
 import { useReducedGameFx } from "@/modules/jogos/hooks/useReducedGameFx";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 function formatCountdownMs(remainingMs: number): string {
   const s = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -123,6 +124,7 @@ export function FilaClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reducedFx = useReducedGameFx();
+  const isOnline = useOnlineStatus();
   const raw = searchParams.get("gameId") || "ppt";
   const initialGame: GameId = isAutoQueueGame(raw) ? raw : "ppt";
   const buscarNaUrl = searchParams.get("buscar") === "1";
@@ -331,7 +333,7 @@ export function FilaClient() {
 
   /** App em segundo plano / aba oculta não renova o slot; sai da fila para não parecer “online” na arena. */
   useEffect(() => {
-    if (phase !== "searching") return;
+    if (phase !== "searching" || !isOnline) return;
 
     let backgroundLeaveTimer: number | null = null;
 
@@ -369,10 +371,10 @@ export function FilaClient() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [phase, gameId, stopSearch]);
+  }, [phase, isOnline, gameId, stopSearch]);
 
   useEffect(() => {
-    if (phase !== "searching") return;
+    if (phase !== "searching" || !isOnline) return;
 
     const auth = getFirebaseAuth();
     const uid = auth.currentUser?.uid;
@@ -442,7 +444,7 @@ export function FilaClient() {
       clearInterval(interval);
       void leaveAutoMatchQueue(gameId).catch(() => undefined);
     };
-  }, [phase, gameId, router]);
+  }, [phase, isOnline, gameId, router]);
 
   const activeLabel = OPTIONS.find((x) => x.id === gameId)?.label ?? gameId;
   const activeCopy = queueCopy(gameId);
@@ -484,10 +486,12 @@ export function FilaClient() {
               Matchmaking
             </p>
             <h1 className="mt-2 bg-gradient-to-r from-white via-cyan-100 to-violet-200 bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl">
-              {phase === "searching" ? "Procurando adversário" : "Fila 1v1"}
+              {!isOnline ? "Conexão perdida" : phase === "searching" ? "Procurando adversário" : "Fila 1v1"}
             </h1>
             <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-white/45">
-              {phase === "searching"
+              {!isOnline
+                ? "A fila será retomada quando a conexão voltar."
+                : phase === "searching"
                 ? `Buscando partida de ${activeLabel.toLowerCase()} em tempo real.`
                 : activeCopy.summary}
             </p>

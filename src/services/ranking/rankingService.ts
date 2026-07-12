@@ -27,6 +27,10 @@ const VICTORY_RANKED_GAME_IDS = new Set<GameId | string>([
   "card_battle",
 ]);
 
+const TOP_RANKING_CACHE_TTL_MS = 30_000;
+const topRankingCache = new Map<string, { expiresAt: number; data: RankingEntry[] }>();
+const topRankingInflight = new Map<string, Promise<RankingEntry[]>>();
+
 function collectionForPeriod(tipo: RankingPeriod): string {
   switch (tipo) {
     case "diario":
@@ -135,7 +139,7 @@ async function fetchVictoryRankedTopFullScan(
 }
 
 /** Subcoleção `entries` em `rankings_* / {periodoChave} / entries / {uid}` */
-export async function fetchTopRanking(
+async function fetchTopRankingUncached(
   tipo: RankingPeriod,
   periodoChave: string,
   topN = 50,
@@ -174,6 +178,39 @@ export async function fetchTopRanking(
   const q = query(entriesRef, orderBy("score", "desc"), limit(topN));
   const snap = await getDocs(q);
   return snap.docs.map((d, i) => ({ ...normalizeEntry(d.id, d.data(), options), posicao: i + 1 }));
+}
+
+/** Cache curto para navegações repetidas; não substitui a atualização em tempo real da sala PvP. */
+export async function fetchTopRanking(
+  tipo: RankingPeriod,
+  periodoChave: string,
+  topN = 50,
+  options?: RankingQueryOptions,
+): Promise<RankingEntry[]> {
+  const key = [
+    tipo,
+    periodoChave,
+    Math.max(1, Math.floor(topN)),
+    options?.scope ?? "global",
+    options?.gameId ?? "",
+  ].join("|");
+  const now = Date.now();
+  const cached = topRankingCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.data;
+
+  const pending = topRankingInflight.get(key);
+  if (pending) return pending;
+
+  const request = fetchTopRankingUncached(tipo, periodoChave, topN, options)
+    .then((data) => {
+      topRankingCache.set(key, { data, expiresAt: Date.now() + TOP_RANKING_CACHE_TTL_MS });
+      return data;
+    })
+    .finally(() => {
+      topRankingInflight.delete(key);
+    });
+  topRankingInflight.set(key, request);
+  return request;
 }
 
 export async function fetchMyRankingEntry(
