@@ -19,6 +19,7 @@ import type { GameRoomDocument } from "@/types/gameRoom";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { callFunction } from "@/services/callables/client";
 import { isAutoQueueGame } from "@/services/matchmaking/autoQueueService";
 import type { GrantedChestSummary } from "@/types/chest";
@@ -1269,6 +1270,7 @@ type SubmitCardBattleResult =
 export function SalaClient({ roomId }: { roomId: string }) {
   const router = useRouter();
   const { user, profile } = useAuth();
+  const isOnline = useOnlineStatus();
   const uid = user?.uid;
   const myDisplayName = profile?.nome || user?.displayName || "Você";
   const [room, setRoom] = useState<GameRoomDocument | null | undefined>(undefined);
@@ -1432,6 +1434,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
     async (hand: PptHand) => {
       const alreadyPicked = !!(uid && room?.pptPickedUids?.includes(uid));
       if (!uid || pptSending || pptSubmitLockedRef.current || alreadyPicked) return;
+      if (!isOnline) {
+        setPptErr("Sem conexão. Aguarde a rede voltar para enviar sua jogada.");
+        return;
+      }
       pptSubmitLockedRef.current = true;
       setHighlightHand(hand);
       setPptErr(null);
@@ -1461,12 +1467,16 @@ export function SalaClient({ roomId }: { roomId: string }) {
         setPptSending(false);
       }
     },
-    [uid, roomId, pptSending, room?.pptPickedUids],
+    [uid, roomId, pptSending, room?.pptPickedUids, isOnline],
   );
 
   const submitQuiz = useCallback(
     async (answerIndex: number) => {
       if (!uid || quizSending || quizTimeoutAnswer) return;
+      if (!isOnline) {
+        setQuizErr("Sem conexão. Aguarde a rede voltar para enviar sua resposta.");
+        return;
+      }
       setQuizSelected(answerIndex);
       setQuizErr(null);
       setQuizSending(true);
@@ -1496,12 +1506,16 @@ export function SalaClient({ roomId }: { roomId: string }) {
         setQuizSending(false);
       }
     },
-    [uid, roomId, quizSending, quizTimeoutAnswer],
+    [uid, roomId, quizSending, quizTimeoutAnswer, isOnline],
   );
 
   const submitReaction = useCallback(
     async (input: { falseStart: boolean; reactionMs: number }) => {
       if (!uid || reactionSending || reactionSubmitLockedRef.current) return;
+      if (!isOnline) {
+        setReactionErr("Sem conexão. Aguarde a rede voltar antes de tocar.");
+        return;
+      }
       reactionSubmitLockedRef.current = true;
       setReactionErr(null);
       setReactionSending(true);
@@ -1526,12 +1540,16 @@ export function SalaClient({ roomId }: { roomId: string }) {
         setReactionSending(false);
       }
     },
-    [uid, roomId, reactionSending],
+    [uid, roomId, reactionSending, isOnline],
   );
 
   const submitCard = useCallback(
     async (cardId: CardBattleCardId) => {
       if (!uid || cardSending || cardSubmitLockedRef.current) return;
+      if (!isOnline) {
+        setCardErr("Sem conexão. Aguarde a rede voltar para escolher uma carta.");
+        return;
+      }
       cardSubmitLockedRef.current = true;
       setCardErr(null);
       setCardSending(true);
@@ -1548,7 +1566,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
         setCardSending(false);
       }
     },
-    [uid, roomId, cardSending],
+    [uid, roomId, cardSending, isOnline],
   );
 
   const matchDone =

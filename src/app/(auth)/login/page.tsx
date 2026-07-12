@@ -91,7 +91,7 @@ export default function LoginPage() {
     <div className="space-y-6">
       <div className="text-center space-y-1">
         <Image
-          src="/branding/rivaliza-logo.png"
+          src="/branding/rivaliza-logo.webp"
           alt="Rivaliza"
           width={112}
           height={112}

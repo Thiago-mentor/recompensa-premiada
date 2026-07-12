@@ -1,11 +1,17 @@
-const CACHE_NAME = "rivaliza-runtime-v2";
+const CACHE_NAME = "rivaliza-runtime-v3";
 const OFFLINE_URL = "/offline.html";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll([OFFLINE_URL, "/branding/rivaliza-mark.png"]))
+      .then((cache) =>
+        cache.addAll([
+          OFFLINE_URL,
+          "/branding/rivaliza-mark.webp",
+          "/roulette-wheel-home.webp",
+        ]),
+      )
       .then(() => self.skipWaiting()),
   );
 });

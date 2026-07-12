@@ -454,7 +454,7 @@ export default function HomePage() {
               ) : null}
               <span className="flex h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-amber-400/35 shadow-[0_0_24px_-6px_rgba(139,92,246,0.65)]">
                 <Image
-                  src="/roulette-wheel-home.png"
+                  src="/roulette-wheel-home.webp"
                   alt=""
                   width={112}
                   height={112}
