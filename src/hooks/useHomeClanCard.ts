@@ -42,11 +42,15 @@ export function useHomeClanCard() {
   }, [membership?.clanId]);
 
   useEffect(() => {
+    const clanId = membership?.clanId;
+    if (!clanId) {
+      return;
+    }
     return subscribeClanRankingBoard(setBoard);
-  }, []);
+  }, [membership?.clanId]);
 
   const membershipLoading = Boolean(uid) && membershipObservedFor !== uid;
-  const activeMembership = membershipObservedFor === uid ? membership : null;
+  const activeMembership = uid && membershipObservedFor === uid ? membership : null;
   const activeClanId = activeMembership?.clanId;
   const clanLoading = Boolean(activeClanId) && loadedClanId !== activeClanId;
   const activeClan = loadedClanId === activeClanId ? clan : null;
