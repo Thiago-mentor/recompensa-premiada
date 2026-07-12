@@ -22,6 +22,7 @@ import {
 } from "@/lib/ranking/prizes";
 import { fetchRankingPrizeConfig } from "@/services/ranking/rankingConfigService";
 import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
+import { WEEKLY_RANKING_SCHEDULE } from "@/utils/date";
 import { Coins, Crown, Gamepad2, Save, Sparkles, Trophy } from "lucide-react";
 
 const ECONOMY_ID = "economy";
@@ -321,6 +322,25 @@ export default function AdminRankingsPage() {
         </div>
       </div>
 
+      <section className="rounded-[1.6rem] border border-amber-300/20 bg-amber-400/[0.06] p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-200/75">
+              Calendário semanal
+            </p>
+            <h2 className="mt-2 text-xl font-black text-white">Abertura e fechamento do ranking</h2>
+            <p className="mt-1 text-sm text-slate-300/75">
+              O período semanal usa o horário oficial do app e reinicia automaticamente a cada domingo.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <ScheduleValue label="Abre" value={`${WEEKLY_RANKING_SCHEDULE.openDay}, ${WEEKLY_RANKING_SCHEDULE.openTime}`} />
+            <ScheduleValue label="Fecha" value={`${WEEKLY_RANKING_SCHEDULE.closeDay}, ${WEEKLY_RANKING_SCHEDULE.closeTime}`} />
+            <ScheduleValue label="Fuso" value="Brasília" />
+          </div>
+        </div>
+      </section>
+
       <section className="space-y-5 rounded-[1.8rem] border border-cyan-400/20 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,0.16),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(2,6,23,0.94))] p-5 shadow-[0_0_56px_-26px_rgba(34,211,238,0.32)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -607,6 +627,15 @@ function SummaryCard({
       </span>
       <p className="mt-3 text-lg font-semibold text-white">{value}</p>
       <p className="mt-1 text-xs text-white/45">{note}</p>
+    </div>
+  );
+}
+
+function ScheduleValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-amber-200/15 bg-black/20 px-3 py-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-100/55">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-white">{value}</p>
     </div>
   );
 }

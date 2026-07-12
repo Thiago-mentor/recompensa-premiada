@@ -2546,11 +2546,8 @@ function dailyKey(d = new Date()) {
 function weeklyKey(d = new Date()) {
   const parts = appDateTimeParts(d);
   const t = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-  const day = t.getUTCDay() || 7;
-  t.setUTCDate(t.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((+t - +yearStart) / 86400000 + 1) / 7);
-  return `${t.getUTCFullYear()}-W${pad2(week)}`;
+  t.setUTCDate(t.getUTCDate() - t.getUTCDay());
+  return `${t.getUTCFullYear()}-W${pad2(t.getUTCMonth() + 1)}${pad2(t.getUTCDate())}`;
 }
 function monthlyKey(d = new Date()) {
   const parts = appDateTimeParts(d);
@@ -13139,8 +13136,7 @@ function weeklyRankingGameEntryRef(periodKey: string, gameId: ClanShowcaseGameId
 function weeklyPeriodStartTimestamp(d = new Date()) {
   const parts = appDateTimeParts(d);
   const t = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-  const day = t.getUTCDay() || 7;
-  t.setUTCDate(t.getUTCDate() - day + 1);
+  t.setUTCDate(t.getUTCDate() - t.getUTCDay());
   return Timestamp.fromMillis(
     appDateToUtcMs({
       year: t.getUTCFullYear(),

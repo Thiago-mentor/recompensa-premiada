@@ -1,5 +1,13 @@
 export const APP_PERIOD_TIME_ZONE = "America/Sao_Paulo";
 
+export const WEEKLY_RANKING_SCHEDULE = {
+  openDay: "Domingo",
+  openTime: "00:00:00",
+  closeDay: "Sábado",
+  closeTime: "23:59:59",
+  timeZone: APP_PERIOD_TIME_ZONE,
+} as const;
+
 type AppDateTimeParts = {
   year: number;
   month: number;
@@ -61,15 +69,12 @@ export function getDailyPeriodKey(d = new Date()): string {
   return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
 }
 
-/** Semana ISO do app usando a data local do fuso `America/Sao_Paulo`. */
+/** Semana do app de domingo a sábado usando a data local do fuso do app. */
 export function getWeeklyPeriodKey(d = new Date()): string {
   const parts = getAppDateTimeParts(d);
   const t = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-  const day = t.getUTCDay() || 7;
-  t.setUTCDate(t.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((+t - +yearStart) / 86400000 + 1) / 7);
-  return `${t.getUTCFullYear()}-W${pad2(week)}`;
+  t.setUTCDate(t.getUTCDate() - t.getUTCDay());
+  return `${t.getUTCFullYear()}-W${pad2(t.getUTCMonth() + 1)}${pad2(t.getUTCDate())}`;
 }
 
 /** Mês do app (YYYY-MM) no fuso fixo `America/Sao_Paulo`. */
@@ -90,7 +95,7 @@ export function getNextDailyPeriodStartMs(d = new Date()): number {
 }
 
 /**
- * Próximo instante em que a chave `getWeeklyPeriodKey` muda (alinhado a meia-noites no fuso do app).
+ * Próximo domingo às 00:00 no fuso do app, quando a chave semanal muda.
  * Usado para cronômetro até “zerar” o ranking semanal na UI.
  */
 export function getNextWeeklyPeriodStartMs(d = new Date()): number {
