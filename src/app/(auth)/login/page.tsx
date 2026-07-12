@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { loginEmailSchema } from "@/lib/validations/auth";
 import { loginWithEmail, loginWithGoogle, recuperarSenha } from "@/services/auth/authService";
@@ -89,6 +90,13 @@ export default function LoginPage() {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-1">
+        <Image
+          src="/branding/rivaliza-logo.png"
+          alt="Rivaliza"
+          width={112}
+          height={112}
+          className="mx-auto mb-3 h-28 w-28 rounded-3xl object-cover shadow-[0_0_36px_rgba(34,211,238,0.24)]"
+        />
         <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-300 to-fuchsia-300 bg-clip-text text-transparent">
           Rivaliza
         </h1>
