@@ -35,7 +35,9 @@ function formatRankingDelta(match: MatchRecord) {
   if (!isArenaVictoryGame(gameId)) {
     return `score ${match.score}`;
   }
-  return match.resultado === "vitoria" ? "vitória +1" : "vitória +0";
+  if (match.resultado === "vitoria") return "vitória +1";
+  if (match.resultado === "empate") return "empate +0";
+  return "derrota";
 }
 
 export function MatchHistoryList({ className }: { className?: string }) {
