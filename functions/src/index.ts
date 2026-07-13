@@ -649,6 +649,18 @@ function readQuizTargetScore(data: Record<string, unknown> | undefined): number 
   return Math.max(QUIZ_MATCH_TARGET_POINTS, Math.floor(v));
 }
 
+function readQuizQuestionHistory(data: Record<string, unknown>, currentQuestionId: string): string[] {
+  const raw = Array.isArray(data.quizAskedQuestionIds)
+    ? data.quizAskedQuestionIds.map((id) => String(id)).filter(Boolean)
+    : [];
+  if (currentQuestionId && !raw.includes(currentQuestionId)) raw.push(currentQuestionId);
+  return raw.slice(-100);
+}
+
+function appendQuizQuestionHistory(history: string[], questionId: string): string[] {
+  return [...history, questionId].filter((id, index, list) => list.indexOf(id) === index).slice(-100);
+}
+
 /** Com 0 duelos e prazo vencido: recarrega 3 e remove o campo. */
 async function ensurePptChargesRefilledInTx(
   tx: Transaction,
@@ -10225,6 +10237,7 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
               quizQuestionId: initialQuizQuestion.id,
               quizQuestionText: initialQuizQuestion.q,
               quizOptions: initialQuizQuestion.options,
+              quizAskedQuestionIds: [initialQuizQuestion.id],
               quizAnsweredUids: [],
             }
           : {}),
@@ -10954,7 +10967,9 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
 
     tx.delete(otherAnswerRef);
 
-    const nextQuestion = await pickQuizQuestion(Math.random, questionId);
+    const quizQuestionHistory = readQuizQuestionHistory(room, questionId);
+    const nextQuestion = await pickQuizQuestion(Math.random, quizQuestionHistory);
+    const nextQuizQuestionHistory = appendQuizQuestionHistory(quizQuestionHistory, nextQuestion.id);
     tx.update(roomRef, {
       status: "playing",
       phase: "quiz_playing",
@@ -10964,6 +10979,7 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
       quizQuestionId: nextQuestion.id,
       quizQuestionText: nextQuestion.q,
       quizOptions: nextQuestion.options,
+      quizAskedQuestionIds: nextQuizQuestionHistory,
       quizAnsweredUids: [],
       quizLastHostAnswerIndex: hostAnswerIndex,
       quizLastGuestAnswerIndex: guestAnswerIndex,
@@ -11430,7 +11446,9 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           });
           return { kind: "void" as const, gameId };
         }
-        const nextQuestion = await pickQuizQuestion(Math.random, questionId);
+        const quizQuestionHistory = readQuizQuestionHistory(r, questionId);
+        const nextQuestion = await pickQuizQuestion(Math.random, quizQuestionHistory);
+        const nextQuizQuestionHistory = appendQuizQuestionHistory(quizQuestionHistory, nextQuestion.id);
         tx.update(roomRef, {
           status: "playing",
           phase: "quiz_playing",
@@ -11438,6 +11456,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
           quizQuestionId: nextQuestion.id,
           quizQuestionText: nextQuestion.q,
           quizOptions: nextQuestion.options,
+          quizAskedQuestionIds: nextQuizQuestionHistory,
           quizAnsweredUids: [],
           quizLastHostAnswerIndex: null,
           quizLastGuestAnswerIndex: null,
@@ -11495,7 +11514,9 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         tx.delete(answersColl.doc(guestUid));
         return { kind: "quiz_match" as const, ...out, hostResponseMs: hostResponse, guestResponseMs: guestResponse };
       }
-      const nextQuestion = await pickQuizQuestion(Math.random, questionId);
+      const quizQuestionHistory = readQuizQuestionHistory(r, questionId);
+      const nextQuestion = await pickQuizQuestion(Math.random, quizQuestionHistory);
+      const nextQuizQuestionHistory = appendQuizQuestionHistory(quizQuestionHistory, nextQuestion.id);
       tx.delete(answersColl.doc(hostUid));
       tx.delete(answersColl.doc(guestUid));
       tx.update(roomRef, {
@@ -11507,6 +11528,7 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         quizQuestionId: nextQuestion.id,
         quizQuestionText: nextQuestion.q,
         quizOptions: nextQuestion.options,
+        quizAskedQuestionIds: nextQuizQuestionHistory,
         quizAnsweredUids: [],
         quizLastHostAnswerIndex: hostAnswerIndex,
         quizLastGuestAnswerIndex: guestAnswerIndex,

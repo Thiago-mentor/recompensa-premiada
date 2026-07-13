@@ -526,6 +526,17 @@ function readQuizTargetScore(data) {
         return QUIZ_MATCH_TARGET_POINTS;
     return Math.max(QUIZ_MATCH_TARGET_POINTS, Math.floor(v));
 }
+function readQuizQuestionHistory(data, currentQuestionId) {
+    const raw = Array.isArray(data.quizAskedQuestionIds)
+        ? data.quizAskedQuestionIds.map((id) => String(id)).filter(Boolean)
+        : [];
+    if (currentQuestionId && !raw.includes(currentQuestionId))
+        raw.push(currentQuestionId);
+    return raw.slice(-100);
+}
+function appendQuizQuestionHistory(history, questionId) {
+    return [...history, questionId].filter((id, index, list) => list.indexOf(id) === index).slice(-100);
+}
 /** Com 0 duelos e prazo vencido: recarrega 3 e remove o campo. */
 async function ensurePptChargesRefilledInTx(tx, userRef, snap) {
     if (!snap.exists)
@@ -8250,6 +8261,7 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
                         quizQuestionId: initialQuizQuestion.id,
                         quizQuestionText: initialQuizQuestion.q,
                         quizOptions: initialQuizQuestion.options,
+                        quizAskedQuestionIds: [initialQuizQuestion.id],
                         quizAnsweredUids: [],
                     }
                     : {}),
@@ -8858,7 +8870,9 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
             };
         }
         tx.delete(otherAnswerRef);
-        const nextQuestion = await (0, quizQuestions_1.pickQuizQuestion)(Math.random, questionId);
+        const quizQuestionHistory = readQuizQuestionHistory(room, questionId);
+        const nextQuestion = await (0, quizQuestions_1.pickQuizQuestion)(Math.random, quizQuestionHistory);
+        const nextQuizQuestionHistory = appendQuizQuestionHistory(quizQuestionHistory, nextQuestion.id);
         tx.update(roomRef, {
             status: "playing",
             phase: "quiz_playing",
@@ -8868,6 +8882,7 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
             quizQuestionId: nextQuestion.id,
             quizQuestionText: nextQuestion.q,
             quizOptions: nextQuestion.options,
+            quizAskedQuestionIds: nextQuizQuestionHistory,
             quizAnsweredUids: [],
             quizLastHostAnswerIndex: hostAnswerIndex,
             quizLastGuestAnswerIndex: guestAnswerIndex,
@@ -9223,7 +9238,9 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                     });
                     return { kind: "void", gameId };
                 }
-                const nextQuestion = await (0, quizQuestions_1.pickQuizQuestion)(Math.random, questionId);
+                const quizQuestionHistory = readQuizQuestionHistory(r, questionId);
+                const nextQuestion = await (0, quizQuestions_1.pickQuizQuestion)(Math.random, quizQuestionHistory);
+                const nextQuizQuestionHistory = appendQuizQuestionHistory(quizQuestionHistory, nextQuestion.id);
                 tx.update(roomRef, {
                     status: "playing",
                     phase: "quiz_playing",
@@ -9231,6 +9248,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                     quizQuestionId: nextQuestion.id,
                     quizQuestionText: nextQuestion.q,
                     quizOptions: nextQuestion.options,
+                    quizAskedQuestionIds: nextQuizQuestionHistory,
                     quizAnsweredUids: [],
                     quizLastHostAnswerIndex: null,
                     quizLastGuestAnswerIndex: null,
@@ -9268,7 +9286,9 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 tx.delete(answersColl.doc(guestUid));
                 return { kind: "quiz_match", ...out, hostResponseMs: hostResponse, guestResponseMs: guestResponse };
             }
-            const nextQuestion = await (0, quizQuestions_1.pickQuizQuestion)(Math.random, questionId);
+            const quizQuestionHistory = readQuizQuestionHistory(r, questionId);
+            const nextQuestion = await (0, quizQuestions_1.pickQuizQuestion)(Math.random, quizQuestionHistory);
+            const nextQuizQuestionHistory = appendQuizQuestionHistory(quizQuestionHistory, nextQuestion.id);
             tx.delete(answersColl.doc(hostUid));
             tx.delete(answersColl.doc(guestUid));
             tx.update(roomRef, {
@@ -9280,6 +9300,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 quizQuestionId: nextQuestion.id,
                 quizQuestionText: nextQuestion.q,
                 quizOptions: nextQuestion.options,
+                quizAskedQuestionIds: nextQuizQuestionHistory,
                 quizAnsweredUids: [],
                 quizLastHostAnswerIndex: hostAnswerIndex,
                 quizLastGuestAnswerIndex: guestAnswerIndex,

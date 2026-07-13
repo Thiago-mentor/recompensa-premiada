@@ -54,6 +54,8 @@ export interface GameRoomDocument {
   quizQuestionId?: string;
   quizQuestionText?: string;
   quizOptions?: string[];
+  /** IDs já usadas nesta partida; evita repetição antes de esgotar o banco. */
+  quizAskedQuestionIds?: string[];
   /** UIDs que já responderam a questão atual. */
   quizAnsweredUids?: string[];
   quizLastHostAnswerIndex?: number | null;

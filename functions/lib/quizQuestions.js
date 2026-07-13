@@ -87,10 +87,13 @@ function shuffleQuizPool(arr, rng) {
     }
     return out;
 }
-async function pickQuizQuestion(rng = Math.random, excludeId) {
+async function pickQuizQuestion(rng = Math.random, excludeIds) {
     const questions = await loadQuizQuestionsFromFirestore();
-    const pool = questions.filter((q) => q.id !== excludeId);
-    const raw = pool.length ? pool : questions;
+    const excluded = new Set((Array.isArray(excludeIds) ? excludeIds : excludeIds ? [excludeIds] : []).map(String));
+    const pool = questions.filter((q) => !excluded.has(q.id));
+    const lastExcluded = Array.isArray(excludeIds) ? excludeIds[excludeIds.length - 1] : excludeIds;
+    const fallbackPool = questions.filter((q) => q.id !== lastExcluded);
+    const raw = pool.length ? pool : fallbackPool.length ? fallbackPool : questions;
     /** Evita ordem fixa do Firestore / lista estática; sorteio continua respeitando `weight`. */
     const source = shuffleQuizPool(raw, rng);
     const totalWeight = source.reduce((sum, question) => sum + Math.max(1, question.weight ?? 1), 0);
