@@ -3825,6 +3825,7 @@ async function grantRewardedAdPlacement(input: {
   sessionId?: string | null;
   providerTransactionId?: string | null;
   rewardMetadata?: Record<string, unknown>;
+  bypassDailyLimit?: boolean;
 }): Promise<RewardedAdGrantResult> {
   const economy = await getEconomy();
   if (input.placementId === CHEST_SPEEDUP_PLACEMENT_ID) {
@@ -3854,7 +3855,7 @@ async function grantRewardedAdPlacement(input: {
     const currentDayKey = String(u.rewardedAdsDayKey || "");
     const currentCount =
       currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
-    if (currentCount >= economy.limiteDiarioAds) {
+    if (!input.bypassDailyLimit && currentCount >= economy.limiteDiarioAds) {
       throw new HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
     }
 
@@ -3887,6 +3888,7 @@ async function grantRewardedAdPlacement(input: {
       sessionId: input.sessionId ?? null,
       providerTransactionId: input.providerTransactionId ?? null,
       metadata: input.rewardMetadata ?? null,
+      testMode: input.bypassDailyLimit === true,
       criadoEm: FieldValue.serverTimestamp(),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
@@ -6707,6 +6709,7 @@ export const processRewardedAd = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
     mock: isMock,
     origin: "callable",
     tokenHash,
+    bypassDailyLimit: isMock && request.auth?.token?.admin === true,
   });
 });
 

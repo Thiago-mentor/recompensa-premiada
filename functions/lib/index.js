@@ -2957,7 +2957,7 @@ async function grantRewardedAdPlacement(input) {
             throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
         const currentDayKey = String(u.rewardedAdsDayKey || "");
         const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
-        if (currentCount >= economy.limiteDiarioAds) {
+        if (!input.bypassDailyLimit && currentCount >= economy.limiteDiarioAds) {
             throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
         }
         const userPatch = {
@@ -2987,6 +2987,7 @@ async function grantRewardedAdPlacement(input) {
             sessionId: input.sessionId ?? null,
             providerTransactionId: input.providerTransactionId ?? null,
             metadata: input.rewardMetadata ?? null,
+            testMode: input.bypassDailyLimit === true,
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
@@ -5309,6 +5310,7 @@ exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         mock: isMock,
         origin: "callable",
         tokenHash,
+        bypassDailyLimit: isMock && request.auth?.token?.admin === true,
     });
 });
 exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
