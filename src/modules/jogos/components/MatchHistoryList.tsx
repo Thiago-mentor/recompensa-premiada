@@ -30,6 +30,12 @@ function isArenaVictoryGame(id: string) {
   return id === "ppt" || id === "quiz" || id === "reaction_tap";
 }
 
+const ARENA_GAME_IDS = new Set(["ppt", "quiz", "reaction_tap", "card_battle"]);
+
+function isArenaHistoryMatch(match: MatchRecord) {
+  return ARENA_GAME_IDS.has(match.gameType ?? match.gameId);
+}
+
 function formatRankingDelta(match: MatchRecord) {
   const gameId = match.gameType ?? match.gameId;
   if (!isArenaVictoryGame(gameId)) {
@@ -47,9 +53,11 @@ export function MatchHistoryList({ className }: { className?: string }) {
   useEffect(() => {
     if (!user?.uid) return;
     let cancelled = false;
-    void fetchUserMatchHistory(user.uid, 15)
+    void fetchUserMatchHistory(user.uid, 45)
       .then((items) => {
-        if (!cancelled) setRows(items);
+        if (!cancelled) {
+          setRows(items.filter(isArenaHistoryMatch).slice(0, 15));
+        }
       })
       .catch(() => {
         if (!cancelled) setRows([]);
