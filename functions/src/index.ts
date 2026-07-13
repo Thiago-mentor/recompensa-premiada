@@ -6730,6 +6730,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
           allowMockForAdmin: request.auth?.token?.admin === true,
         })
       : { token: "", isMock: false };
+  const adminWebTestMode = isMock && request.auth?.token?.admin === true;
   const adEventId =
     mode === "daily_ad" ? hashId(uid, ROULETTE_DAILY_SPIN_PLACEMENT_ID, today, completionToken) : "";
   const adRef = adEventId ? db.doc(`${COL.adEvents}/${adEventId}`) : null;
@@ -6748,7 +6749,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
 
     let paidCost: { amount: number; currency: RewardCurrency; balanceAfter: number } | null = null;
     if (mode === "daily_ad") {
-      if (String(u.rouletteDailyAdSpinDayKey || "") === today) {
+      if (!adminWebTestMode && String(u.rouletteDailyAdSpinDayKey || "") === today) {
         throw new HttpsError("already-exists", "Você já usou o giro diário por anúncio hoje.");
       }
       if (adSnap?.exists) {
@@ -6757,7 +6758,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
       const currentDayKey = String(u.rewardedAdsDayKey || "");
       const currentCount =
         currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
-      if (currentCount >= economyConfig.limiteDiarioAds) {
+      if (!adminWebTestMode && currentCount >= economyConfig.limiteDiarioAds) {
         throw new HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
       }
       userPatch.rewardedAdsDayKey = today;
@@ -6772,6 +6773,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
           placementId: ROULETTE_DAILY_SPIN_PLACEMENT_ID,
           rewardKind: "roulette_daily_spin",
           mock: isMock,
+          testMode: adminWebTestMode,
           tokenHash: adEventId,
           origin: "callable",
           criadoEm: FieldValue.serverTimestamp(),

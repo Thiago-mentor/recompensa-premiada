@@ -559,14 +559,16 @@ export type RouletteAdDisplayResult =
   | { status: "granted"; completionToken?: string; message: string }
   | { status: "failed"; message: string };
 
-export async function processRouletteDailyAdDisplay(): Promise<RouletteAdDisplayResult> {
-  const adResult = await runRewardedAdDisplay(ROULETTE_DAILY_SPIN_PLACEMENT_ID);
+export async function processRouletteDailyAdDisplay(
+  options?: RewardedAdFlowOptions,
+): Promise<RouletteAdDisplayResult> {
+  const adResult = await runRewardedAdDisplay(ROULETTE_DAILY_SPIN_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return { status: "failed", message: displayFailureMessage(adResult) };
   }
   return {
     status: "granted",
-    completionToken: completionTokenForGrantedAd(adResult),
+    completionToken: completionTokenForGrantedAd(adResult, options),
     message: "Anúncio concluído. Girando roleta...",
   };
 }

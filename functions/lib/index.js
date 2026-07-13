@@ -5328,6 +5328,7 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
             allowMockForAdmin: request.auth?.token?.admin === true,
         })
         : { token: "", isMock: false };
+    const adminWebTestMode = isMock && request.auth?.token?.admin === true;
     const adEventId = mode === "daily_ad" ? hashId(uid, ROULETTE_DAILY_SPIN_PLACEMENT_ID, today, completionToken) : "";
     const adRef = adEventId ? db.doc(`${COL.adEvents}/${adEventId}`) : null;
     const matchRef = db.collection(COL.matches).doc();
@@ -5344,7 +5345,7 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
         };
         let paidCost = null;
         if (mode === "daily_ad") {
-            if (String(u.rouletteDailyAdSpinDayKey || "") === today) {
+            if (!adminWebTestMode && String(u.rouletteDailyAdSpinDayKey || "") === today) {
                 throw new https_1.HttpsError("already-exists", "Você já usou o giro diário por anúncio hoje.");
             }
             if (adSnap?.exists) {
@@ -5352,7 +5353,7 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
             }
             const currentDayKey = String(u.rewardedAdsDayKey || "");
             const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
-            if (currentCount >= economyConfig.limiteDiarioAds) {
+            if (!adminWebTestMode && currentCount >= economyConfig.limiteDiarioAds) {
                 throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
             }
             userPatch.rewardedAdsDayKey = today;
@@ -5367,6 +5368,7 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
                     placementId: ROULETTE_DAILY_SPIN_PLACEMENT_ID,
                     rewardKind: "roulette_daily_spin",
                     mock: isMock,
+                    testMode: adminWebTestMode,
                     tokenHash: adEventId,
                     origin: "callable",
                     criadoEm: firestore_2.FieldValue.serverTimestamp(),

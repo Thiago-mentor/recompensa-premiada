@@ -18,6 +18,8 @@ import { RewardToast } from "../../components/RewardToast";
 import { ChevronLeft, Clock3, Coins, History, Play } from "lucide-react";
 import type { ChestRarity, GrantedChestSummary } from "@/types/chest";
 import { useAuth } from "@/hooks/useAuth";
+import { isNativeAndroidPlatform } from "@/lib/anuncios/admobConfig";
+import { webRewardedAdTestModeEnabled } from "@/lib/firebase/config";
 import {
   APP_SCHEDULE_TIMEZONE,
   appDailyKey,
@@ -62,7 +64,7 @@ function RouletteChestGlyph({ cx, cy, tint }: { cx: number; cy: number; tint: st
 }
 
 export function RoletaGameScreen() {
-  const { user, profile, profileLoading, refreshProfile } = useAuth();
+  const { user, profile, profileLoading, refreshProfile, isAdmin } = useAuth();
   const reducedFx = useReducedGameFx();
   const [spinSyncMs, setSpinSyncMs] = useState(() => Date.now());
   const [spinning, setSpinning] = useState(false);
@@ -97,7 +99,11 @@ export function RoletaGameScreen() {
 
   const todayDailyKey = appDailyKey();
   const dailySpinKey = String(profile?.rouletteDailyAdSpinDayKey ?? "").trim();
-  const dailyFreeUsed = Boolean(user && dailySpinKey !== "" && dailySpinKey === todayDailyKey);
+  const webTestMode =
+    isAdmin && webRewardedAdTestModeEnabled && !isNativeAndroidPlatform();
+  const dailyFreeUsed = Boolean(
+    user && !webTestMode && dailySpinKey !== "" && dailySpinKey === todayDailyKey,
+  );
   const dailyBlockedUnknown = Boolean(user && (profileLoading || !profile));
 
   useEffect(() => {
@@ -170,7 +176,10 @@ export function RoletaGameScreen() {
       return;
     }
 
-    const result = mode === "daily_ad" ? await runRouletteDailyAdSpin() : await runRoulettePaidSpin();
+    const result =
+      mode === "daily_ad"
+        ? await runRouletteDailyAdSpin({ webTestMode })
+        : await runRoulettePaidSpin();
 
     if (!result.ok) {
       setBusy(false);

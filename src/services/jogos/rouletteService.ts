@@ -6,6 +6,7 @@ import { callFunction } from "@/services/callables/client";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import {
   processRouletteDailyAdDisplay,
+  type RewardedAdFlowOptions,
   type RouletteAdDisplayResult,
 } from "@/services/anuncios/rewardedAdService";
 import type { GrantedChestSummary } from "@/types/chest";
@@ -82,8 +83,10 @@ async function processRouletteSpinOnServer(input: {
   }
 }
 
-export async function runRouletteDailyAdSpin(): Promise<RouletteSpinResult> {
-  const ad: RouletteAdDisplayResult = await processRouletteDailyAdDisplay();
+export async function runRouletteDailyAdSpin(
+  options?: RewardedAdFlowOptions,
+): Promise<RouletteSpinResult> {
+  const ad: RouletteAdDisplayResult = await processRouletteDailyAdDisplay(options);
   if (ad.status !== "granted") {
     return { ok: false, error: ad.message };
   }
