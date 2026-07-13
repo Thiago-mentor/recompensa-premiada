@@ -107,7 +107,7 @@ function formatCompactBalance(value: number): string {
 }
 
 export default function HomePage() {
-  const { user, profile, profileLoading } = useAuth();
+  const { user, profile, profileLoading, isAdmin } = useAuth();
   const { ranking, refreshRanking } = useHomeDashboard();
   const dailyMissionCallout = useDailyMissionCalloutModel();
   const {
@@ -271,7 +271,7 @@ export default function HomePage() {
     setBanner(null);
     setGrantedChestNotice(null);
     setAdLoading(true);
-    const res = await runRewardedAdFlow();
+    const res = await runRewardedAdFlow({ webTestMode: isAdmin });
     setAdLoading(false);
     setBanner({
       tone: res.ok ? "success" : "error",

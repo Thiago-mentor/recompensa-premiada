@@ -39,3 +39,8 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: NEXT_PUBLIC_WEB_REWARDED_AD_TEST_MODE
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

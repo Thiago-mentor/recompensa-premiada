@@ -2868,7 +2868,7 @@ async function evaluateReferralForUser(uid) {
         await upsertReferralRankingEntry(tx, inviterUid, String(inviterData.nome || "Jogador"), inviterData.foto ?? null, { pending: -1, valid: 1, rewarded: 1, rewards: inviterReward.amount });
     });
 }
-function parseRewardedAdCompletionToken(raw) {
+function parseRewardedAdCompletionToken(raw, options) {
     const token = String(raw ?? "").trim();
     if (!token) {
         throw new https_1.HttpsError("invalid-argument", "Token de conclusão do anúncio é obrigatório.");
@@ -2878,7 +2878,8 @@ function parseRewardedAdCompletionToken(raw) {
     }
     const isMock = token.startsWith(REWARDED_AD_MOCK_PREFIX);
     const isNativeAndroid = token.startsWith(REWARDED_AD_NATIVE_ANDROID_PREFIX);
-    if (isMock && !rewardAdMockAllowed) {
+    const isLocalMockEnvironment = process.env.FUNCTIONS_EMULATOR === "true" || Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
+    if (isMock && (!rewardAdMockAllowed || (!isLocalMockEnvironment && options?.allowMockForAdmin !== true))) {
         throw new https_1.HttpsError("failed-precondition", "Mock de anúncio desabilitado neste ambiente.");
     }
     if (!isMock && !isNativeAndroid) {
@@ -5299,7 +5300,7 @@ exports.processRewardedAd = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
     if (!ALLOWED_REWARDED_AD_PLACEMENTS.has(placementId)) {
         throw new https_1.HttpsError("invalid-argument", "placementId inválido.");
     }
-    const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken);
+    const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken, { allowMockForAdmin: request.auth?.token?.admin === true });
     const tokenHash = hashId(uid, placementId, completionToken);
     return grantRewardedAdPlacement({
         uid,
@@ -5321,7 +5322,9 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
     const userRef = db.doc(`${COL.users}/${uid}`);
     const today = dailyKey();
     const { token: completionToken, isMock } = mode === "daily_ad"
-        ? parseRewardedAdCompletionToken(request.data?.mockCompletionToken)
+        ? parseRewardedAdCompletionToken(request.data?.mockCompletionToken, {
+            allowMockForAdmin: request.auth?.token?.admin === true,
+        })
         : { token: "", isMock: false };
     const adEventId = mode === "daily_ad" ? hashId(uid, ROULETTE_DAILY_SPIN_PLACEMENT_ID, today, completionToken) : "";
     const adRef = adEventId ? db.doc(`${COL.adEvents}/${adEventId}`) : null;
@@ -6100,7 +6103,7 @@ exports.speedUpChestUnlock = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
     if (!chestId) {
         throw new https_1.HttpsError("invalid-argument", "chestId obrigatório.");
     }
-    const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken);
+    const { token: completionToken, isMock } = parseRewardedAdCompletionToken(request.data?.mockCompletionToken, { allowMockForAdmin: request.auth?.token?.admin === true });
     const config = await getChestSystemConfig();
     if (!config.enabled) {
         throw new https_1.HttpsError("failed-precondition", "Sistema de baús desativado.");
@@ -7127,7 +7130,9 @@ exports.purchaseRaffleNumbers = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const previewEntryMode = previewRaffle.entryMode;
     let adCompletionToken = null;
     if (completionTokenRaw !== undefined && completionTokenRaw !== null && String(completionTokenRaw).trim()) {
-        const parsed = parseRewardedAdCompletionToken(completionTokenRaw);
+        const parsed = parseRewardedAdCompletionToken(completionTokenRaw, {
+            allowMockForAdmin: request.auth?.token?.admin === true,
+        });
         adCompletionToken = parsed.token;
     }
     if (previewEntryMode === "ticket") {

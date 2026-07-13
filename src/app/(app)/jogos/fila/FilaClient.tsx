@@ -45,6 +45,7 @@ import {
 } from "@/services/anuncios/rewardedAdService";
 import { useReducedGameFx } from "@/modules/jogos/hooks/useReducedGameFx";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useAuth } from "@/hooks/useAuth";
 
 function formatCountdownMs(remainingMs: number): string {
   const s = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -125,6 +126,7 @@ export function FilaClient() {
   const searchParams = useSearchParams();
   const reducedFx = useReducedGameFx();
   const isOnline = useOnlineStatus();
+  const { isAdmin } = useAuth();
   const raw = searchParams.get("gameId") || "ppt";
   const initialGame: GameId = isAutoQueueGame(raw) ? raw : "ppt";
   const buscarNaUrl = searchParams.get("buscar") === "1";
@@ -580,10 +582,10 @@ export function FilaClient() {
                         try {
                           const r =
                             gameId === "ppt"
-                              ? await runPptDuelRewardedAdFlow()
+                              ? await runPptDuelRewardedAdFlow({ webTestMode: isAdmin })
                               : gameId === "quiz"
-                                ? await runQuizDuelRewardedAdFlow()
-                                : await runReactionDuelRewardedAdFlow();
+                                ? await runQuizDuelRewardedAdFlow({ webTestMode: isAdmin })
+                                : await runReactionDuelRewardedAdFlow({ webTestMode: isAdmin });
                           if (r.ok) {
                             setError(null);
                           } else {

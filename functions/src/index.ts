@@ -3718,7 +3718,10 @@ async function evaluateReferralForUser(uid: string): Promise<void> {
   });
 }
 
-function parseRewardedAdCompletionToken(raw: unknown): { token: string; isMock: boolean } {
+function parseRewardedAdCompletionToken(
+  raw: unknown,
+  options?: { allowMockForAdmin?: boolean },
+): { token: string; isMock: boolean } {
   const token = String(raw ?? "").trim();
   if (!token) {
     throw new HttpsError("invalid-argument", "Token de conclusão do anúncio é obrigatório.");
@@ -3728,7 +3731,9 @@ function parseRewardedAdCompletionToken(raw: unknown): { token: string; isMock: 
   }
   const isMock = token.startsWith(REWARDED_AD_MOCK_PREFIX);
   const isNativeAndroid = token.startsWith(REWARDED_AD_NATIVE_ANDROID_PREFIX);
-  if (isMock && !rewardAdMockAllowed) {
+  const isLocalMockEnvironment =
+    process.env.FUNCTIONS_EMULATOR === "true" || Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
+  if (isMock && (!rewardAdMockAllowed || (!isLocalMockEnvironment && options?.allowMockForAdmin !== true))) {
     throw new HttpsError("failed-precondition", "Mock de anúncio desabilitado neste ambiente.");
   }
   if (!isMock && !isNativeAndroid) {
@@ -6692,6 +6697,7 @@ export const processRewardedAd = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   }
   const { token: completionToken, isMock } = parseRewardedAdCompletionToken(
     request.data?.mockCompletionToken,
+    { allowMockForAdmin: request.auth?.token?.admin === true },
   );
   const tokenHash = hashId(uid, placementId, completionToken);
   return grantRewardedAdPlacement({
@@ -6717,7 +6723,9 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
   const today = dailyKey();
   const { token: completionToken, isMock } =
     mode === "daily_ad"
-      ? parseRewardedAdCompletionToken(request.data?.mockCompletionToken)
+      ? parseRewardedAdCompletionToken(request.data?.mockCompletionToken, {
+          allowMockForAdmin: request.auth?.token?.admin === true,
+        })
       : { token: "", isMock: false };
   const adEventId =
     mode === "daily_ad" ? hashId(uid, ROULETTE_DAILY_SPIN_PLACEMENT_ID, today, completionToken) : "";
@@ -7681,6 +7689,7 @@ export const speedUpChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   }
   const { token: completionToken, isMock } = parseRewardedAdCompletionToken(
     request.data?.mockCompletionToken,
+    { allowMockForAdmin: request.auth?.token?.admin === true },
   );
 
   const config = await getChestSystemConfig();
@@ -8867,7 +8876,9 @@ export const purchaseRaffleNumbers = onCall(DEFAULT_CALLABLE_OPTS, async (reques
 
   let adCompletionToken: string | null = null;
   if (completionTokenRaw !== undefined && completionTokenRaw !== null && String(completionTokenRaw).trim()) {
-    const parsed = parseRewardedAdCompletionToken(completionTokenRaw);
+    const parsed = parseRewardedAdCompletionToken(completionTokenRaw, {
+      allowMockForAdmin: request.auth?.token?.admin === true,
+    });
     adCompletionToken = parsed.token;
   }
 

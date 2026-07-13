@@ -105,6 +105,13 @@ export const firebaseVertexAiLocation =
 export const rewardedAdMockEnabled =
   useFirebaseEmulators || process.env.NEXT_PUBLIC_REWARDED_AD_MOCK === "true";
 
+/**
+ * Modo temporário para testar anúncios recompensados no navegador.
+ * A liberação efetiva continua sendo validada pelo claim admin nas Functions.
+ */
+export const webRewardedAdTestModeEnabled =
+  process.env.NEXT_PUBLIC_WEB_REWARDED_AD_TEST_MODE === "true";
+
 export function isFirebaseConfigured(): boolean {
   return Boolean(
     firebaseConfig.apiKey &&

@@ -1,7 +1,10 @@
 "use client";
 
 import { admobAndroidSsvEnabled, isNativeAndroidPlatform } from "@/lib/anuncios/admobConfig";
-import { rewardedAdMockEnabled } from "@/lib/firebase/config";
+import {
+  rewardedAdMockEnabled,
+  webRewardedAdTestModeEnabled,
+} from "@/lib/firebase/config";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import type { ChestActionSnapshot } from "@/types/chest";
 import {
@@ -36,11 +39,20 @@ export type RewardedAdResult =
   | { status: "skipped" }
   | { status: "failed"; reason: string };
 
+export type RewardedAdFlowOptions = {
+  /** Permite a conta admin testar o fluxo de recompensa pelo navegador. */
+  webTestMode?: boolean;
+};
+
+function canUseWebTestMode(options?: RewardedAdFlowOptions): boolean {
+  return !isNativeAndroidPlatform() && webRewardedAdTestModeEnabled && options?.webTestMode === true;
+}
+
 /**
  * Simula conclusão de anúncio recompensado (dev / web).
  */
-export async function simulateRewardedAd(): Promise<RewardedAdResult> {
-  if (!rewardedAdMockEnabled) {
+export async function simulateRewardedAd(options?: RewardedAdFlowOptions): Promise<RewardedAdResult> {
+  if (!rewardedAdMockEnabled && !canUseWebTestMode(options)) {
     return { status: "failed", reason: "Mock desabilitado neste ambiente." };
   }
   await new Promise((r) => setTimeout(r, 800 + Math.random() * 400));
@@ -62,6 +74,7 @@ function displayFailureMessage(result: Exclude<RewardedAdResult, { status: "gran
 
 async function runRewardedAdDisplay(
   placementId: RewardedAdPlacementId,
+  options?: RewardedAdFlowOptions,
 ): Promise<RewardedAdResult> {
   if (isNativeAndroidPlatform() && !rewardedAdMockEnabled) {
     const nativeResult = await showNativeRewardedAd(placementId);
@@ -73,7 +86,7 @@ async function runRewardedAdDisplay(
     }
     return { status: "failed", reason: nativeResult.reason };
   }
-  return simulateRewardedAd();
+  return simulateRewardedAd(options);
 }
 
 async function runRewardedAdSsvFlow(
@@ -159,9 +172,12 @@ async function runRewardedAdSsvFlow(
   };
 }
 
-function completionTokenForGrantedAd(result: Extract<RewardedAdResult, { status: "granted" }>): string | undefined {
+function completionTokenForGrantedAd(
+  result: Extract<RewardedAdResult, { status: "granted" }>,
+  options?: RewardedAdFlowOptions,
+): string | undefined {
   if (result.completionToken) return result.completionToken;
-  return rewardedAdMockEnabled ? createMockCompletionToken() : undefined;
+  return rewardedAdMockEnabled || canUseWebTestMode(options) ? createMockCompletionToken() : undefined;
 }
 
 /**
@@ -246,7 +262,7 @@ function formatRewardedAdCreditMessage(input: {
   return parts.length > 0 ? `${parts.join(" · ")} creditados!` : "Recompensa registrada.";
 }
 
-export async function runRewardedAdFlow(): Promise<{
+export async function runRewardedAdFlow(options?: RewardedAdFlowOptions): Promise<{
   ok: boolean;
   coins?: number;
   boostCoins?: number;
@@ -273,14 +289,14 @@ export async function runRewardedAdFlow(): Promise<{
     };
   }
 
-  const adResult = await runRewardedAdDisplay(HOME_REWARDED_PLACEMENT_ID);
+  const adResult = await runRewardedAdDisplay(HOME_REWARDED_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
       ok: false,
       message: displayFailureMessage(adResult),
     };
   }
-  const completionToken = completionTokenForGrantedAd(adResult);
+  const completionToken = completionTokenForGrantedAd(adResult, options);
   const server = await processRewardedAdOnServer({
     placementId: HOME_REWARDED_PLACEMENT_ID,
     completionToken,
@@ -304,7 +320,7 @@ export async function runRewardedAdFlow(): Promise<{
 /**
  * Anúncio recompensado: +3 duelos PPT (validado no servidor; placement fixo).
  */
-export async function runPptDuelRewardedAdFlow(): Promise<{
+export async function runPptDuelRewardedAdFlow(options?: RewardedAdFlowOptions): Promise<{
   ok: boolean;
   pptPvPDuelsRemaining?: number;
   message: string;
@@ -328,14 +344,14 @@ export async function runPptDuelRewardedAdFlow(): Promise<{
     };
   }
 
-  const adResult = await runRewardedAdDisplay(PPT_PVP_DUELS_PLACEMENT_ID);
+  const adResult = await runRewardedAdDisplay(PPT_PVP_DUELS_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
       ok: false,
       message: displayFailureMessage(adResult),
     };
   }
-  const completionToken = completionTokenForGrantedAd(adResult);
+  const completionToken = completionTokenForGrantedAd(adResult, options);
   const server = await processRewardedAdOnServer({
     placementId: PPT_PVP_DUELS_PLACEMENT_ID,
     completionToken,
@@ -357,7 +373,7 @@ export async function runPptDuelRewardedAdFlow(): Promise<{
 /**
  * Anúncio recompensado: +3 duelos Quiz (validado no servidor; placement fixo).
  */
-export async function runQuizDuelRewardedAdFlow(): Promise<{
+export async function runQuizDuelRewardedAdFlow(options?: RewardedAdFlowOptions): Promise<{
   ok: boolean;
   quizPvPDuelsRemaining?: number;
   message: string;
@@ -381,14 +397,14 @@ export async function runQuizDuelRewardedAdFlow(): Promise<{
     };
   }
 
-  const adResult = await runRewardedAdDisplay(QUIZ_PVP_DUELS_PLACEMENT_ID);
+  const adResult = await runRewardedAdDisplay(QUIZ_PVP_DUELS_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
       ok: false,
       message: displayFailureMessage(adResult),
     };
   }
-  const completionToken = completionTokenForGrantedAd(adResult);
+  const completionToken = completionTokenForGrantedAd(adResult, options);
   const server = await processRewardedAdOnServer({
     placementId: QUIZ_PVP_DUELS_PLACEMENT_ID,
     completionToken,
@@ -413,7 +429,10 @@ export async function runQuizDuelRewardedAdFlow(): Promise<{
 /**
  * Anúncio do sorteio: valida no servidor (sem crédito de PR/duelos) para liberar 1 número quando o sorteio está em modo anúncio.
  */
-export async function runRaffleNumberRewardedAdFlow(raffleId: string): Promise<{
+export async function runRaffleNumberRewardedAdFlow(
+  raffleId: string,
+  options?: RewardedAdFlowOptions,
+): Promise<{
   ok: boolean;
   sessionId?: string;
   completionToken?: string;
@@ -464,14 +483,14 @@ export async function runRaffleNumberRewardedAdFlow(raffleId: string): Promise<{
     };
   }
 
-  const adResult = await runRewardedAdDisplay(RAFFLE_NUMBER_PLACEMENT_ID);
+  const adResult = await runRewardedAdDisplay(RAFFLE_NUMBER_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
       ok: false,
       message: displayFailureMessage(adResult),
     };
   }
-  const completionToken = completionTokenForGrantedAd(adResult);
+  const completionToken = completionTokenForGrantedAd(adResult, options);
   const server = await processRewardedAdOnServer({
     placementId: RAFFLE_NUMBER_PLACEMENT_ID,
     completionToken,
@@ -486,7 +505,7 @@ export async function runRaffleNumberRewardedAdFlow(raffleId: string): Promise<{
   };
 }
 
-export async function runReactionDuelRewardedAdFlow(): Promise<{
+export async function runReactionDuelRewardedAdFlow(options?: RewardedAdFlowOptions): Promise<{
   ok: boolean;
   reactionPvPDuelsRemaining?: number;
   message: string;
@@ -510,14 +529,14 @@ export async function runReactionDuelRewardedAdFlow(): Promise<{
     };
   }
 
-  const adResult = await runRewardedAdDisplay(REACTION_PVP_DUELS_PLACEMENT_ID);
+  const adResult = await runRewardedAdDisplay(REACTION_PVP_DUELS_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
       ok: false,
       message: displayFailureMessage(adResult),
     };
   }
-  const completionToken = completionTokenForGrantedAd(adResult);
+  const completionToken = completionTokenForGrantedAd(adResult, options);
   const server = await processRewardedAdOnServer({
     placementId: REACTION_PVP_DUELS_PLACEMENT_ID,
     completionToken,
@@ -552,18 +571,21 @@ export async function processRouletteDailyAdDisplay(): Promise<RouletteAdDisplay
   };
 }
 
-export async function runChestSpeedupRewardedAdFlow(chestId: string): Promise<
+export async function runChestSpeedupRewardedAdFlow(
+  chestId: string,
+  options?: RewardedAdFlowOptions,
+): Promise<
   | ({ ok: true } & ChestActionSnapshot & { reducedMs: number; dailyAdsUsed: number; message: string })
   | { ok: false; message: string }
 > {
-  const adResult = await runRewardedAdDisplay(CHEST_SPEEDUP_PLACEMENT_ID);
+  const adResult = await runRewardedAdDisplay(CHEST_SPEEDUP_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
       ok: false,
       message: displayFailureMessage(adResult),
     };
   }
-  const completionToken = completionTokenForGrantedAd(adResult);
+  const completionToken = completionTokenForGrantedAd(adResult, options);
 
   try {
     const res = await callFunction<
