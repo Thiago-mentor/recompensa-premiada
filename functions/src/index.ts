@@ -59,6 +59,7 @@ const COL = {
   raffles: "raffles",
   rafflePurchases: "raffle_purchases",
   rewardClaims: "reward_claims",
+  finalizedMatchRequests: "finalized_match_requests",
   rankingsDaily: "rankings_daily",
   rankingsWeekly: "rankings_weekly",
   rankingsMonthly: "rankings_monthly",
@@ -122,6 +123,7 @@ const PPT_MATCH_TARGET_POINTS = 5;
 const PPT_ROUND_REVEAL_MS = 3200;
 const QUIZ_MATCH_TARGET_POINTS = 5;
 const QUIZ_ROUND_REVEAL_MS = 1800;
+const QUIZ_DRAW_REVEAL_MS = 3000;
 const REACTION_MATCH_TARGET_POINTS = 5;
 const CARD_BATTLE_MATCH_TARGET_POINTS = 5;
 const CARD_BATTLE_ROUND_REVEAL_MS = 1800;
@@ -2789,6 +2791,14 @@ function referralRankingKey(period: ReferralRankingPeriod, when = new Date()): s
   }
 }
 
+function referralRankingReferenceDateForClose(
+  period: Exclude<ReferralRankingPeriod, "all">,
+  when = new Date(),
+): Date {
+  if (period === "monthly") return new Date(when.getTime() - 60_000);
+  return new Date(when.getTime() - 1_000);
+}
+
 function isRewardCurrency(value: unknown): value is RewardCurrency {
   return value === "coins" || value === "gems" || value === "rewardBalance";
 }
@@ -2914,18 +2924,18 @@ function normalizeRankingPrizeConfig(raw: unknown): RankingPrizeConfigResolved {
     semanal: normalizeRankingPrizeTierList(globalSource.semanal),
     mensal: normalizeRankingPrizeTierList(globalSource.mensal),
   };
-  if (global.diario.length === 0) global.diario = DEFAULT_GLOBAL_RANKING_PRIZES.diario;
-  if (global.semanal.length === 0) global.semanal = DEFAULT_GLOBAL_RANKING_PRIZES.semanal;
-  if (global.mensal.length === 0) global.mensal = DEFAULT_GLOBAL_RANKING_PRIZES.mensal;
+  if (!Array.isArray(globalSource.diario)) global.diario = DEFAULT_GLOBAL_RANKING_PRIZES.diario;
+  if (!Array.isArray(globalSource.semanal)) global.semanal = DEFAULT_GLOBAL_RANKING_PRIZES.semanal;
+  if (!Array.isArray(globalSource.mensal)) global.mensal = DEFAULT_GLOBAL_RANKING_PRIZES.mensal;
 
   const clans = {
     diario: normalizeRankingPrizeTierList(clanSource.diario),
     semanal: normalizeRankingPrizeTierList(clanSource.semanal),
     mensal: normalizeRankingPrizeTierList(clanSource.mensal),
   };
-  if (clans.diario.length === 0) clans.diario = DEFAULT_CLAN_RANKING_PRIZES.diario;
-  if (clans.semanal.length === 0) clans.semanal = DEFAULT_CLAN_RANKING_PRIZES.semanal;
-  if (clans.mensal.length === 0) clans.mensal = DEFAULT_CLAN_RANKING_PRIZES.mensal;
+  if (!Array.isArray(clanSource.diario)) clans.diario = DEFAULT_CLAN_RANKING_PRIZES.diario;
+  if (!Array.isArray(clanSource.semanal)) clans.semanal = DEFAULT_CLAN_RANKING_PRIZES.semanal;
+  if (!Array.isArray(clanSource.mensal)) clans.mensal = DEFAULT_CLAN_RANKING_PRIZES.mensal;
 
   const byGame = {} as Partial<Record<GameId, Record<RankingPeriodMode, RankingPrizeTierResolved[]>>>;
   for (const gameId of RANKING_GAME_IDS) {
@@ -7320,6 +7330,10 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
       : {};
   const opponentId = request.data?.opponentId ? String(request.data.opponentId) : null;
   const startedAtRaw = request.data?.startedAt ? String(request.data.startedAt) : null;
+  const requestedIdempotencyKey = String(request.data?.idempotencyKey || "").trim();
+  const idempotencyKey = /^[A-Za-z0-9_-]{8,120}$/.test(requestedIdempotencyKey)
+    ? requestedIdempotencyKey
+    : `legacy_${hashId(uid, gameId, startedAtRaw || String(Date.now()))}`;
 
   if (!gameId || !resultado) throw new HttpsError("invalid-argument", "Dados inválidos.");
   if (GAME_COOLDOWN_SEC[gameId] === undefined) {
@@ -7331,8 +7345,24 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
       "A roleta deve ser girada pela função segura processRouletteSpin.",
     );
   }
+  if (!/^[A-Za-z0-9_-]{8,120}$/.test(idempotencyKey)) {
+    throw new HttpsError("invalid-argument", "Chave de finalizaÃ§Ã£o invÃ¡lida.");
+  }
 
   const userRef = db.doc(`${COL.users}/${uid}`);
+  const requestRef = db.doc(`${COL.finalizedMatchRequests}/${hashId(uid, idempotencyKey)}`);
+  const existingRequestSnap = await requestRef.get();
+  if (existingRequestSnap.exists) {
+    const cached = ((existingRequestSnap.data() || {}).result || {}) as Record<string, unknown>;
+    return {
+      matchId: String(cached.matchId || ""),
+      rewardCoins: Number(cached.rewardCoins || 0),
+      boostCoins: Number(cached.boostCoins || 0),
+      rankingPoints: Number(cached.rankingPoints || 0),
+      normalizedScore: Number(cached.normalizedScore || 0),
+      grantedChest: null,
+    };
+  }
   const [uSnap, membershipSnap] = await Promise.all([userRef.get(), clanMembershipRef(uid).get()]);
   if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
   const u = uSnap.data()!;
@@ -7372,7 +7402,6 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     economyConfig.rouletteTable,
   );
   const cdSec = GAME_COOLDOWN_SEC[gameId] ?? 3;
-  const cooldownUntil = Timestamp.fromMillis(now + cdSec * 1000);
 
   let startedTs: Timestamp | null = null;
   if (startedAtRaw) {
@@ -7393,8 +7422,6 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   );
   const rewardCoins = boostedCoins.totalCoins;
   const rankingPoints = economy.rankingPoints;
-  const coinsBefore = Number(u.coins ?? 0);
-  const newCoins = coinsBefore + rewardCoins;
   const finishedTs = Timestamp.now();
 
   const matchDoc = {
@@ -7417,33 +7444,84 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     criadoEm: FieldValue.serverTimestamp(),
   };
 
-  const batch = db.batch();
-  batch.set(matchRef, matchDoc);
-  batch.update(userRef, {
-    totalPartidas: FieldValue.increment(1),
-    ...gameMatchCounterPatch(gameId),
-    totalVitorias: FieldValue.increment(win ? 1 : 0),
-    totalDerrotas: FieldValue.increment(loss ? 1 : 0),
-    coins: FieldValue.increment(rewardCoins),
-    xp: FieldValue.increment(win ? 15 : effectiveResult === "empate" ? 8 : 5),
-    atualizadoEm: FieldValue.serverTimestamp(),
-    matchBurst: burstR.burst,
-    [`gameCooldownUntil.${gameId}`]: cooldownUntil,
-  });
-  await batch.commit();
-  await applyClanScoreCreditByClanId(clanIdAtEvent, { uid, wins: win ? 1 : 0 });
+  const appliedResult = await db.runTransaction(async (tx) => {
+    const [requestSnap, currentUserSnap] = await Promise.all([tx.get(requestRef), tx.get(userRef)]);
+    if (requestSnap.exists) {
+      const cached = ((requestSnap.data() || {}).result || {}) as Record<string, unknown>;
+      return {
+        matchId: String(cached.matchId || matchRef.id),
+        rewardCoins: Number(cached.rewardCoins || 0),
+        boostCoins: Number(cached.boostCoins || 0),
+        rankingPoints: Number(cached.rankingPoints || 0),
+        normalizedScore: Number(cached.normalizedScore || 0),
+      };
+    }
+    if (!currentUserSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
+    const currentUser = currentUserSnap.data() as Record<string, unknown>;
+    if (currentUser.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
 
-  if (rewardCoins > 0) {
-    await addWalletTx({
-      userId: uid,
-      tipo: "jogo",
-      moeda: "coins",
-      valor: rewardCoins,
-      saldoApos: newCoins,
-      descricao: withBoostDescription(`Minijogo ${gameId}`, boostedCoins.boostCoins),
-      referenciaId: matchRef.id,
+    const transactionNow = Date.now();
+    const currentCooldownMap = (currentUser.gameCooldownUntil as Record<string, unknown>) || {};
+    const currentUntil = millisFromCooldownField(currentCooldownMap[gameId]);
+    if (currentUntil > transactionNow) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `Aguarde ${Math.ceil((currentUntil - transactionNow) / 1000)}s para jogar de novo.`,
+      );
+    }
+    const currentBurst = nextBurstState(currentUser, transactionNow);
+    if (!currentBurst.ok) {
+      throw new HttpsError("resource-exhausted", "Muitas partidas em sequÃªncia. Aguarde um minuto.");
+    }
+
+    const currentCoins = Number(currentUser.coins ?? 0);
+    const transactionCooldownUntil = Timestamp.fromMillis(transactionNow + cdSec * 1000);
+    tx.set(matchRef, matchDoc);
+    tx.update(userRef, {
+      totalPartidas: FieldValue.increment(1),
+      ...gameMatchCounterPatch(gameId),
+      totalVitorias: FieldValue.increment(win ? 1 : 0),
+      totalDerrotas: FieldValue.increment(loss ? 1 : 0),
+      coins: FieldValue.increment(rewardCoins),
+      xp: FieldValue.increment(win ? 15 : effectiveResult === "empate" ? 8 : 5),
+      atualizadoEm: FieldValue.serverTimestamp(),
+      matchBurst: currentBurst.burst,
+      [`gameCooldownUntil.${gameId}`]: transactionCooldownUntil,
     });
-  }
+    if (rewardCoins > 0) {
+      addWalletTxInTx(tx, {
+        id: hashId("match", matchRef.id, "coins"),
+        userId: uid,
+        tipo: "jogo",
+        moeda: "coins",
+        valor: rewardCoins,
+        saldoApos: currentCoins + rewardCoins,
+        descricao: withBoostDescription(`Minijogo ${gameId}`, boostedCoins.boostCoins),
+        referenciaId: matchRef.id,
+      });
+    }
+
+    const result = {
+      matchId: matchRef.id,
+      rewardCoins,
+      boostCoins: boostedCoins.boostCoins,
+      rankingPoints,
+      normalizedScore: economy.normalizedScore,
+    };
+    tx.set(requestRef, {
+      status: "applied",
+      uid,
+      idempotencyKey,
+      result,
+      appliedAt: FieldValue.serverTimestamp(),
+    });
+    return result;
+  });
+  await applyClanScoreCreditByClanId(clanIdAtEvent, {
+    uid,
+    wins: win ? 1 : 0,
+    idempotencyKey,
+  });
 
   await upsertRanking({
     uid,
@@ -7453,25 +7531,26 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     deltaScore: rankingPoints,
     win,
     gameId,
+    idempotencyKey: `${idempotencyKey}:ranking`,
   });
 
-  await bumpPlayMatchMissions(uid);
+  await bumpPlayMatchMissions(uid, `${idempotencyKey}:mission`);
   await evaluateReferralForUser(uid);
   const grantedChest =
     AUTO_QUEUE_GAMES.has(gameId) && effectiveResult === "vitoria"
       ? await grantChestIfEligible({
           uid,
           source: "multiplayer_win",
-          sourceRefId: matchRef.id,
+          sourceRefId: appliedResult.matchId,
         })
       : null;
 
   return {
-    matchId: matchRef.id,
-    rewardCoins,
-    boostCoins: boostedCoins.boostCoins,
-    rankingPoints,
-    normalizedScore: economy.normalizedScore,
+    matchId: appliedResult.matchId,
+    rewardCoins: appliedResult.rewardCoins,
+    boostCoins: appliedResult.boostCoins,
+    rankingPoints: appliedResult.rankingPoints,
+    normalizedScore: appliedResult.normalizedScore,
     grantedChest,
   };
 });
@@ -11008,7 +11087,10 @@ export const submitQuizAnswer = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request
       quizLastRevealCorrectIndex: question.correctIndex,
       quizLastRevealQuestionText: question.q,
       timeoutEmptyRounds: 0,
-      actionDeadlineAt: pvpActionDeadlineTs(Date.now() + QUIZ_ROUND_REVEAL_MS, quizSubmitWindowMs),
+      actionDeadlineAt: pvpActionDeadlineTs(
+        Date.now() + (hostCorrect && guestCorrect ? QUIZ_DRAW_REVEAL_MS : QUIZ_ROUND_REVEAL_MS),
+        quizSubmitWindowMs,
+      ),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
 
@@ -11557,7 +11639,10 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
         quizLastRevealCorrectIndex: question.correctIndex,
         quizLastRevealQuestionText: question.q,
         timeoutEmptyRounds: 0,
-        actionDeadlineAt: pvpActionDeadlineTs(Date.now() + QUIZ_ROUND_REVEAL_MS, quizTimeoutMs),
+        actionDeadlineAt: pvpActionDeadlineTs(
+          Date.now() + (hostCorrect && guestCorrect ? QUIZ_DRAW_REVEAL_MS : QUIZ_ROUND_REVEAL_MS),
+          quizTimeoutMs,
+        ),
         atualizadoEm: FieldValue.serverTimestamp(),
       });
       return { kind: "quiz_round" as const };
@@ -11837,6 +11922,71 @@ export const riskAnalysisOnUserEvent = onCall(DEFAULT_CALLABLE_OPTS, async (requ
   return { ok: true };
 });
 
+async function payRankingWinnerAtomically(input: {
+  period: RankingPeriodMode;
+  periodKey: string;
+  gameId?: GameId;
+  pos: number;
+  uid: string;
+  entryRef: DocumentReference;
+  tier: RankingPrizeTierResolved;
+}): Promise<boolean> {
+  const userRef = db.doc(`${COL.users}/${input.uid}`);
+  return db.runTransaction(async (tx) => {
+    const [entrySnap, userSnap] = await Promise.all([tx.get(input.entryRef), tx.get(userRef)]);
+    if (!entrySnap.exists || entrySnap.data()?.premioProcessadoEm) return false;
+    if (!userSnap.exists) return false;
+
+    const userData = (userSnap.data() || {}) as Record<string, unknown>;
+    const rewardPatch = applyMultiCurrencyRewardPatch(userData, input.tier.rewards);
+    if (Object.keys(rewardPatch.patch).length === 0) return false;
+
+    tx.set(
+      userRef,
+      {
+        ...rewardPatch.patch,
+        atualizadoEm: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    for (const currency of ["coins", "gems", "rewardBalance"] as const) {
+      const amount = input.tier.rewards[currency];
+      if (amount <= 0) continue;
+      addWalletTxInTx(tx, {
+        id: hashId(
+          "ranking",
+          input.period,
+          input.periodKey,
+          input.gameId ?? "global",
+          input.uid,
+          currency,
+        ),
+        userId: input.uid,
+        tipo: "ranking",
+        moeda: currency,
+        valor: amount,
+        saldoApos: rewardPatch.balancesAfter[currency],
+        descricao: input.gameId
+          ? `PremiaÃ§Ã£o ranking ${input.period} Â· ${GAME_TITLES[input.gameId]} Â· ${rewardCurrencyLabel(currency)}`
+          : `PremiaÃ§Ã£o ranking ${input.period} geral Â· ${rewardCurrencyLabel(currency)}`,
+        referenciaId: input.gameId
+          ? `${input.period}:${input.periodKey}:${input.gameId}:#${input.pos}`
+          : `${input.period}:${input.periodKey}:global:#${input.pos}`,
+      });
+    }
+    tx.set(
+      input.entryRef,
+      {
+        posicao: input.pos,
+        premioRecebido: input.tier.rewards,
+        premioProcessadoEm: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return true;
+  });
+}
+
 async function closeRankingScopePayout(
   period: RankingPeriodMode,
   periodKey: string,
@@ -11863,7 +12013,15 @@ async function closeRankingScopePayout(
   const victoryRankedGame = Boolean(gameId && VICTORY_RANKED_GAME_IDS.has(gameId));
   const entriesSnap = victoryRankedGame
     ? await db.collection(entriesPath).get()
-    : await db.collection(entriesPath).orderBy("score", "desc").limit(maxPos).get();
+    : await db
+        .collection(entriesPath)
+        .orderBy("score", "desc")
+        .orderBy("vitorias", "desc")
+        .orderBy("partidas", "desc")
+        .orderBy("atualizadoEm", "desc")
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(maxPos)
+        .get();
 
   if (entriesSnap.empty) {
     await payoutFlagRef.set({
@@ -11899,7 +12057,7 @@ async function closeRankingScopePayout(
           const updatedDiff =
             millisFromFirestoreTime(b.atualizadoEm) - millisFromFirestoreTime(a.atualizadoEm);
           if (updatedDiff !== 0) return updatedDiff;
-          return a.uid.localeCompare(b.uid, "pt-BR");
+          return b.uid.localeCompare(a.uid, "pt-BR");
         })
         .slice(0, maxPos)
         .map((entry, index) => ({
@@ -11919,16 +12077,49 @@ async function closeRankingScopePayout(
   );
   if (rewardedWinners.length === 0) return;
 
-  const userRefs = rewardedWinners.map((winner) => db.doc(`${COL.users}/${winner.uid}`));
-  const userSnapshots = userRefs.length ? await db.getAll(...userRefs) : [];
-  const userMap = new Map(
-    userSnapshots
-      .filter((snap) => snap.exists)
-      .map((snap) => [snap.id, snap.data() as Record<string, unknown>]),
-  );
-
-  const batch = db.batch();
   let grantedCount = 0;
+  for (const winner of rewardedWinners) {
+    if (!winner.tier) continue;
+    const paid = await payRankingWinnerAtomically({
+      period,
+      periodKey,
+      gameId,
+      pos: winner.pos,
+      uid: winner.uid,
+      entryRef: winner.entryRef,
+      tier: winner.tier,
+    });
+    if (paid) grantedCount += 1;
+  }
+
+  await db.runTransaction(async (tx) => {
+    const flagSnap = await tx.get(payoutFlagRef);
+    if (flagSnap.exists) return;
+    tx.set(payoutFlagRef, {
+      period,
+      periodKey,
+      scope: gameId ? "game" : "global",
+      gameId: gameId ?? null,
+      gameTitle: gameId ? GAME_TITLES[gameId] : null,
+      processedAt: FieldValue.serverTimestamp(),
+      winners: grantedCount,
+    });
+  });
+  await rankingRootRef.set(
+    {
+      periodoChave: periodKey,
+      tipo: period,
+      scope: gameId ? "game" : "global",
+      gameId: gameId ?? null,
+      gameTitle: gameId ? GAME_TITLES[gameId] : null,
+      prizeProcessedAt: FieldValue.serverTimestamp(),
+      atualizadoEm: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  return;
+
+  /* Legacy batch path kept unreachable while deployments roll forward.
   for (const winner of rewardedWinners) {
     if (!winner.tier) continue;
     const userData = userMap.get(winner.uid);
@@ -12001,6 +12192,7 @@ async function closeRankingScopePayout(
     { merge: true },
   );
   await batch.commit();
+  */
 }
 
 function clanRankingCollectionForPeriod(period: RankingPeriodMode) {
@@ -12451,6 +12643,59 @@ async function closeRankingJob(period: RankingPeriodMode) {
   }
 }
 
+async function payReferralRankingWinnerAtomically(input: {
+  period: Exclude<ReferralRankingPeriod, "all">;
+  periodKey: string;
+  pos: number;
+  uid: string;
+  entryRef: DocumentReference;
+  tier: { posicaoMax: number; amount: number; currency: RewardCurrency };
+}): Promise<boolean> {
+  const userRef = db.doc(`${COL.users}/${input.uid}`);
+  return db.runTransaction(async (tx) => {
+    const [entrySnap, userSnap] = await Promise.all([tx.get(input.entryRef), tx.get(userRef)]);
+    if (!entrySnap.exists || entrySnap.data()?.premioProcessadoEm) return false;
+    if (!userSnap.exists || input.tier.amount <= 0) return false;
+
+    const reward = { amount: input.tier.amount, currency: input.tier.currency };
+    const rewardPatch = applyRewardPatch(
+      (userSnap.data() || {}) as Record<string, unknown>,
+      reward,
+    );
+    tx.set(
+      userRef,
+      { ...rewardPatch.patch, atualizadoEm: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+    addWalletTxInTx(tx, {
+      id: hashId(
+        "referral-ranking",
+        input.period,
+        input.periodKey,
+        input.uid,
+        input.tier.currency,
+      ),
+      userId: input.uid,
+      tipo: "referral",
+      moeda: input.tier.currency,
+      valor: input.tier.amount,
+      saldoApos: rewardPatch.balanceAfter,
+      descricao: `PremiaÃ§Ã£o ranking de indicaÃ§Ãµes ${input.period} Â· ${rewardCurrencyLabel(input.tier.currency)}`,
+      referenciaId: `${input.period}:${input.periodKey}:#${input.pos}`,
+    });
+    tx.set(
+      input.entryRef,
+      {
+        posicao: input.pos,
+        premioRecebido: reward,
+        premioProcessadoEm: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return true;
+  });
+}
+
 function referralPrizeTiersForPeriod(
   configDoc: Record<string, unknown>,
   campaign: ReferralCampaignResolved | null,
@@ -12477,7 +12722,7 @@ async function closeReferralRankingJob(period: Exclude<ReferralRankingPeriod, "a
   const prizeTiers = referralPrizeTiersForPeriod(configDoc, campaign, period);
   if (prizeTiers.length === 0) return;
 
-  const periodKey = referralRankingKey(period);
+  const periodKey = referralRankingKey(period, referralRankingReferenceDateForClose(period));
   const rankingRootRef = db.doc(`${referralRankingCollection(period)}/${periodKey}`);
   const payoutFlagRef = db.doc(`${referralRankingCollection(period)}/${periodKey}/meta/payout`);
   const payoutFlagSnap = await payoutFlagRef.get();
@@ -12511,11 +12756,50 @@ async function closeReferralRankingJob(period: Exclude<ReferralRankingPeriod, "a
     return {
       pos: index + 1,
       uid: docSnap.id,
+      entryRef: docSnap.ref,
       data: docSnap.data() as Record<string, unknown>,
       tier,
     };
   });
 
+  let grantedCount = 0;
+  for (const winner of winners) {
+    if (!winner.tier || winner.tier.amount <= 0) continue;
+    const paid = await payReferralRankingWinnerAtomically({
+      period,
+      periodKey,
+      pos: winner.pos,
+      uid: winner.uid,
+      entryRef: winner.entryRef,
+      tier: winner.tier,
+    });
+    if (paid) grantedCount += 1;
+  }
+
+  await db.runTransaction(async (tx) => {
+    const flagSnap = await tx.get(payoutFlagRef);
+    if (flagSnap.exists) return;
+    tx.set(payoutFlagRef, {
+      period,
+      periodKey,
+      processedAt: FieldValue.serverTimestamp(),
+      winners: grantedCount,
+      campaignId: campaign?.id ?? null,
+    });
+  });
+  await rankingRootRef.set(
+    {
+      period,
+      periodKey,
+      prizeProcessedAt: FieldValue.serverTimestamp(),
+      campaignId: campaign?.id ?? null,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  return;
+
+  /* Legacy batch path kept unreachable while deployments roll forward.
   const batch = db.batch();
   for (const winner of winners) {
     if (!winner.tier || winner.tier.amount <= 0) continue;
@@ -12567,6 +12851,7 @@ async function closeReferralRankingJob(period: Exclude<ReferralRankingPeriod, "a
     { merge: true },
   );
   await batch.commit();
+  */
 }
 
 /** Backstop server-side: resolve salas PvP expiradas para impedir travas e loops infinitos. */
@@ -12685,7 +12970,7 @@ export const closeDailyRanking = onSchedule(
 );
 
 export const closeWeeklyRanking = onSchedule(
-  { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 1" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 0" },
   async () => {
     await closeRankingJob("semanal");
   },
@@ -12794,7 +13079,7 @@ export const closeReferralDailyRanking = onSchedule(
 );
 
 export const closeReferralWeeklyRanking = onSchedule(
-  { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 1" },
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 0" },
   async () => {
     await closeReferralRankingJob("weekly");
   },
@@ -13205,12 +13490,29 @@ async function applyClanScoreCreditByClanId(
     uid: string;
     wins?: number;
     ads?: number;
+    idempotencyKey?: string;
   },
 ): Promise<void> {
   const normalizedClanId = String(clanId || "").trim();
   if (!normalizedClanId) return;
+  const appliedRef = input.idempotencyKey
+    ? db.doc(
+        `${COL.clans}/${normalizedClanId}/score_credits/${safeFirestoreDocId(
+          `${input.uid}:${input.idempotencyKey}`,
+        )}`,
+      )
+    : null;
   await db.runTransaction(async (tx) => {
+    const appliedSnap = appliedRef ? await tx.get(appliedRef) : null;
+    if (appliedSnap?.exists) return;
     await applyClanScoreCreditForClanIdTx(tx, normalizedClanId, input);
+    if (appliedRef) {
+      tx.set(appliedRef, {
+        uid: input.uid,
+        idempotencyKey: input.idempotencyKey,
+        appliedAt: FieldValue.serverTimestamp(),
+      });
+    }
   });
 }
 

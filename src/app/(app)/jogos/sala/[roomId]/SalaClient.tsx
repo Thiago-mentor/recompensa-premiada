@@ -46,6 +46,7 @@ type CardBattleCardId = (typeof CARD_BATTLE_CARDS)[number]["id"];
 
 /** Tempo para exibir o resultado da rodada antes de abrir a próxima pergunta (sem toque). */
 const QUIZ_REVEAL_AUTO_ADVANCE_MS = 1200;
+const QUIZ_DRAW_REVEAL_AUTO_ADVANCE_MS = 3000;
 const PPT_ROUND_REVEAL_MS = 3200;
 
 type LeaveIntent = "forfeit" | "lobby" | "rematch";
@@ -1718,6 +1719,12 @@ export function SalaClient({ roomId }: { roomId: string }) {
     (room?.quizLastRevealOptions?.length ?? 0) > 0 &&
     quizRevealGateKey != null &&
     quizRevealDismissedKey !== quizRevealGateKey;
+  const quizRevealAutoAdvanceMs =
+    room?.quizLastRoundWinner === "draw" &&
+    room?.quizLastHostCorrect === true &&
+    room?.quizLastGuestCorrect === true
+      ? QUIZ_DRAW_REVEAL_AUTO_ADVANCE_MS
+      : QUIZ_REVEAL_AUTO_ADVANCE_MS;
   const quizInterstitialForTimer = quizRevealBlocking;
 
   useEffect(() => {
@@ -1953,9 +1960,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
     setQuizRevealDismissedKey((prev) => (prev === quizRevealGateKey ? prev : null));
     const id = window.setTimeout(() => {
       setQuizRevealDismissedKey(quizRevealGateKey);
-    }, QUIZ_REVEAL_AUTO_ADVANCE_MS);
+    }, quizRevealAutoAdvanceMs);
     return () => window.clearTimeout(id);
-  }, [quizRevealGateKey]);
+  }, [quizRevealAutoAdvanceMs, quizRevealGateKey]);
 
   const queueGameId: GameId =
     room?.gameId && isAutoQueueGame(room.gameId) ? room.gameId : "ppt";

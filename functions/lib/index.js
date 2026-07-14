@@ -77,6 +77,7 @@ const COL = {
     raffles: "raffles",
     rafflePurchases: "raffle_purchases",
     rewardClaims: "reward_claims",
+    finalizedMatchRequests: "finalized_match_requests",
     rankingsDaily: "rankings_daily",
     rankingsWeekly: "rankings_weekly",
     rankingsMonthly: "rankings_monthly",
@@ -133,6 +134,7 @@ const PPT_MATCH_TARGET_POINTS = 5;
 const PPT_ROUND_REVEAL_MS = 3200;
 const QUIZ_MATCH_TARGET_POINTS = 5;
 const QUIZ_ROUND_REVEAL_MS = 1800;
+const QUIZ_DRAW_REVEAL_MS = 3000;
 const REACTION_MATCH_TARGET_POINTS = 5;
 const CARD_BATTLE_MATCH_TARGET_POINTS = 5;
 const CARD_BATTLE_ROUND_REVEAL_MS = 1800;
@@ -2141,6 +2143,11 @@ function referralRankingKey(period, when = new Date()) {
             return referralAllTimeKey();
     }
 }
+function referralRankingReferenceDateForClose(period, when = new Date()) {
+    if (period === "monthly")
+        return new Date(when.getTime() - 60000);
+    return new Date(when.getTime() - 1000);
+}
 function isRewardCurrency(value) {
     return value === "coins" || value === "gems" || value === "rewardBalance";
 }
@@ -2251,22 +2258,22 @@ function normalizeRankingPrizeConfig(raw) {
         semanal: normalizeRankingPrizeTierList(globalSource.semanal),
         mensal: normalizeRankingPrizeTierList(globalSource.mensal),
     };
-    if (global.diario.length === 0)
+    if (!Array.isArray(globalSource.diario))
         global.diario = DEFAULT_GLOBAL_RANKING_PRIZES.diario;
-    if (global.semanal.length === 0)
+    if (!Array.isArray(globalSource.semanal))
         global.semanal = DEFAULT_GLOBAL_RANKING_PRIZES.semanal;
-    if (global.mensal.length === 0)
+    if (!Array.isArray(globalSource.mensal))
         global.mensal = DEFAULT_GLOBAL_RANKING_PRIZES.mensal;
     const clans = {
         diario: normalizeRankingPrizeTierList(clanSource.diario),
         semanal: normalizeRankingPrizeTierList(clanSource.semanal),
         mensal: normalizeRankingPrizeTierList(clanSource.mensal),
     };
-    if (clans.diario.length === 0)
+    if (!Array.isArray(clanSource.diario))
         clans.diario = DEFAULT_CLAN_RANKING_PRIZES.diario;
-    if (clans.semanal.length === 0)
+    if (!Array.isArray(clanSource.semanal))
         clans.semanal = DEFAULT_CLAN_RANKING_PRIZES.semanal;
-    if (clans.mensal.length === 0)
+    if (!Array.isArray(clanSource.mensal))
         clans.mensal = DEFAULT_CLAN_RANKING_PRIZES.mensal;
     const byGame = {};
     for (const gameId of RANKING_GAME_IDS) {
@@ -5799,6 +5806,10 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
         : {};
     const opponentId = request.data?.opponentId ? String(request.data.opponentId) : null;
     const startedAtRaw = request.data?.startedAt ? String(request.data.startedAt) : null;
+    const requestedIdempotencyKey = String(request.data?.idempotencyKey || "").trim();
+    const idempotencyKey = /^[A-Za-z0-9_-]{8,120}$/.test(requestedIdempotencyKey)
+        ? requestedIdempotencyKey
+        : `legacy_${hashId(uid, gameId, startedAtRaw || String(Date.now()))}`;
     if (!gameId || !resultado)
         throw new https_1.HttpsError("invalid-argument", "Dados inválidos.");
     if (gameEconomy_1.GAME_COOLDOWN_SEC[gameId] === undefined) {
@@ -5807,7 +5818,23 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     if (gameId === "roleta") {
         throw new https_1.HttpsError("failed-precondition", "A roleta deve ser girada pela função segura processRouletteSpin.");
     }
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(idempotencyKey)) {
+        throw new https_1.HttpsError("invalid-argument", "Chave de finalizaÃ§Ã£o invÃ¡lida.");
+    }
     const userRef = db.doc(`${COL.users}/${uid}`);
+    const requestRef = db.doc(`${COL.finalizedMatchRequests}/${hashId(uid, idempotencyKey)}`);
+    const existingRequestSnap = await requestRef.get();
+    if (existingRequestSnap.exists) {
+        const cached = ((existingRequestSnap.data() || {}).result || {});
+        return {
+            matchId: String(cached.matchId || ""),
+            rewardCoins: Number(cached.rewardCoins || 0),
+            boostCoins: Number(cached.boostCoins || 0),
+            rankingPoints: Number(cached.rankingPoints || 0),
+            normalizedScore: Number(cached.normalizedScore || 0),
+            grantedChest: null,
+        };
+    }
     const [uSnap, membershipSnap] = await Promise.all([userRef.get(), clanMembershipRef(uid).get()]);
     if (!uSnap.exists)
         throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
@@ -5833,7 +5860,6 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     const economyConfig = await getEconomy();
     const economy = (0, gameEconomy_1.resolveMatchEconomy)(gameId, effectiveResult, clientScore, metadata, economyConfig.matchRewardOverrides, undefined, economyConfig.rouletteTable);
     const cdSec = gameEconomy_1.GAME_COOLDOWN_SEC[gameId] ?? 3;
-    const cooldownUntil = firestore_2.Timestamp.fromMillis(now + cdSec * 1000);
     let startedTs = null;
     if (startedAtRaw) {
         const d = new Date(startedAtRaw);
@@ -5847,8 +5873,6 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     const boostedCoins = resolveBoostedCoins(economy.rewardCoins, u, economyConfig, now);
     const rewardCoins = boostedCoins.totalCoins;
     const rankingPoints = economy.rankingPoints;
-    const coinsBefore = Number(u.coins ?? 0);
-    const newCoins = coinsBefore + rewardCoins;
     const finishedTs = firestore_2.Timestamp.now();
     const matchDoc = {
         id: matchRef.id,
@@ -5869,32 +5893,80 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
         antiSpamToken: null,
         criadoEm: firestore_2.FieldValue.serverTimestamp(),
     };
-    const batch = db.batch();
-    batch.set(matchRef, matchDoc);
-    batch.update(userRef, {
-        totalPartidas: firestore_2.FieldValue.increment(1),
-        ...gameMatchCounterPatch(gameId),
-        totalVitorias: firestore_2.FieldValue.increment(win ? 1 : 0),
-        totalDerrotas: firestore_2.FieldValue.increment(loss ? 1 : 0),
-        coins: firestore_2.FieldValue.increment(rewardCoins),
-        xp: firestore_2.FieldValue.increment(win ? 15 : effectiveResult === "empate" ? 8 : 5),
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        matchBurst: burstR.burst,
-        [`gameCooldownUntil.${gameId}`]: cooldownUntil,
-    });
-    await batch.commit();
-    await applyClanScoreCreditByClanId(clanIdAtEvent, { uid, wins: win ? 1 : 0 });
-    if (rewardCoins > 0) {
-        await addWalletTx({
-            userId: uid,
-            tipo: "jogo",
-            moeda: "coins",
-            valor: rewardCoins,
-            saldoApos: newCoins,
-            descricao: withBoostDescription(`Minijogo ${gameId}`, boostedCoins.boostCoins),
-            referenciaId: matchRef.id,
+    const appliedResult = await db.runTransaction(async (tx) => {
+        const [requestSnap, currentUserSnap] = await Promise.all([tx.get(requestRef), tx.get(userRef)]);
+        if (requestSnap.exists) {
+            const cached = ((requestSnap.data() || {}).result || {});
+            return {
+                matchId: String(cached.matchId || matchRef.id),
+                rewardCoins: Number(cached.rewardCoins || 0),
+                boostCoins: Number(cached.boostCoins || 0),
+                rankingPoints: Number(cached.rankingPoints || 0),
+                normalizedScore: Number(cached.normalizedScore || 0),
+            };
+        }
+        if (!currentUserSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const currentUser = currentUserSnap.data();
+        if (currentUser.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const transactionNow = Date.now();
+        const currentCooldownMap = currentUser.gameCooldownUntil || {};
+        const currentUntil = millisFromCooldownField(currentCooldownMap[gameId]);
+        if (currentUntil > transactionNow) {
+            throw new https_1.HttpsError("resource-exhausted", `Aguarde ${Math.ceil((currentUntil - transactionNow) / 1000)}s para jogar de novo.`);
+        }
+        const currentBurst = nextBurstState(currentUser, transactionNow);
+        if (!currentBurst.ok) {
+            throw new https_1.HttpsError("resource-exhausted", "Muitas partidas em sequÃªncia. Aguarde um minuto.");
+        }
+        const currentCoins = Number(currentUser.coins ?? 0);
+        const transactionCooldownUntil = firestore_2.Timestamp.fromMillis(transactionNow + cdSec * 1000);
+        tx.set(matchRef, matchDoc);
+        tx.update(userRef, {
+            totalPartidas: firestore_2.FieldValue.increment(1),
+            ...gameMatchCounterPatch(gameId),
+            totalVitorias: firestore_2.FieldValue.increment(win ? 1 : 0),
+            totalDerrotas: firestore_2.FieldValue.increment(loss ? 1 : 0),
+            coins: firestore_2.FieldValue.increment(rewardCoins),
+            xp: firestore_2.FieldValue.increment(win ? 15 : effectiveResult === "empate" ? 8 : 5),
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            matchBurst: currentBurst.burst,
+            [`gameCooldownUntil.${gameId}`]: transactionCooldownUntil,
         });
-    }
+        if (rewardCoins > 0) {
+            addWalletTxInTx(tx, {
+                id: hashId("match", matchRef.id, "coins"),
+                userId: uid,
+                tipo: "jogo",
+                moeda: "coins",
+                valor: rewardCoins,
+                saldoApos: currentCoins + rewardCoins,
+                descricao: withBoostDescription(`Minijogo ${gameId}`, boostedCoins.boostCoins),
+                referenciaId: matchRef.id,
+            });
+        }
+        const result = {
+            matchId: matchRef.id,
+            rewardCoins,
+            boostCoins: boostedCoins.boostCoins,
+            rankingPoints,
+            normalizedScore: economy.normalizedScore,
+        };
+        tx.set(requestRef, {
+            status: "applied",
+            uid,
+            idempotencyKey,
+            result,
+            appliedAt: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return result;
+    });
+    await applyClanScoreCreditByClanId(clanIdAtEvent, {
+        uid,
+        wins: win ? 1 : 0,
+        idempotencyKey,
+    });
     await upsertRanking({
         uid,
         nome: String(u.nome || "Jogador"),
@@ -5903,22 +5975,23 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
         deltaScore: rankingPoints,
         win,
         gameId,
+        idempotencyKey: `${idempotencyKey}:ranking`,
     });
-    await bumpPlayMatchMissions(uid);
+    await bumpPlayMatchMissions(uid, `${idempotencyKey}:mission`);
     await evaluateReferralForUser(uid);
     const grantedChest = AUTO_QUEUE_GAMES.has(gameId) && effectiveResult === "vitoria"
         ? await grantChestIfEligible({
             uid,
             source: "multiplayer_win",
-            sourceRefId: matchRef.id,
+            sourceRefId: appliedResult.matchId,
         })
         : null;
     return {
-        matchId: matchRef.id,
-        rewardCoins,
-        boostCoins: boostedCoins.boostCoins,
-        rankingPoints,
-        normalizedScore: economy.normalizedScore,
+        matchId: appliedResult.matchId,
+        rewardCoins: appliedResult.rewardCoins,
+        boostCoins: appliedResult.boostCoins,
+        rankingPoints: appliedResult.rankingPoints,
+        normalizedScore: appliedResult.normalizedScore,
         grantedChest,
     };
 });
@@ -8904,7 +8977,7 @@ exports.submitQuizAnswer = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async 
             quizLastRevealCorrectIndex: question.correctIndex,
             quizLastRevealQuestionText: question.q,
             timeoutEmptyRounds: 0,
-            actionDeadlineAt: pvpActionDeadlineTs(Date.now() + QUIZ_ROUND_REVEAL_MS, quizSubmitWindowMs),
+            actionDeadlineAt: pvpActionDeadlineTs(Date.now() + (hostCorrect && guestCorrect ? QUIZ_DRAW_REVEAL_MS : QUIZ_ROUND_REVEAL_MS), quizSubmitWindowMs),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         return {
@@ -9322,7 +9395,7 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
                 quizLastRevealCorrectIndex: question.correctIndex,
                 quizLastRevealQuestionText: question.q,
                 timeoutEmptyRounds: 0,
-                actionDeadlineAt: pvpActionDeadlineTs(Date.now() + QUIZ_ROUND_REVEAL_MS, quizTimeoutMs),
+                actionDeadlineAt: pvpActionDeadlineTs(Date.now() + (hostCorrect && guestCorrect ? QUIZ_DRAW_REVEAL_MS : QUIZ_ROUND_REVEAL_MS), quizTimeoutMs),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             });
             return { kind: "quiz_round" };
@@ -9542,6 +9615,49 @@ exports.riskAnalysisOnUserEvent = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asy
     });
     return { ok: true };
 });
+async function payRankingWinnerAtomically(input) {
+    const userRef = db.doc(`${COL.users}/${input.uid}`);
+    return db.runTransaction(async (tx) => {
+        const [entrySnap, userSnap] = await Promise.all([tx.get(input.entryRef), tx.get(userRef)]);
+        if (!entrySnap.exists || entrySnap.data()?.premioProcessadoEm)
+            return false;
+        if (!userSnap.exists)
+            return false;
+        const userData = (userSnap.data() || {});
+        const rewardPatch = applyMultiCurrencyRewardPatch(userData, input.tier.rewards);
+        if (Object.keys(rewardPatch.patch).length === 0)
+            return false;
+        tx.set(userRef, {
+            ...rewardPatch.patch,
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        for (const currency of ["coins", "gems", "rewardBalance"]) {
+            const amount = input.tier.rewards[currency];
+            if (amount <= 0)
+                continue;
+            addWalletTxInTx(tx, {
+                id: hashId("ranking", input.period, input.periodKey, input.gameId ?? "global", input.uid, currency),
+                userId: input.uid,
+                tipo: "ranking",
+                moeda: currency,
+                valor: amount,
+                saldoApos: rewardPatch.balancesAfter[currency],
+                descricao: input.gameId
+                    ? `PremiaÃ§Ã£o ranking ${input.period} Â· ${GAME_TITLES[input.gameId]} Â· ${rewardCurrencyLabel(currency)}`
+                    : `PremiaÃ§Ã£o ranking ${input.period} geral Â· ${rewardCurrencyLabel(currency)}`,
+                referenciaId: input.gameId
+                    ? `${input.period}:${input.periodKey}:${input.gameId}:#${input.pos}`
+                    : `${input.period}:${input.periodKey}:global:#${input.pos}`,
+            });
+        }
+        tx.set(input.entryRef, {
+            posicao: input.pos,
+            premioRecebido: input.tier.rewards,
+            premioProcessadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return true;
+    });
+}
 async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
     const collectionName = rankingCollectionForPeriod(period);
     const rankingRootPath = gameId
@@ -9563,7 +9679,15 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
     const victoryRankedGame = Boolean(gameId && VICTORY_RANKED_GAME_IDS.has(gameId));
     const entriesSnap = victoryRankedGame
         ? await db.collection(entriesPath).get()
-        : await db.collection(entriesPath).orderBy("score", "desc").limit(maxPos).get();
+        : await db
+            .collection(entriesPath)
+            .orderBy("score", "desc")
+            .orderBy("vitorias", "desc")
+            .orderBy("partidas", "desc")
+            .orderBy("atualizadoEm", "desc")
+            .orderBy(firestore_2.FieldPath.documentId(), "desc")
+            .limit(maxPos)
+            .get();
     if (entriesSnap.empty) {
         await payoutFlagRef.set({
             period,
@@ -9600,7 +9724,7 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
             const updatedDiff = millisFromFirestoreTime(b.atualizadoEm) - millisFromFirestoreTime(a.atualizadoEm);
             if (updatedDiff !== 0)
                 return updatedDiff;
-            return a.uid.localeCompare(b.uid, "pt-BR");
+            return b.uid.localeCompare(a.uid, "pt-BR");
         })
             .slice(0, maxPos)
             .map((entry, index) => ({
@@ -9618,63 +9742,37 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
     const rewardedWinners = winners.filter((winner) => winner.tier != null && hasRankingPrizeRewards(winner.tier.rewards));
     if (rewardedWinners.length === 0)
         return;
-    const userRefs = rewardedWinners.map((winner) => db.doc(`${COL.users}/${winner.uid}`));
-    const userSnapshots = userRefs.length ? await db.getAll(...userRefs) : [];
-    const userMap = new Map(userSnapshots
-        .filter((snap) => snap.exists)
-        .map((snap) => [snap.id, snap.data()]));
-    const batch = db.batch();
     let grantedCount = 0;
     for (const winner of rewardedWinners) {
         if (!winner.tier)
             continue;
-        const userData = userMap.get(winner.uid);
-        if (!userData)
-            continue;
-        const userRef = db.doc(`${COL.users}/${winner.uid}`);
-        const rewardPatch = applyMultiCurrencyRewardPatch(userData, winner.tier.rewards);
-        if (Object.keys(rewardPatch.patch).length === 0)
-            continue;
-        batch.set(userRef, {
-            ...rewardPatch.patch,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        for (const currency of ["coins", "gems", "rewardBalance"]) {
-            const amount = winner.tier.rewards[currency];
-            if (amount <= 0)
-                continue;
-            batch.set(db.doc(`${COL.wallet}/${hashId("ranking", period, periodKey, gameId ?? "global", winner.uid, currency)}`), {
-                userId: winner.uid,
-                tipo: "ranking",
-                moeda: currency,
-                valor: amount,
-                saldoApos: rewardPatch.balancesAfter[currency],
-                descricao: gameId
-                    ? `Premiação ranking ${period} · ${GAME_TITLES[gameId]} · ${rewardCurrencyLabel(currency)}`
-                    : `Premiação ranking ${period} geral · ${rewardCurrencyLabel(currency)}`,
-                referenciaId: gameId
-                    ? `${period}:${periodKey}:${gameId}:#${winner.pos}`
-                    : `${period}:${periodKey}:global:#${winner.pos}`,
-                criadoEm: firestore_2.FieldValue.serverTimestamp(),
-            });
-        }
-        batch.set(winner.entryRef, {
-            posicao: winner.pos,
-            premioRecebido: winner.tier.rewards,
-            premioProcessadoEm: firestore_2.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        grantedCount += 1;
+        const paid = await payRankingWinnerAtomically({
+            period,
+            periodKey,
+            gameId,
+            pos: winner.pos,
+            uid: winner.uid,
+            entryRef: winner.entryRef,
+            tier: winner.tier,
+        });
+        if (paid)
+            grantedCount += 1;
     }
-    batch.set(payoutFlagRef, {
-        period,
-        periodKey,
-        scope: gameId ? "game" : "global",
-        gameId: gameId ?? null,
-        gameTitle: gameId ? GAME_TITLES[gameId] : null,
-        processedAt: firestore_2.FieldValue.serverTimestamp(),
-        winners: grantedCount,
+    await db.runTransaction(async (tx) => {
+        const flagSnap = await tx.get(payoutFlagRef);
+        if (flagSnap.exists)
+            return;
+        tx.set(payoutFlagRef, {
+            period,
+            periodKey,
+            scope: gameId ? "game" : "global",
+            gameId: gameId ?? null,
+            gameTitle: gameId ? GAME_TITLES[gameId] : null,
+            processedAt: firestore_2.FieldValue.serverTimestamp(),
+            winners: grantedCount,
+        });
     });
-    batch.set(rankingRootRef, {
+    await rankingRootRef.set({
         periodoChave: periodKey,
         tipo: period,
         scope: gameId ? "game" : "global",
@@ -9683,7 +9781,81 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
         prizeProcessedAt: firestore_2.FieldValue.serverTimestamp(),
         atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });
+    return;
+    /* Legacy batch path kept unreachable while deployments roll forward.
+    for (const winner of rewardedWinners) {
+      if (!winner.tier) continue;
+      const userData = userMap.get(winner.uid);
+      if (!userData) continue;
+  
+      const userRef = db.doc(`${COL.users}/${winner.uid}`);
+      const rewardPatch = applyMultiCurrencyRewardPatch(userData, winner.tier.rewards);
+      if (Object.keys(rewardPatch.patch).length === 0) continue;
+  
+      batch.set(
+        userRef,
+        {
+          ...rewardPatch.patch,
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+  
+      for (const currency of ["coins", "gems", "rewardBalance"] as const) {
+        const amount = winner.tier.rewards[currency];
+        if (amount <= 0) continue;
+        batch.set(db.doc(`${COL.wallet}/${hashId("ranking", period, periodKey, gameId ?? "global", winner.uid, currency)}`), {
+          userId: winner.uid,
+          tipo: "ranking",
+          moeda: currency,
+          valor: amount,
+          saldoApos: rewardPatch.balancesAfter[currency],
+          descricao: gameId
+            ? `Premiação ranking ${period} · ${GAME_TITLES[gameId]} · ${rewardCurrencyLabel(currency)}`
+            : `Premiação ranking ${period} geral · ${rewardCurrencyLabel(currency)}`,
+          referenciaId: gameId
+            ? `${period}:${periodKey}:${gameId}:#${winner.pos}`
+            : `${period}:${periodKey}:global:#${winner.pos}`,
+          criadoEm: FieldValue.serverTimestamp(),
+        });
+      }
+  
+      batch.set(
+        winner.entryRef,
+        {
+          posicao: winner.pos,
+          premioRecebido: winner.tier.rewards,
+          premioProcessadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      grantedCount += 1;
+    }
+  
+    batch.set(payoutFlagRef, {
+      period,
+      periodKey,
+      scope: gameId ? "game" : "global",
+      gameId: gameId ?? null,
+      gameTitle: gameId ? GAME_TITLES[gameId] : null,
+      processedAt: FieldValue.serverTimestamp(),
+      winners: grantedCount,
+    });
+    batch.set(
+      rankingRootRef,
+      {
+        periodoChave: periodKey,
+        tipo: period,
+        scope: gameId ? "game" : "global",
+        gameId: gameId ?? null,
+        gameTitle: gameId ? GAME_TITLES[gameId] : null,
+        prizeProcessedAt: FieldValue.serverTimestamp(),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
     await batch.commit();
+    */
 }
 function clanRankingCollectionForPeriod(period) {
     return period === "diario"
@@ -10033,6 +10205,35 @@ async function closeRankingJob(period) {
         await closeClanRankingPayout(period, periodKey, clanPrizeTiers);
     }
 }
+async function payReferralRankingWinnerAtomically(input) {
+    const userRef = db.doc(`${COL.users}/${input.uid}`);
+    return db.runTransaction(async (tx) => {
+        const [entrySnap, userSnap] = await Promise.all([tx.get(input.entryRef), tx.get(userRef)]);
+        if (!entrySnap.exists || entrySnap.data()?.premioProcessadoEm)
+            return false;
+        if (!userSnap.exists || input.tier.amount <= 0)
+            return false;
+        const reward = { amount: input.tier.amount, currency: input.tier.currency };
+        const rewardPatch = applyRewardPatch((userSnap.data() || {}), reward);
+        tx.set(userRef, { ...rewardPatch.patch, atualizadoEm: firestore_2.FieldValue.serverTimestamp() }, { merge: true });
+        addWalletTxInTx(tx, {
+            id: hashId("referral-ranking", input.period, input.periodKey, input.uid, input.tier.currency),
+            userId: input.uid,
+            tipo: "referral",
+            moeda: input.tier.currency,
+            valor: input.tier.amount,
+            saldoApos: rewardPatch.balanceAfter,
+            descricao: `PremiaÃ§Ã£o ranking de indicaÃ§Ãµes ${input.period} Â· ${rewardCurrencyLabel(input.tier.currency)}`,
+            referenciaId: `${input.period}:${input.periodKey}:#${input.pos}`,
+        });
+        tx.set(input.entryRef, {
+            posicao: input.pos,
+            premioRecebido: reward,
+            premioProcessadoEm: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return true;
+    });
+}
 function referralPrizeTiersForPeriod(configDoc, campaign, period) {
     const campaignTiers = campaign?.config.rankingPrizes?.[period];
     if (campaignTiers && campaignTiers.length > 0)
@@ -10056,7 +10257,7 @@ async function closeReferralRankingJob(period) {
     const prizeTiers = referralPrizeTiersForPeriod(configDoc, campaign, period);
     if (prizeTiers.length === 0)
         return;
-    const periodKey = referralRankingKey(period);
+    const periodKey = referralRankingKey(period, referralRankingReferenceDateForClose(period));
     const rankingRootRef = db.doc(`${referralRankingCollection(period)}/${periodKey}`);
     const payoutFlagRef = db.doc(`${referralRankingCollection(period)}/${periodKey}/meta/payout`);
     const payoutFlagSnap = await payoutFlagRef.get();
@@ -10088,53 +10289,99 @@ async function closeReferralRankingJob(period) {
         return {
             pos: index + 1,
             uid: docSnap.id,
+            entryRef: docSnap.ref,
             data: docSnap.data(),
             tier,
         };
     });
-    const batch = db.batch();
+    let grantedCount = 0;
     for (const winner of winners) {
         if (!winner.tier || winner.tier.amount <= 0)
             continue;
-        const userRef = db.doc(`${COL.users}/${winner.uid}`);
-        const userSnap = await userRef.get();
-        if (!userSnap.exists)
-            continue;
-        const userData = userSnap.data();
-        const rewardPatch = applyRewardPatch(userData, {
-            amount: winner.tier.amount,
-            currency: winner.tier.currency,
+        const paid = await payReferralRankingWinnerAtomically({
+            period,
+            periodKey,
+            pos: winner.pos,
+            uid: winner.uid,
+            entryRef: winner.entryRef,
+            tier: winner.tier,
         });
-        batch.set(userRef, {
-            ...rewardPatch.patch,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_${winner.tier.currency}`), {
-            userId: winner.uid,
-            tipo: "referral",
-            moeda: winner.tier.currency,
-            valor: winner.tier.amount,
-            saldoApos: rewardPatch.balanceAfter,
-            descricao: `Premiação ranking de indicações ${period} · ${rewardCurrencyLabel(winner.tier.currency)}`,
-            referenciaId: `${period}:${periodKey}:#${winner.pos}`,
-            criadoEm: firestore_2.FieldValue.serverTimestamp(),
-        });
+        if (paid)
+            grantedCount += 1;
     }
-    batch.set(payoutFlagRef, {
-        period,
-        periodKey,
-        processedAt: firestore_2.FieldValue.serverTimestamp(),
-        winners: winners.filter((winner) => winner.tier != null).length,
-        campaignId: campaign?.id ?? null,
+    await db.runTransaction(async (tx) => {
+        const flagSnap = await tx.get(payoutFlagRef);
+        if (flagSnap.exists)
+            return;
+        tx.set(payoutFlagRef, {
+            period,
+            periodKey,
+            processedAt: firestore_2.FieldValue.serverTimestamp(),
+            winners: grantedCount,
+            campaignId: campaign?.id ?? null,
+        });
     });
-    batch.set(rankingRootRef, {
+    await rankingRootRef.set({
         period,
         periodKey,
         prizeProcessedAt: firestore_2.FieldValue.serverTimestamp(),
         campaignId: campaign?.id ?? null,
         updatedAt: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });
+    return;
+    /* Legacy batch path kept unreachable while deployments roll forward.
+    const batch = db.batch();
+    for (const winner of winners) {
+      if (!winner.tier || winner.tier.amount <= 0) continue;
+      const userRef = db.doc(`${COL.users}/${winner.uid}`);
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) continue;
+      const userData = userSnap.data() as Record<string, unknown>;
+      const rewardPatch = applyRewardPatch(userData, {
+        amount: winner.tier.amount,
+        currency: winner.tier.currency,
+      });
+      batch.set(
+        userRef,
+        {
+          ...rewardPatch.patch,
+          atualizadoEm: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+  
+      batch.set(db.doc(`${COL.wallet}/referral_rank_${period}_${periodKey}_${winner.uid}_${winner.tier.currency}`), {
+        userId: winner.uid,
+        tipo: "referral",
+        moeda: winner.tier.currency,
+        valor: winner.tier.amount,
+        saldoApos: rewardPatch.balanceAfter,
+        descricao: `Premiação ranking de indicações ${period} · ${rewardCurrencyLabel(winner.tier.currency)}`,
+        referenciaId: `${period}:${periodKey}:#${winner.pos}`,
+        criadoEm: FieldValue.serverTimestamp(),
+      });
+    }
+  
+    batch.set(payoutFlagRef, {
+      period,
+      periodKey,
+      processedAt: FieldValue.serverTimestamp(),
+      winners: winners.filter((winner) => winner.tier != null).length,
+      campaignId: campaign?.id ?? null,
+    });
+    batch.set(
+      rankingRootRef,
+      {
+        period,
+        periodKey,
+        prizeProcessedAt: FieldValue.serverTimestamp(),
+        campaignId: campaign?.id ?? null,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
     await batch.commit();
+    */
 }
 /** Backstop server-side: resolve salas PvP expiradas para impedir travas e loops infinitos. */
 exports.reapExpiredPvpRooms = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "* * * * *" }, async () => {
@@ -10241,7 +10488,7 @@ exports.reapStaleAutoMatchSlots = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHED
 exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" }, async () => {
     await closeRankingJob("diario");
 });
-exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 1" }, async () => {
+exports.closeWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 0" }, async () => {
     await closeRankingJob("semanal");
 });
 exports.closeMonthlyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" }, async () => {
@@ -10316,7 +10563,7 @@ exports.getArenaOverallRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asyn
 exports.closeReferralDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" }, async () => {
     await closeReferralRankingJob("daily");
 });
-exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 1" }, async () => {
+exports.closeReferralWeeklyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * 0" }, async () => {
     await closeReferralRankingJob("weekly");
 });
 exports.closeReferralMonthlyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 1 * *" }, async () => {
@@ -10613,8 +10860,21 @@ async function applyClanScoreCreditByClanId(clanId, input) {
     const normalizedClanId = String(clanId || "").trim();
     if (!normalizedClanId)
         return;
+    const appliedRef = input.idempotencyKey
+        ? db.doc(`${COL.clans}/${normalizedClanId}/score_credits/${safeFirestoreDocId(`${input.uid}:${input.idempotencyKey}`)}`)
+        : null;
     await db.runTransaction(async (tx) => {
+        const appliedSnap = appliedRef ? await tx.get(appliedRef) : null;
+        if (appliedSnap?.exists)
+            return;
         await applyClanScoreCreditForClanIdTx(tx, normalizedClanId, input);
+        if (appliedRef) {
+            tx.set(appliedRef, {
+                uid: input.uid,
+                idempotencyKey: input.idempotencyKey,
+                appliedAt: firestore_2.FieldValue.serverTimestamp(),
+            });
+        }
     });
 }
 function weeklyRankingGameEntryRef(periodKey, gameId, uid) {

@@ -8,6 +8,7 @@ import type { GameId } from "@/types/game";
 
 export type FinalizeMatchInput = {
   gameId: GameId;
+  idempotencyKey?: string;
   resultado: "vitoria" | "derrota" | "empate";
   score: number;
   detalhes?: Record<string, unknown>;
@@ -46,6 +47,7 @@ export async function finalizeMatchOnServer(input: FinalizeMatchInput): Promise<
       }
     >("finalizeMatch", {
       gameId: input.gameId,
+      idempotencyKey: input.idempotencyKey,
       resultado: input.resultado,
       score: input.score,
       metadata,

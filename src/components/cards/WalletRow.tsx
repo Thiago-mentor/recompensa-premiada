@@ -29,8 +29,34 @@ const tipoLabel: Record<WalletTransaction["tipo"], string> = {
   conversao: "Conversão",
 };
 
+function formatTransactionDate(value: WalletTransaction["criadoEm"]): {
+  label: string;
+  iso: string | undefined;
+} {
+  if (!value || typeof (value as { toDate?: unknown }).toDate !== "function") {
+    return { label: "Data pendente", iso: undefined };
+  }
+
+  try {
+    const date = (value as { toDate: () => Date }).toDate();
+    return {
+      label: date.toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      iso: date.toISOString(),
+    };
+  } catch {
+    return { label: "Data indisponivel", iso: undefined };
+  }
+}
+
 export function WalletRow({ tx }: { tx: WalletTransaction }) {
   const positive = tx.valor >= 0;
+  const date = formatTransactionDate(tx.criadoEm);
   return (
     <div className="flex items-center justify-between gap-3 border-b border-white/5 py-3 text-sm last:border-0">
       <div className="min-w-0">
@@ -38,6 +64,9 @@ export function WalletRow({ tx }: { tx: WalletTransaction }) {
         <p className="text-xs text-white/50">
           {tipoLabel[tx.tipo]} · {moedaDisplay[tx.moeda] ?? tx.moeda}
         </p>
+        <time className="mt-0.5 block text-[11px] text-white/35" dateTime={date.iso}>
+          {date.label}
+        </time>
       </div>
       <span
         className={cn(

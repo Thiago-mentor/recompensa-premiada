@@ -23,6 +23,13 @@ type ModalState =
       error: string | null;
     };
 
+function createMatchRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
 export function useGameMatchFlow() {
   const [modal, setModal] = useState<ModalState>({ open: false });
   const [toast, setToast] = useState<{ message: string } | null>(null);
@@ -34,7 +41,10 @@ export function useGameMatchFlow() {
     async (input: FinalizeMatchInput & { uiTitle: string; uiSubtitle?: string }) => {
       setBusy(true);
       const { uiTitle, uiSubtitle, ...payload } = input;
-      const r: FinalizeMatchResult = await finalizeMatchOnServer(payload);
+      const r: FinalizeMatchResult = await finalizeMatchOnServer({
+        ...payload,
+        idempotencyKey: payload.idempotencyKey ?? createMatchRequestId(),
+      });
       setBusy(false);
 
       if (r.ok) {

@@ -104,7 +104,7 @@ function compareVictoryRankedEntry(a: RankingEntry, b: RankingEntry): number {
   if (b.partidas !== a.partidas) return b.partidas - a.partidas;
   const updatedDiff = timestampToMs(b.atualizadoEm) - timestampToMs(a.atualizadoEm);
   if (updatedDiff !== 0) return updatedDiff;
-  return a.uid.localeCompare(b.uid, "pt-BR");
+  return b.uid.localeCompare(a.uid, "pt-BR");
 }
 
 function victoryRankingIndexedFetchCap(topN: number): number {
@@ -175,7 +175,15 @@ async function fetchTopRankingUncached(
       return fetchVictoryRankedTopFullScan(entriesRef, topN, options);
     }
   }
-  const q = query(entriesRef, orderBy("score", "desc"), limit(topN));
+  const q = query(
+    entriesRef,
+    orderBy("score", "desc"),
+    orderBy("vitorias", "desc"),
+    orderBy("partidas", "desc"),
+    orderBy("atualizadoEm", "desc"),
+    orderBy(documentId(), "desc"),
+    limit(topN),
+  );
   const snap = await getDocs(q);
   return snap.docs.map((d, i) => ({ ...normalizeEntry(d.id, d.data(), options), posicao: i + 1 }));
 }

@@ -102,7 +102,7 @@ function normalizeTierList(raw: unknown, fallback: RankingPrizeTier[]): RankingP
     .map((item) => normalizeTier(item))
     .filter((item): item is RankingPrizeTier => item != null)
     .sort((a, b) => a.posicaoMax - b.posicaoMax);
-  return parsed.length > 0 ? parsed : cloneTierList(fallback);
+  return parsed;
 }
 
 function normalizePeriodConfig(
