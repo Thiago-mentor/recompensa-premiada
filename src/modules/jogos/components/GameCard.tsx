@@ -1,15 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils/cn";
-import { Gift, Timer, Zap } from "lucide-react";
+import { ArrowUpRight, Gamepad2, Gift, Timer, Users, Zap } from "lucide-react";
 import type { GameCatalogEntry } from "../core/gameRegistry";
 import { GameCoverIllustration } from "./GameCoverIllustration";
 
 /** Moldura cassino 3D para o hub /jogos. */
 const casinoShell =
   "template-3d-lift relative flex h-full flex-col overflow-hidden rounded-[1.45rem] border border-cyan-400/36 bg-[#050818] shadow-[0_0_0_1px_rgba(139,92,246,0.18),0_12px_0_-7px_rgba(3,7,18,0.95),0_22px_54px_-20px_rgba(0,0,0,0.82),0_0_48px_-16px_rgba(34,211,238,0.28),0_0_66px_-22px_rgba(167,139,250,0.28),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-14px_24px_rgba(0,0,0,0.34)] transition-all duration-300 ease-out group-hover/card:border-amber-300/52 group-hover/card:shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_14px_0_-7px_rgba(3,7,18,0.95),0_28px_62px_-22px_rgba(0,0,0,0.72),0_0_60px_-12px_rgba(251,191,36,0.36),0_0_74px_-18px_rgba(217,70,239,0.24)]";
+
+const gameCardThemes: Record<string, { shell: string; cover: string; signal: string; play: string }> = {
+  ppt: {
+    shell: "border-cyan-400/45 group-hover/card:border-cyan-200/75",
+    cover: "ring-cyan-300/20",
+    signal: "text-cyan-100",
+    play: "border-cyan-200/70 bg-cyan-400/20 text-cyan-100 shadow-[0_0_24px_-6px_rgba(34,211,238,0.8)]",
+  },
+  quiz: {
+    shell: "border-fuchsia-400/45 group-hover/card:border-fuchsia-200/75",
+    cover: "ring-fuchsia-300/20",
+    signal: "text-fuchsia-100",
+    play: "border-fuchsia-200/70 bg-fuchsia-400/20 text-fuchsia-100 shadow-[0_0_24px_-6px_rgba(217,70,239,0.8)]",
+  },
+  reaction_tap: {
+    shell: "border-emerald-400/45 group-hover/card:border-emerald-200/75",
+    cover: "ring-emerald-300/20",
+    signal: "text-emerald-100",
+    play: "border-emerald-200/70 bg-emerald-400/20 text-emerald-100 shadow-[0_0_24px_-6px_rgba(52,211,153,0.8)]",
+  },
+  card_battle: {
+    shell: "border-amber-400/45 group-hover/card:border-amber-200/75",
+    cover: "ring-amber-300/20",
+    signal: "text-amber-100",
+    play: "border-amber-200/70 bg-amber-400/20 text-amber-100 shadow-[0_0_24px_-6px_rgba(251,191,36,0.8)]",
+  },
+};
 
 function CardBackdrop({ className }: { className?: string }) {
   return (
@@ -46,12 +73,20 @@ export function GameCard({
   onlineCount?: number;
   className?: string;
 }) {
+  const reducedMotion = useReducedMotion();
   const cooldownLabel =
     game.cooldownSec >= 3600
       ? `${Math.round(game.cooldownSec / 3600)}h`
       : `${game.cooldownSec}s`;
 
   const isArena = game.experienceKind === "arena";
+  const waitingPlayers = Math.max(0, onlineCount ?? 0);
+  const theme = gameCardThemes[game.id] ?? {
+    shell: "border-cyan-400/45 group-hover/card:border-cyan-200/75",
+    cover: "ring-cyan-300/20",
+    signal: "text-cyan-100",
+    play: "border-cyan-200/70 bg-cyan-400/20 text-cyan-100 shadow-[0_0_24px_-6px_rgba(34,211,238,0.8)]",
+  };
 
   return (
     <motion.div
@@ -60,7 +95,7 @@ export function GameCard({
       whileHover={{ y: -6 }}
       transition={{ type: "spring", stiffness: 380, damping: 26 }}
     >
-      <div className={cn(casinoShell)}>
+      <div className={cn(casinoShell, theme.shell)}>
         <CardBackdrop />
         <div
           className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/card:opacity-100"
@@ -73,7 +108,7 @@ export function GameCard({
           href={game.href}
           className="relative z-10 flex min-h-0 flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070b18] active:scale-[0.99]"
         >
-          <div className="relative aspect-[16/10] w-full shrink-0 overflow-hidden bg-black ring-1 ring-inset ring-white/10">
+          <div className={cn("relative aspect-[16/10] w-full shrink-0 overflow-hidden bg-black ring-1 ring-inset ring-white/10", theme.cover)}>
             <div
               className="absolute inset-0 transition-transform duration-500 ease-out group-hover/card:scale-[1.07]"
               aria-hidden
@@ -93,11 +128,39 @@ export function GameCard({
               }}
               aria-hidden
             />
+            {!reducedMotion ? (
+              <motion.div
+                className="pointer-events-none absolute -left-1/3 top-0 h-full w-1/4 skew-x-[-18deg] bg-gradient-to-r from-transparent via-white/20 to-transparent blur-md mix-blend-screen"
+                animate={{ x: ["-35%", "520%"] }}
+                transition={{ duration: 5.2, repeat: Infinity, repeatDelay: 3.5, ease: "easeInOut" }}
+                aria-hidden
+              />
+            ) : null}
+            <div
+              className="pointer-events-none absolute inset-2 rounded-[1.1rem] border border-white/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.24),inset_0_-14px_20px_rgba(0,0,0,0.3)]"
+              aria-hidden
+            />
             <span
               className="absolute right-2 top-2 flex shrink-0 items-center gap-1 rounded-full border border-amber-300/50 bg-black/76 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_0_18px_-6px_rgba(251,191,36,0.72)] backdrop-blur-md"
             >
               <Timer className="h-3 w-3 text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.55)]" />
               {cooldownLabel}
+            </span>
+            <span
+              className={cn(
+                "absolute left-2 top-11 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/65 px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-md",
+                theme.signal,
+              )}
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  waitingPlayers > 0
+                    ? "bg-emerald-300 shadow-[0_0_9px_rgba(52,211,153,0.9)]"
+                    : "bg-white/45",
+                )}
+              />
+              {waitingPlayers > 0 ? `${waitingPlayers} na fila` : "fila aberta"}
             </span>
             {game.highlightLabel ? (
               <span
@@ -111,20 +174,38 @@ export function GameCard({
                 {game.highlightLabel}
               </span>
             ) : null}
-            <div className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-10 sm:px-4 sm:pb-4">
-              <h2 className="text-balance text-xl font-black leading-tight tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] sm:text-2xl">
+            <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 px-3 pb-3 pt-10 sm:px-4 sm:pb-4">
+              <h2 className="min-w-0 max-w-[calc(100%-3.25rem)] text-balance text-xl font-black leading-tight tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] sm:text-2xl">
                 {game.title}
               </h2>
+              <span
+                className={cn(
+                  "mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_7px_14px_-8px_rgba(0,0,0,0.9)]",
+                  theme.play,
+                )}
+                aria-hidden
+              >
+                <Gamepad2 className="h-5 w-5" />
+              </span>
             </div>
           </div>
 
           <div className="relative z-10 flex flex-1 flex-col gap-3 border-t border-white/8 bg-[linear-gradient(180deg,rgba(15,23,42,0.36),rgba(7,11,26,0.96))] p-4 sm:p-5">
             <p className="text-sm leading-relaxed text-white/62">{game.subtitle}</p>
             {isArena ? (
-              <span className="template-3d-button mt-auto flex w-full items-center justify-between gap-2 rounded-xl border border-amber-400/55 bg-[linear-gradient(180deg,rgba(251,191,36,0.24),rgba(146,64,14,0.34)_48%,rgba(15,23,42,0.96))] px-3 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-amber-50 shadow-[0_0_30px_-8px_rgba(251,191,36,0.5),inset_0_1px_0_rgba(253,230,138,0.25),inset_0_-3px_10px_rgba(0,0,0,0.32)]">
-                <Zap className="h-3.5 w-3.5 shrink-0 text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.65)]" />
-                <span>1v1 · matchmaking</span>
-                <span className="text-[9px] text-emerald-100">{onlineCount ?? 0} na fila</span>
+              <span className="template-3d-button mt-auto flex w-full items-center gap-2 rounded-xl border border-amber-400/55 bg-[linear-gradient(180deg,rgba(251,191,36,0.24),rgba(146,64,14,0.34)_48%,rgba(15,23,42,0.96))] px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_30px_-8px_rgba(251,191,36,0.5),inset_0_1px_0_rgba(253,230,138,0.25),inset_0_-3px_10px_rgba(0,0,0,0.32)] sm:py-3 sm:tracking-[0.18em]">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-200/30 bg-amber-300/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
+                  <Zap className="h-3.5 w-3.5 text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.65)]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">Entrar na partida</span>
+                  <span className="mt-0.5 block truncate text-[8px] font-bold tracking-[0.12em] text-amber-100/65">1v1 - matchmaking</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1 text-[9px] text-emerald-100">
+                  <Users className="h-3 w-3 text-emerald-300" />
+                  {waitingPlayers}
+                </span>
+                <ArrowUpRight className="h-4 w-4 shrink-0 text-amber-200" aria-hidden />
               </span>
             ) : (
               <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-xl border border-cyan-400/38 bg-[linear-gradient(180deg,rgba(8,51,68,0.45),rgba(15,23,42,0.9))] px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_22px_-8px_rgba(34,211,238,0.32),inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-2px_6px_rgba(0,0,0,0.22)]">

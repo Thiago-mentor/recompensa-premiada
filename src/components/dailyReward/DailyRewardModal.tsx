@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils/cn";
-import { Check, Gift, Sparkles, X } from "lucide-react";
+import { Check, Coins, Gift, Sparkles, Ticket, X } from "lucide-react";
 
 export type DailyRewardSlot = {
   dayNum: number;
@@ -140,7 +140,7 @@ export function DailyRewardModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="daily-reward-title"
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 p-3 pb-10 backdrop-blur-md sm:items-center sm:p-4 sm:pb-4"
+      className="fixed inset-0 z-[1100] flex items-end justify-center bg-black/80 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:items-center sm:p-4 sm:pb-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.22 }}
@@ -151,13 +151,14 @@ export function DailyRewardModal({
     >
       <motion.div
         className={cn(
-          "pointer-events-auto relative w-full overflow-hidden rounded-[1.35rem] border-[3px] border-[#f5d94a] p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_24px_60px_-12px_rgba(0,0,0,0.65),0_0_80px_-20px_rgba(245,217,74,0.35)] sm:p-5",
+          "pointer-events-auto relative max-h-[calc(100vh-1.5rem)] max-h-[calc(100dvh-1.5rem)] min-h-0 w-full overflow-x-hidden overflow-y-auto overscroll-contain rounded-[1.35rem] border-[3px] border-[#f5d94a] p-4 pb-5 shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_24px_60px_-12px_rgba(0,0,0,0.65),0_0_80px_-20px_rgba(245,217,74,0.35)] sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:p-5",
           "bg-gradient-to-b from-[#5c3eb0] via-[#4f3496] to-[#3d2675]",
           layout.dialogClassName,
         )}
         initial={{ opacity: 0, scale: 0.94, y: 28 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", damping: 28, stiffness: 320, mass: 0.85 }}
+        style={{ transformPerspective: 1200 }}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -167,6 +168,19 @@ export function DailyRewardModal({
             backgroundImage: `radial-gradient(circle at 20% 0%, white, transparent 45%),
               radial-gradient(circle at 80% 100%, #f5d94a, transparent 40%)`,
           }}
+        />
+
+        <motion.div
+          className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[#fff3a6] to-transparent"
+          animate={{ opacity: [0.35, 0.9, 0.35], scaleX: [0.8, 1, 0.8] }}
+          transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        />
+        <motion.div
+          className="pointer-events-none absolute -left-1/3 top-0 h-full w-1/4 rotate-[18deg] bg-white/10 blur-2xl"
+          animate={{ x: ["-40%", "520%"] }}
+          transition={{ duration: 5.5, repeat: Infinity, repeatDelay: 2.5, ease: "easeInOut" }}
+          aria-hidden
         />
 
         <button
@@ -272,13 +286,24 @@ export function DailyRewardModal({
                     )}
                   </div>
 
-                  <div
+                  <motion.div
                     className={cn(
-                      "relative mx-auto mt-1.5 w-full overflow-hidden rounded-xl",
+                      "relative mx-auto mt-1.5 w-full overflow-hidden rounded-xl [transform-style:preserve-3d]",
                       layout.artworkClassName,
                       "bg-[radial-gradient(circle_at_50%_28%,rgba(255,255,255,0.45),transparent_52%)]",
                       isCurrent ? "bg-amber-200/95" : "bg-violet-800/90",
                     )}
+                    animate={
+                      isCurrent
+                        ? { y: [0, -2, 0], rotateY: [-4, 4, -4] }
+                        : { rotateY: 0 }
+                    }
+                    transition={
+                      isCurrent
+                        ? { duration: 3.2, repeat: Infinity, ease: "easeInOut" }
+                        : { duration: 0.2 }
+                    }
+                    whileHover={{ scale: 1.05, rotateX: -4, rotateY: 7 }}
                   >
                     <div
                       className="absolute inset-0 opacity-30"
@@ -286,7 +311,30 @@ export function DailyRewardModal({
                         backgroundImage: `repeating-conic-gradient(from 0deg, transparent 0deg 8deg, rgba(255,255,255,0.06) 8deg 16deg)`,
                       }}
                     />
-                  </div>
+                    <div className="absolute inset-x-2 bottom-1 h-1 rounded-full bg-black/30 blur-[1px]" />
+                    <div
+                      className={cn(
+                        "absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 shadow-[inset_0_2px_3px_rgba(255,255,255,0.55),0_5px_0_rgba(0,0,0,0.2),0_8px_14px_-6px_rgba(0,0,0,0.75)] sm:h-10 sm:w-10",
+                        isCurrent
+                          ? "border-amber-50/90 bg-gradient-to-br from-white via-amber-200 to-amber-500 text-amber-800"
+                          : "border-violet-200/55 bg-gradient-to-br from-violet-100/90 via-violet-400 to-violet-900 text-violet-950",
+                      )}
+                      style={{ transform: "translate(-50%, -50%) translateZ(12px)" }}
+                    >
+                      {s.tipoBonus === "bau" ? (
+                        <Gift className="h-5 w-5" strokeWidth={2.4} />
+                      ) : s.gems > 0 ? (
+                        <Ticket className="h-5 w-5" strokeWidth={2.4} />
+                      ) : (
+                        <Coins className="h-5 w-5" strokeWidth={2.4} />
+                      )}
+                    </div>
+                    <div
+                      className="absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/20 bg-black/15 sm:h-10 sm:w-10"
+                      style={{ transform: "translate(-50%, -50%) translateZ(3px) translate(0, 4px)" }}
+                      aria-hidden
+                    />
+                  </motion.div>
 
                   <p
                     className={cn(
@@ -352,6 +400,12 @@ export function DailyRewardModal({
             "bg-gradient-to-r from-[#ffe566] via-[#f472b6] to-[#a855f7]",
           )}
         >
+          <motion.span
+            className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/4 rotate-12 bg-white/35 blur-md"
+            animate={{ x: ["-20%", "520%"] }}
+            transition={{ duration: 4.8, repeat: Infinity, repeatDelay: 1.8, ease: "easeInOut" }}
+            aria-hidden
+          />
           <span className="relative z-[1] drop-shadow-sm">{claimLoading ? "RECEBENDO..." : "RECEBER"}</span>
         </button>
 
