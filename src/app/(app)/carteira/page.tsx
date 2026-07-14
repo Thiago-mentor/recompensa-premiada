@@ -25,6 +25,7 @@ import {
   Ticket,
   Trophy,
   Wallet,
+  type LucideIcon,
 } from "lucide-react";
 
 const filtros = [
@@ -75,6 +76,8 @@ export default function CarteiraPage() {
   const [filtro, setFiltro] = useState<FiltroExtrato>("todos");
   const [aba, setAba] = useState<CarteiraTab>("resumo");
   const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
+  const rankingRows = rows.filter((tx) => tx.tipo === "ranking");
+  const otherRows = rows.filter((tx) => tx.tipo !== "ranking");
 
   useEffect(() => {
     if (!user) return;
@@ -382,7 +385,7 @@ export default function CarteiraPage() {
               </button>
             ))}
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-1 sm:rounded-3xl sm:p-2">
+          <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] p-1 sm:rounded-3xl sm:p-2">
             <div className="rounded-xl bg-black/20 px-3 py-2 sm:rounded-2xl sm:px-4 sm:py-3">
               {rows.length === 0 ? (
                 <p className="py-8 text-center text-sm text-white/45">Nenhuma movimentação neste filtro.</p>
@@ -391,6 +394,33 @@ export default function CarteiraPage() {
               )}
             </div>
           </div>
+          {rows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-white/45">
+              {"Nenhuma movimenta\u00e7\u00e3o neste filtro."}
+            </p>
+          ) : filtro === "todos" ? (
+            <div className="space-y-5">
+              <TransactionGroup
+                title={"Movimenta\u00e7\u00f5es"}
+                rows={otherRows}
+                icon={ListTree}
+                accent="text-violet-200/80"
+              />
+              <TransactionGroup
+                title={"Premia\u00e7\u00f5es de ranking"}
+                rows={rankingRows}
+                icon={Trophy}
+                accent="text-amber-200/85"
+              />
+            </div>
+          ) : (
+            <TransactionGroup
+              title={filtro === "ranking" ? "Premia\u00e7\u00f5es de ranking" : "Movimenta\u00e7\u00f5es"}
+              rows={rows}
+              icon={filtro === "ranking" ? Trophy : ListTree}
+              accent={filtro === "ranking" ? "text-amber-200/85" : "text-violet-200/80"}
+            />
+          )}
         </section>
       ) : null}
     </div>
@@ -403,5 +433,38 @@ function QuickBalancePill({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">{label}</p>
       <p className="mt-1 text-sm font-semibold text-white">{value}</p>
     </div>
+  );
+}
+
+function TransactionGroup({
+  title,
+  rows,
+  icon: Icon,
+  accent,
+}: {
+  title: string;
+  rows: WalletTransaction[];
+  icon: LucideIcon;
+  accent: string;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-1 sm:rounded-3xl sm:p-2">
+      <div className="flex items-center justify-between gap-3 px-3 py-2 sm:px-4 sm:py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon className={cn("h-4 w-4 shrink-0", accent)} aria-hidden />
+          <h3 className="truncate text-sm font-bold text-white">{title}</h3>
+        </div>
+        <span className="shrink-0 rounded-full bg-white/8 px-2 py-1 text-[11px] font-bold tabular-nums text-white/55">
+          {rows.length}
+        </span>
+      </div>
+      <div className="rounded-xl bg-black/20 px-3 py-2 sm:rounded-2xl sm:px-4 sm:py-3">
+        {rows.map((tx) => (
+          <WalletRow key={tx.id} tx={tx} />
+        ))}
+      </div>
+    </section>
   );
 }
