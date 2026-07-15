@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeWalletTransactions } from "@/services/carteira/walletService";
@@ -8,7 +8,7 @@ import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocu
 import { CurrencyConversionPanel } from "@/components/carteira/CurrencyConversionPanel";
 import { StatCard } from "@/components/cards/StatCard";
 import { WalletRow } from "@/components/cards/WalletRow";
-import type { WalletTransaction, WalletTransactionType } from "@/types/wallet";
+import type { WalletCurrency, WalletTransaction, WalletTransactionType } from "@/types/wallet";
 import { ROUTES } from "@/lib/constants/routes";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
@@ -41,6 +41,12 @@ const filtros = [
 
 type FiltroExtrato = (typeof filtros)[number];
 type CarteiraTab = "resumo" | "troca" | "saque" | "extrato";
+
+const LEDGER_CURRENCIES: Array<{ id: WalletCurrency; label: string }> = [
+  { id: "coins", label: "PR" },
+  { id: "gems", label: "TICKET" },
+  { id: "rewardBalance", label: "Saldo" },
+];
 
 function boostStatusLabel(value: unknown): string {
   if (!value || typeof value !== "object") return "Inativo";
@@ -78,6 +84,21 @@ export default function CarteiraPage() {
   const [boostSystemEnabled, setBoostSystemEnabled] = useState(BOOST_SYSTEM_DEFAULT_ENABLED);
   const rankingRows = rows.filter((tx) => tx.tipo === "ranking");
   const otherRows = rows.filter((tx) => tx.tipo !== "ranking");
+  const ledgerSummary = useMemo(() => {
+    const initial = {
+      coins: { entrada: 0, saida: 0 },
+      gems: { entrada: 0, saida: 0 },
+      rewardBalance: { entrada: 0, saida: 0 },
+    } satisfies Record<WalletCurrency, { entrada: number; saida: number }>;
+
+    for (const tx of rows) {
+      const bucket = initial[tx.moeda];
+      if (!bucket) continue;
+      if (tx.valor >= 0) bucket.entrada += tx.valor;
+      else bucket.saida += Math.abs(tx.valor);
+    }
+    return initial;
+  }, [rows]);
 
   useEffect(() => {
     if (!user) return;
@@ -385,6 +406,34 @@ export default function CarteiraPage() {
               </button>
             ))}
           </div>
+          {rows.length > 0 ? (
+            <div className="rounded-2xl border border-cyan-400/15 bg-cyan-500/[0.05] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100/65">
+                  Resumo visivel
+                </p>
+                <span className="text-[11px] text-white/40">{rows.length} lancamentos</span>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {LEDGER_CURRENCIES.map((currency) => {
+                  const summary = ledgerSummary[currency.id];
+                  return (
+                    <div key={currency.id} className="rounded-xl border border-white/8 bg-black/20 px-2.5 py-2">
+                      <p className="text-[10px] font-bold uppercase text-white/45">{currency.label}</p>
+                      <p className="mt-1 text-xs font-black text-emerald-300">
+                        +{summary.entrada.toLocaleString("pt-BR")}
+                      </p>
+                      {summary.saida > 0 ? (
+                        <p className="text-[10px] font-semibold text-rose-300/80">
+                          -{summary.saida.toLocaleString("pt-BR")}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] p-1 sm:rounded-3xl sm:p-2">
             <div className="rounded-xl bg-black/20 px-3 py-2 sm:rounded-2xl sm:px-4 sm:py-3">
               {rows.length === 0 ? (

@@ -4480,6 +4480,9 @@ const MATCHMAKING_SLOT_STALE_MS = 30_000;
 const CLIENT_RISK_WINDOW_MS = 60_000;
 const CLIENT_RISK_MAX_EVENTS_PER_WINDOW = 6;
 const clientRiskWindows = new Map<string, { startedAtMs: number; count: number }>();
+const PUBLIC_PROFILE_WINDOW_MS = 60_000;
+const PUBLIC_PROFILE_MAX_READS_PER_WINDOW = 30;
+const publicProfileWindows = new Map<string, { startedAtMs: number; count: number }>();
 
 function assertClientRiskRateLimit(uid: string): void {
   const nowMs = Date.now();
@@ -4490,6 +4493,19 @@ function assertClientRiskRateLimit(uid: string): void {
   }
   if (current.count >= CLIENT_RISK_MAX_EVENTS_PER_WINDOW) {
     throw new HttpsError("resource-exhausted", "Muitos sinais de atividade. Tente novamente em instantes.");
+  }
+  current.count += 1;
+}
+
+function assertPublicProfileRateLimit(uid: string): void {
+  const nowMs = Date.now();
+  const current = publicProfileWindows.get(uid);
+  if (!current || nowMs - current.startedAtMs >= PUBLIC_PROFILE_WINDOW_MS) {
+    publicProfileWindows.set(uid, { startedAtMs: nowMs, count: 1 });
+    return;
+  }
+  if (current.count >= PUBLIC_PROFILE_MAX_READS_PER_WINDOW) {
+    throw new HttpsError("resource-exhausted", "Muitos perfis consultados. Tente novamente em instantes.");
   }
   current.count += 1;
 }
@@ -6526,6 +6542,7 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
 export const getPublicProfile = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const requesterUid = request.auth?.uid;
   assertAuthed(requesterUid);
+  assertPublicProfileRateLimit(requesterUid);
 
   const targetUid = String(request.data?.uid || "").trim();
   if (!targetUid || targetUid.length > 128 || targetUid.includes("/")) {

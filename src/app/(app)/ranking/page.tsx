@@ -709,6 +709,7 @@ export default function RankingPage() {
                 entries={overallEntries}
                 loading={overallLoading}
                 highlightUid={user?.uid}
+                myEntry={overallMyEntry}
                 actualPosition={overallMyPosition}
                 visibleTop={visibleTop}
                 emptyText="Ainda não há histórico suficiente neste ranking total."
@@ -741,6 +742,7 @@ export default function RankingPage() {
                 entries={rankingEntries}
                 loading={rankingLoading}
                 highlightUid={user?.uid}
+                myEntry={rankingMine}
                 actualPosition={rankingMyPosition}
                 visibleTop={visibleTop}
                 emptyText="Ainda não há jogadores neste ranking."
@@ -946,6 +948,7 @@ function RankingTableCard({
   entries,
   loading,
   highlightUid,
+  myEntry,
   actualPosition,
   visibleTop,
   emptyText,
@@ -955,10 +958,17 @@ function RankingTableCard({
   entries: RankingEntry[];
   loading: boolean;
   highlightUid?: string;
+  myEntry?: RankingEntry | null;
   actualPosition: number | null;
   visibleTop: number;
   emptyText: string;
 }) {
+  const targetEntry = entries[Math.max(0, Math.min(visibleTop - 1, entries.length - 1))];
+  const pointsToTop =
+    myEntry && actualPosition != null && actualPosition > visibleTop && targetEntry
+      ? Math.max(1, targetEntry.score - myEntry.score + 1)
+      : null;
+
   return (
     <div className="game-panel p-3 sm:p-4 shadow-[0_0_42px_-24px_rgba(34,211,238,0.28)]">
       <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2 sm:mb-3 sm:gap-3">
@@ -973,6 +983,16 @@ function RankingTableCard({
           </div>
         ) : null}
       </div>
+
+      {myEntry && actualPosition != null ? (
+        <div className="mb-3 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.07] px-3 py-2 text-xs text-cyan-100/75">
+          {actualPosition > visibleTop && pointsToTop != null
+            ? `Faltam ${pointsToTop.toLocaleString("pt-BR")} PR para entrar no Top ${visibleTop}.`
+            : actualPosition <= visibleTop
+              ? `Voce esta no Top ${visibleTop}. Continue jogando para proteger sua posicao.`
+              : "Sua posicao sera atualizada assim que houver novas partidas."}
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="game-panel-soft rounded-2xl px-4 py-10 text-center text-sm text-white/45">

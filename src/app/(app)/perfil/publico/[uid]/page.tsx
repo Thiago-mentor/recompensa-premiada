@@ -9,6 +9,7 @@ import {
   Flame,
   Medal,
   ShieldCheck,
+  Share2,
   Sparkles,
   Swords,
   Trophy,
@@ -103,6 +104,7 @@ export default function PublicProfilePage() {
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!uid) return;
@@ -132,6 +134,32 @@ export default function PublicProfilePage() {
   const trophies = useMemo(() => (profile ? buildTrophies(profile) : []), [profile]);
   const unlockedTrophies = trophies.filter((trophy) => trophy.unlocked).length;
 
+  async function shareProfile() {
+    if (!profile || typeof window === "undefined") return;
+    const url = window.location.href;
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({
+          title: `Perfil de ${profile.nome} na Rivaliza`,
+          text: `Confira o perfil de ${profile.nome} na Rivaliza.`,
+          url,
+        });
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareMessage("Link copiado");
+        window.setTimeout(() => setShareMessage(null), 2200);
+        return;
+      }
+      setShareMessage("Copie o endereco desta pagina");
+    } catch (shareError) {
+      if ((shareError as { name?: string })?.name !== "AbortError") {
+        setShareMessage("Nao foi possivel compartilhar agora");
+      }
+    }
+  }
+
   if (loading) {
     return (
       <div className="game-panel px-4 py-16 text-center text-sm text-white/55">
@@ -160,13 +188,23 @@ export default function PublicProfilePage() {
   return (
     <div className="space-y-5 pb-6">
       <header className="game-panel overflow-hidden p-5 shadow-[0_0_56px_-26px_rgba(34,211,238,0.28)]">
-        <Link
-          href={ROUTES.ranking}
-          className="inline-flex min-h-9 items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-cyan-100/65 transition hover:text-cyan-100"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Ranking
-        </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link
+            href={ROUTES.ranking}
+            className="inline-flex min-h-9 items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-cyan-100/65 transition hover:text-cyan-100"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Ranking
+          </Link>
+          <button
+            type="button"
+            onClick={() => void shareProfile()}
+            className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-500/10 px-3 text-xs font-bold text-cyan-100 transition hover:border-cyan-300/35 hover:bg-cyan-500/15"
+          >
+            <Share2 className="h-3.5 w-3.5" aria-hidden />
+            {shareMessage ?? "Compartilhar"}
+          </button>
+        </div>
 
         <div className="mt-5 flex items-start gap-4">
           <div

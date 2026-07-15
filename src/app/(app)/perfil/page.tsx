@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { ClanAccessBadge } from "@/components/cla/ClanAccessBadge";
 import { useRouter } from "next/navigation";
-import { ROUTES } from "@/lib/constants/routes";
+import { ROUTES, routePerfilPublico } from "@/lib/constants/routes";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
@@ -217,6 +217,19 @@ export default function PerfilPage() {
         </span>
         <span className="text-xs font-medium text-white/45">extrato e saldos</span>
       </Link>
+
+      {profile?.uid || user?.uid ? (
+        <Link
+          href={routePerfilPublico(profile?.uid ?? user?.uid ?? "")}
+          className="game-panel-soft flex items-center justify-between gap-3 rounded-[1.35rem] border-amber-400/18 px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-amber-400/35"
+        >
+          <span className="flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-amber-200" aria-hidden />
+            Ver meu perfil publico
+          </span>
+          <span className="text-xs font-medium text-white/45">trofeus e conquistas</span>
+        </Link>
+      ) : null}
 
       <section className="space-y-4">
         <div className="game-panel p-2">

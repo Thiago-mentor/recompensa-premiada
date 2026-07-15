@@ -29,6 +29,7 @@ import { isNativeAndroidPlatform } from "@/lib/anuncios/admobConfig";
 import { cn } from "@/lib/utils/cn";
 import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import { AnimatePresence, motion } from "framer-motion";
+import { RefreshCw, WifiOff } from "lucide-react";
 
 const PPT_HANDS = ["pedra", "papel", "tesoura"] as const;
 type PptHand = (typeof PPT_HANDS)[number];
@@ -1286,6 +1287,8 @@ export function SalaClient({ roomId }: { roomId: string }) {
   const myDisplayName = profile?.nome || user?.displayName || "Você";
   const [room, setRoom] = useState<GameRoomDocument | null | undefined>(undefined);
   const [denied, setDenied] = useState(false);
+  const [roomSyncError, setRoomSyncError] = useState(false);
+  const [roomSyncRetry, setRoomSyncRetry] = useState(0);
   const [pptSending, setPptSending] = useState(false);
   const [pptErr, setPptErr] = useState<string | null>(null);
   const [quizSending, setQuizSending] = useState(false);
@@ -1373,6 +1376,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
     serverClockOffsetMsRef.current = 0;
     setRoom(undefined);
     setDenied(false);
+    setRoomSyncError(false);
     setPptErr(null);
     setQuizErr(null);
     setReactionErr(null);
@@ -1434,6 +1438,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
         }
         const d = snap.data() as Omit<GameRoomDocument, "id">;
         const r = { id: snap.id, ...d } as GameRoomDocument;
+        setRoomSyncError(false);
         const serverUpdatedAtMs = firestoreTimeToMs(r.atualizadoEm);
         if (serverUpdatedAtMs != null) {
           const measuredOffset = serverUpdatedAtMs - Date.now();
@@ -1448,10 +1453,11 @@ export function SalaClient({ roomId }: { roomId: string }) {
       },
       (error) => {
         reportClientError("firestore:game_room", error);
-        setRoom(null);
+        setRoomSyncError(true);
+        setRoom((current) => current ?? null);
       },
     );
-  }, [roomId, uid]);
+  }, [roomId, roomSyncRetry, uid]);
 
   const submitPpt = useCallback(
     async (hand: PptHand) => {
@@ -2366,6 +2372,31 @@ export function SalaClient({ roomId }: { roomId: string }) {
           </>
         ) : null}
         <div className="relative space-y-3.5 p-3 sm:space-y-5 sm:p-6">
+          {!isOnline || roomSyncError ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-3 rounded-xl border border-amber-300/25 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-50"
+            >
+              <WifiOff className="h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+              <span className="min-w-0 flex-1">
+                {!isOnline
+                  ? "Sem internet. Sua jogada sera enviada quando a conexao voltar."
+                  : "A sala perdeu a sincronizacao. O placar atual foi preservado."}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setRoomSyncError(false);
+                  setRoomSyncRetry((value) => value + 1);
+                }}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-1.5 font-bold text-white transition hover:bg-white/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                Sincronizar
+              </button>
+            </div>
+          ) : null}
           {/* HUD cabeçalho */}
           <header className="flex flex-col gap-2 border-b border-white/10 pb-3 sm:gap-3 sm:pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
