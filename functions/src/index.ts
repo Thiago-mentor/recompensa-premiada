@@ -6432,6 +6432,9 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       totalReactionPartidas: 0,
       totalVitorias: 0,
       totalDerrotas: 0,
+      rankingWins: 0,
+      rankingPodiums: 0,
+      bestRankingPosition: null,
       scoreRankingDiario: 0,
       scoreRankingSemanal: 0,
       scoreRankingMensal: 0,
@@ -6518,6 +6521,45 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
   });
 
   return { ok: true, codigoConvite: codigo };
+});
+
+export const getPublicProfile = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const requesterUid = request.auth?.uid;
+  assertAuthed(requesterUid);
+
+  const targetUid = String(request.data?.uid || "").trim();
+  if (!targetUid || targetUid.length > 128 || targetUid.includes("/")) {
+    throw new HttpsError("invalid-argument", "Perfil invÃ¡lido.");
+  }
+
+  const userSnap = await db.doc(`${COL.users}/${targetUid}`).get();
+  if (!userSnap.exists) {
+    throw new HttpsError("not-found", "Perfil nÃ£o encontrado.");
+  }
+
+  const data = (userSnap.data() || {}) as Record<string, unknown>;
+  const rawPhoto = typeof data.foto === "string" ? data.foto.trim() : "";
+  const rawUsername = typeof data.username === "string" ? data.username.trim() : "";
+  const rankingPosition = normalizeCounter(data.bestRankingPosition);
+
+  return {
+    ok: true,
+    profile: {
+      uid: targetUid,
+      nome: String(data.nome || "Jogador").trim().slice(0, 60) || "Jogador",
+      username: rawUsername ? rawUsername.slice(0, 32) : null,
+      foto: rawPhoto.length <= 500_000 ? rawPhoto || null : null,
+      level: normalizeCounter(data.level),
+      xp: normalizeCounter(data.xp),
+      totalPartidas: normalizeCounter(data.totalPartidas),
+      totalVitorias: normalizeCounter(data.totalVitorias),
+      totalDerrotas: normalizeCounter(data.totalDerrotas),
+      melhorStreak: normalizeCounter(data.melhorStreak),
+      rankingWins: normalizeCounter(data.rankingWins),
+      rankingPodiums: normalizeCounter(data.rankingPodiums),
+      bestRankingPosition: rankingPosition > 0 ? rankingPosition : null,
+    },
+  };
 });
 
 export const updateUserAvatar = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
@@ -11940,11 +11982,17 @@ async function payRankingWinnerAtomically(input: {
     const userData = (userSnap.data() || {}) as Record<string, unknown>;
     const rewardPatch = applyMultiCurrencyRewardPatch(userData, input.tier.rewards);
     if (Object.keys(rewardPatch.patch).length === 0) return false;
+    const previousBestPosition = normalizeCounter(userData.bestRankingPosition);
+    const bestRankingPosition =
+      previousBestPosition > 0 ? Math.min(previousBestPosition, input.pos) : input.pos;
 
     tx.set(
       userRef,
       {
         ...rewardPatch.patch,
+        rankingWins: FieldValue.increment(1),
+        rankingPodiums: FieldValue.increment(input.pos <= 3 ? 1 : 0),
+        bestRankingPosition,
         atualizadoEm: FieldValue.serverTimestamp(),
       },
       { merge: true },

@@ -42,3 +42,7 @@ export function routeJogosFilaBuscar(gameId: string) {
 export function routeClaPublico(clanId: string) {
   return `/cla/publico/${encodeURIComponent(clanId)}`;
 }
+
+export function routePerfilPublico(uid: string) {
+  return `/perfil/publico/${encodeURIComponent(uid)}`;
+}

@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 import { getRankingPrizeForPosition, formatRankingPrize } from "@/lib/ranking/prizes";
 import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
+import { routePerfilPublico } from "@/lib/constants/routes";
 import type { RankingEntry } from "@/types/ranking";
 import type { RankingPrizeTier } from "@/types/systemConfig";
 
@@ -54,7 +56,11 @@ export function RankingTable({
                   {pos}
                 </td>
                 <td className="px-2.5 py-2.5 sm:px-4 sm:py-3">
-                  <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                  <Link
+                    href={routePerfilPublico(e.uid)}
+                    aria-label={`Abrir perfil de ${e.nome}`}
+                    className="flex min-w-0 items-center gap-2 rounded-xl outline-none transition hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:gap-3"
+                  >
                     <div
                       className="h-9 w-9 shrink-0 rounded-[14px] border border-white/10 bg-cover bg-center sm:h-11 sm:w-11 sm:rounded-[18px]"
                       style={{
@@ -74,7 +80,7 @@ export function RankingTable({
                         {e.username ? `@${e.username}` : "sem @usuário"}
                       </p>
                     </div>
-                  </div>
+                  </Link>
                 </td>
                 {showPrizeColumn ? (
                   <td className="hidden px-4 py-3 lg:table-cell">

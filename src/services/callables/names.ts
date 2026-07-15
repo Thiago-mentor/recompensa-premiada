@@ -38,6 +38,7 @@ export const CALLABLES = {
   confirmRewardClaimPix: "confirmRewardClaimPix",
   riskAnalysisOnUserEvent: "riskAnalysisOnUserEvent",
   initializeUserProfile: "initializeUserProfile",
+  getPublicProfile: "getPublicProfile",
   updateUserAvatar: "updateUserAvatar",
   getArenaOverallRanking: "getArenaOverallRanking",
   joinAutoMatch: "joinAutoMatch",

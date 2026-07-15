@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useClanDashboard } from "@/hooks/useClanDashboard";
 import { useExperienceCatalogBuckets } from "@/hooks/useExperienceCatalogBuckets";
 import { RankingTable } from "@/modules/jogos";
-import { ROUTES, routeClaPublico } from "@/lib/constants/routes";
+import { ROUTES, routeClaPublico, routePerfilPublico } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
 import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
 import {
@@ -895,7 +895,11 @@ function RankingSummaryCard({
       <p className="game-kicker text-cyan-100/58">{title}</p>
       <div className="game-panel-soft mt-3 rounded-[1.1rem] p-3">
         {entry ? (
-          <div className="flex items-center gap-3">
+          <Link
+            href={routePerfilPublico(entry.uid)}
+            aria-label={`Abrir perfil de ${entry.nome}`}
+            className="flex items-center gap-3 rounded-2xl outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+          >
             <div
               aria-label={entry.nome}
               className="h-12 w-12 rounded-[18px] border border-white/10 bg-cover bg-center shadow-[0_0_30px_-16px_rgba(34,211,238,0.45)]"
@@ -919,7 +923,7 @@ function RankingSummaryCard({
               </p>
               {prizeLabel ? <p className="mt-1 text-[11px] text-amber-100/80">{prizeLabel}</p> : null}
             </div>
-          </div>
+          </Link>
         ) : (
           <div className="game-panel-soft rounded-2xl border-dashed px-3 py-4 text-sm text-white/50">
             {emptyText}

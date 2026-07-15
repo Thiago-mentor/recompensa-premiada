@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 import { getRankingPrizeForPosition, formatRankingPrize } from "@/lib/ranking/prizes";
 import { resolveAvatarBackgroundCssValue } from "@/lib/users/avatar";
+import { routePerfilPublico } from "@/lib/constants/routes";
 import type { RankingEntry } from "@/types/ranking";
 import type { RankingPrizeTier } from "@/types/systemConfig";
 import { Crown, Medal, Sparkles } from "lucide-react";
@@ -56,20 +58,27 @@ export function TopPodium({
               ) : null}
             </div>
 
-            <div
-              className={cn(
-                "mt-6 flex h-16 w-16 items-center justify-center rounded-[26px] border border-white/10 bg-cover bg-center shadow-[0_0_28px_-12px_rgba(34,211,238,0.45)]",
-                isFirst && "h-20 w-20 rounded-[30px]",
-              )}
-              style={{
-                backgroundImage: resolveAvatarBackgroundCssValue({
-                  photoUrl: e.foto,
-                  name: e.nome,
-                  username: e.username,
-                  uid: e.uid,
-                }),
-              }}
-            />
+            <Link
+              href={routePerfilPublico(e.uid)}
+              aria-label={`Abrir perfil de ${e.nome}`}
+              className="mt-6 flex flex-col items-center rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+            >
+              <div
+                className={cn(
+                  "flex h-16 w-16 items-center justify-center rounded-[26px] border border-white/10 bg-cover bg-center shadow-[0_0_28px_-12px_rgba(34,211,238,0.45)]",
+                  isFirst && "h-20 w-20 rounded-[30px]",
+                )}
+                style={{
+                  backgroundImage: resolveAvatarBackgroundCssValue({
+                    photoUrl: e.foto,
+                    name: e.nome,
+                    username: e.username,
+                    uid: e.uid,
+                  }),
+                }}
+              />
+              <p className="mt-3 max-w-full truncate text-base font-semibold text-white">{e.nome}</p>
+            </Link>
 
             <div
               className={cn(
@@ -82,7 +91,6 @@ export function TopPodium({
               {isFirst ? <Crown className="h-5 w-5" /> : <Medal className="h-5 w-5" />}
             </div>
 
-            <p className="mt-3 max-w-full truncate text-base font-semibold text-white">{e.nome}</p>
             <p className="mt-1 text-xs text-white/45">{e.username ? `@${e.username}` : "jogador ranqueado"}</p>
 
             <div className="mt-4 w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-3">

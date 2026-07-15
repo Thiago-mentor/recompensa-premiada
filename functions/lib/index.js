@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = void 0;
+exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.getPublicProfile = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
+exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapStaleAutoMatchSlots = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const vision_1 = require("@google-cloud/vision");
@@ -5067,6 +5067,9 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             totalReactionPartidas: 0,
             totalVitorias: 0,
             totalDerrotas: 0,
+            rankingWins: 0,
+            rankingPodiums: 0,
+            bestRankingPosition: null,
             scoreRankingDiario: 0,
             scoreRankingSemanal: 0,
             scoreRankingMensal: 0,
@@ -5141,6 +5144,40 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
         referenciaId: "welcome",
     });
     return { ok: true, codigoConvite: codigo };
+});
+exports.getPublicProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const requesterUid = request.auth?.uid;
+    assertAuthed(requesterUid);
+    const targetUid = String(request.data?.uid || "").trim();
+    if (!targetUid || targetUid.length > 128 || targetUid.includes("/")) {
+        throw new https_1.HttpsError("invalid-argument", "Perfil invÃ¡lido.");
+    }
+    const userSnap = await db.doc(`${COL.users}/${targetUid}`).get();
+    if (!userSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Perfil nÃ£o encontrado.");
+    }
+    const data = (userSnap.data() || {});
+    const rawPhoto = typeof data.foto === "string" ? data.foto.trim() : "";
+    const rawUsername = typeof data.username === "string" ? data.username.trim() : "";
+    const rankingPosition = normalizeCounter(data.bestRankingPosition);
+    return {
+        ok: true,
+        profile: {
+            uid: targetUid,
+            nome: String(data.nome || "Jogador").trim().slice(0, 60) || "Jogador",
+            username: rawUsername ? rawUsername.slice(0, 32) : null,
+            foto: rawPhoto.length <= 500000 ? rawPhoto || null : null,
+            level: normalizeCounter(data.level),
+            xp: normalizeCounter(data.xp),
+            totalPartidas: normalizeCounter(data.totalPartidas),
+            totalVitorias: normalizeCounter(data.totalVitorias),
+            totalDerrotas: normalizeCounter(data.totalDerrotas),
+            melhorStreak: normalizeCounter(data.melhorStreak),
+            rankingWins: normalizeCounter(data.rankingWins),
+            rankingPodiums: normalizeCounter(data.rankingPodiums),
+            bestRankingPosition: rankingPosition > 0 ? rankingPosition : null,
+        },
+    };
 });
 exports.updateUserAvatar = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
@@ -9627,8 +9664,13 @@ async function payRankingWinnerAtomically(input) {
         const rewardPatch = applyMultiCurrencyRewardPatch(userData, input.tier.rewards);
         if (Object.keys(rewardPatch.patch).length === 0)
             return false;
+        const previousBestPosition = normalizeCounter(userData.bestRankingPosition);
+        const bestRankingPosition = previousBestPosition > 0 ? Math.min(previousBestPosition, input.pos) : input.pos;
         tx.set(userRef, {
             ...rewardPatch.patch,
+            rankingWins: firestore_2.FieldValue.increment(1),
+            rankingPodiums: firestore_2.FieldValue.increment(input.pos <= 3 ? 1 : 0),
+            bestRankingPosition,
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         }, { merge: true });
         for (const currency of ["coins", "gems", "rewardBalance"]) {

@@ -13,7 +13,7 @@ import { AlertBanner } from "@/components/feedback/AlertBanner";
 import { runRewardedAdFlow } from "@/services/anuncios/rewardedAdService";
 import { getActiveRaffleCallable } from "@/services/raffle/raffleService";
 import { fetchTopRanking } from "@/services/ranking/rankingService";
-import { ROUTES } from "@/lib/constants/routes";
+import { ROUTES, routePerfilPublico } from "@/lib/constants/routes";
 import {
   resolveAvatarBackgroundCssValue,
 } from "@/lib/users/avatar";
@@ -633,7 +633,12 @@ function WeeklyGameLeaderHomeCard({
         <div className="mt-2 h-[74px] w-full animate-pulse rounded-lg bg-white/[0.05]" />
       ) : leader ? (
         <>
-          <span className="relative mt-2">
+          <Link
+            href={routePerfilPublico(leader.uid)}
+            aria-label={`Abrir perfil de ${leader.nome}`}
+            className="mt-2 flex flex-col items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+          >
+          <span className="relative">
             <span className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-amber-950 shadow-[0_0_12px_rgba(251,191,36,0.5)]">
               <Crown className="h-3.5 w-3.5" aria-hidden />
             </span>
@@ -653,6 +658,7 @@ function WeeklyGameLeaderHomeCard({
           <p className="mt-1.5 w-full truncate text-[10px] font-bold text-white">
             {leader.nome.trim().split(/\s+/)[0]}
           </p>
+          </Link>
           <p className="mt-0.5 text-xs font-black tabular-nums text-amber-300">
             {leader.score.toLocaleString("pt-BR")}
             <span className="ml-0.5 text-[7px] uppercase text-amber-100/45">pts</span>
