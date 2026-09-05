@@ -2,10 +2,25 @@ apply plugin: 'com.android.application'
 
 import java.util.Properties
 
-def admobAppId = System.getenv("NEXT_PUBLIC_ADMOB_ANDROID_APP_ID")
-if (admobAppId == null || admobAppId.trim().isEmpty()) {
-    admobAppId = "ca-app-pub-3940256099942544~3347511713"
+def rootEnv = new Properties()
+def rootEnvFile = rootProject.file("../.env.local")
+if (rootEnvFile.exists()) {
+    rootEnvFile.withInputStream { stream ->
+        rootEnv.load(stream)
+    }
 }
+
+def readConfigValue = { String name, String fallback ->
+    def value = System.getenv(name) ?: rootEnv.getProperty(name)
+    return value == null || value.trim().isEmpty() ? fallback : value.trim()
+}
+
+def admobAppId = readConfigValue(
+    "NEXT_PUBLIC_ADMOB_ANDROID_APP_ID",
+    "ca-app-pub-3940256099942544~3347511713"
+)
+def appVersionCode = readConfigValue("ANDROID_VERSION_CODE", "1").toInteger()
+def appVersionName = readConfigValue("ANDROID_VERSION_NAME", "1.0.0")
 
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -34,8 +49,8 @@ android {
         applicationId "com.recompensapremiada.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         resValue "string", "admob_app_id", admobAppId
         aaptOptions {
