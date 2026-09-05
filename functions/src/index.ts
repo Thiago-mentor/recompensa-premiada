@@ -15323,3 +15323,128 @@ export const touchUserPresence = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   await batch.commit();
   return { ok: true };
 });
+
+/** Exclusão definitiva solicitada pelo próprio titular (Google Play / LGPD). */
+export const deleteMyAccount = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+
+  if (String(request.data?.confirmation || "").trim().toUpperCase() !== "EXCLUIR") {
+    throw new HttpsError("invalid-argument", "Digite EXCLUIR para confirmar.");
+  }
+
+  const authTime = Number(request.auth?.token.auth_time || 0) * 1_000;
+  if (!authTime || Date.now() - authTime > 15 * 60 * 1_000) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Por segurança, saia e entre novamente antes de excluir a conta.",
+    );
+  }
+
+  const userRef = db.doc(`${COL.users}/${uid}`);
+  const [userSnap, membershipSnap] = await Promise.all([
+    userRef.get(),
+    db.doc(`${COL.clanMemberships}/${uid}`).get(),
+  ]);
+  const userData = (userSnap.data() || {}) as Record<string, unknown>;
+  const username = String(userData.username || "").trim().toLowerCase();
+  const referralCode = String(userData.codigoConvite || "").trim().toUpperCase();
+
+  if (membershipSnap.exists) {
+    const membership = (membershipSnap.data() || {}) as Record<string, unknown>;
+    const clanId = String(membership.clanId || "").trim();
+    const role = String(membership.role || "member");
+    if (clanId) {
+      const clanDocRef = db.doc(`${COL.clans}/${clanId}`);
+      const memberRef = db.doc(`${COL.clans}/${clanId}/members/${uid}`);
+      if (role === "owner") {
+        const roster = await db.collection(`${COL.clans}/${clanId}/members`).limit(20).get();
+        const replacement = roster.docs.find((doc) => doc.id !== uid);
+        if (!replacement) {
+          await db.recursiveDelete(clanDocRef);
+        } else {
+          await db.runTransaction(async (tx) => {
+            tx.update(clanDocRef, {
+              ownerUid: replacement.id,
+              memberCount: FieldValue.increment(-1),
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            tx.set(replacement.ref, { role: "owner", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+            tx.set(db.doc(`${COL.clanMemberships}/${replacement.id}`), { role: "owner", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+            tx.delete(memberRef);
+            tx.delete(membershipSnap.ref);
+          });
+        }
+      } else {
+        await db.runTransaction(async (tx) => {
+          tx.delete(memberRef);
+          tx.delete(membershipSnap.ref);
+          tx.update(clanDocRef, {
+            memberCount: FieldValue.increment(-1),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }).catch(() => undefined);
+      }
+    }
+  }
+
+  async function deleteWhere(collection: string, field: string): Promise<void> {
+    while (true) {
+      const snap = await db.collection(collection).where(field, "==", uid).limit(400).get();
+      if (snap.empty) return;
+      const batch = db.batch();
+      snap.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+      if (snap.size < 400) return;
+    }
+  }
+
+  const personalQueries: Array<[string, string]> = [
+    [COL.wallet, "userId"],
+    [COL.matches, "userId"],
+    [COL.adEvents, "uid"],
+    [COL.rewardedAdSessions, "uid"],
+    [COL.rafflePurchases, "userId"],
+    [COL.finalizedMatchRequests, "uid"],
+    [COL.referrals, "inviterUserId"],
+    [COL.referrals, "invitedUserId"],
+  ];
+  for (const [collection, field] of personalQueries) {
+    await deleteWhere(collection, field);
+  }
+
+  const auditRef = `deleted_${hashId(uid).slice(0, 20)}`;
+  for (const [collection, field] of [
+    [COL.rewardClaims, "userId"],
+    [COL.fraudLogs, "uid"],
+  ] as const) {
+    const snap = await db.collection(collection).where(field, "==", uid).limit(500).get();
+    if (!snap.empty) {
+      const batch = db.batch();
+      snap.docs.forEach((doc) => batch.update(doc.ref, {
+        [field]: auditRef,
+        userName: FieldValue.delete(),
+        userEmail: FieldValue.delete(),
+        email: FieldValue.delete(),
+        pixKey: FieldValue.delete(),
+        accountDeletedAt: FieldValue.serverTimestamp(),
+      }));
+      await batch.commit();
+    }
+  }
+
+  await Promise.all([
+    db.recursiveDelete(userRef).catch(() => undefined),
+    db.recursiveDelete(db.doc(`${COL.userChests}/${uid}`)).catch(() => undefined),
+    db.recursiveDelete(db.doc(`${COL.userMissions}/${uid}`)).catch(() => undefined),
+    db.doc(`${COL.clanJoinRequests}/${uid}`).delete().catch(() => undefined),
+    db.doc(`${COL.multiplayerSlots}/${uid}`).delete().catch(() => undefined),
+    db.doc(`${COL.referrals}/${uid}`).delete().catch(() => undefined),
+    username ? db.doc(`${COL.uniqueUsernames}/${username}`).delete().catch(() => undefined) : Promise.resolve(),
+    referralCode ? db.doc(`${COL.referralCodes}/${referralCode}`).delete().catch(() => undefined) : Promise.resolve(),
+    getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => undefined),
+  ]);
+
+  await getAuth().deleteUser(uid);
+  return { ok: true };
+});

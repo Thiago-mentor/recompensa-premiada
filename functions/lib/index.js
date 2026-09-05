@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.getPublicProfile = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.cleanupExpiredRateLimits = exports.reapStaleAutoMatchSlots = void 0;
+exports.deleteMyAccount = exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.cleanupExpiredRateLimits = exports.reapStaleAutoMatchSlots = void 0;
 const node_crypto_1 = require("node:crypto");
 const vision_1 = require("@google-cloud/vision");
 const app_1 = require("firebase-admin/app");
@@ -12307,6 +12307,122 @@ exports.touchUserPresence = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         }
     }
     await batch.commit();
+    return { ok: true };
+});
+/** Exclusão definitiva solicitada pelo próprio titular (Google Play / LGPD). */
+exports.deleteMyAccount = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    if (String(request.data?.confirmation || "").trim().toUpperCase() !== "EXCLUIR") {
+        throw new https_1.HttpsError("invalid-argument", "Digite EXCLUIR para confirmar.");
+    }
+    const authTime = Number(request.auth?.token.auth_time || 0) * 1000;
+    if (!authTime || Date.now() - authTime > 15 * 60 * 1000) {
+        throw new https_1.HttpsError("failed-precondition", "Por segurança, saia e entre novamente antes de excluir a conta.");
+    }
+    const userRef = db.doc(`${COL.users}/${uid}`);
+    const [userSnap, membershipSnap] = await Promise.all([
+        userRef.get(),
+        db.doc(`${COL.clanMemberships}/${uid}`).get(),
+    ]);
+    const userData = (userSnap.data() || {});
+    const username = String(userData.username || "").trim().toLowerCase();
+    const referralCode = String(userData.codigoConvite || "").trim().toUpperCase();
+    if (membershipSnap.exists) {
+        const membership = (membershipSnap.data() || {});
+        const clanId = String(membership.clanId || "").trim();
+        const role = String(membership.role || "member");
+        if (clanId) {
+            const clanDocRef = db.doc(`${COL.clans}/${clanId}`);
+            const memberRef = db.doc(`${COL.clans}/${clanId}/members/${uid}`);
+            if (role === "owner") {
+                const roster = await db.collection(`${COL.clans}/${clanId}/members`).limit(20).get();
+                const replacement = roster.docs.find((doc) => doc.id !== uid);
+                if (!replacement) {
+                    await db.recursiveDelete(clanDocRef);
+                }
+                else {
+                    await db.runTransaction(async (tx) => {
+                        tx.update(clanDocRef, {
+                            ownerUid: replacement.id,
+                            memberCount: firestore_2.FieldValue.increment(-1),
+                            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                        });
+                        tx.set(replacement.ref, { role: "owner", updatedAt: firestore_2.FieldValue.serverTimestamp() }, { merge: true });
+                        tx.set(db.doc(`${COL.clanMemberships}/${replacement.id}`), { role: "owner", updatedAt: firestore_2.FieldValue.serverTimestamp() }, { merge: true });
+                        tx.delete(memberRef);
+                        tx.delete(membershipSnap.ref);
+                    });
+                }
+            }
+            else {
+                await db.runTransaction(async (tx) => {
+                    tx.delete(memberRef);
+                    tx.delete(membershipSnap.ref);
+                    tx.update(clanDocRef, {
+                        memberCount: firestore_2.FieldValue.increment(-1),
+                        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+                    });
+                }).catch(() => undefined);
+            }
+        }
+    }
+    async function deleteWhere(collection, field) {
+        while (true) {
+            const snap = await db.collection(collection).where(field, "==", uid).limit(400).get();
+            if (snap.empty)
+                return;
+            const batch = db.batch();
+            snap.docs.forEach((doc) => batch.delete(doc.ref));
+            await batch.commit();
+            if (snap.size < 400)
+                return;
+        }
+    }
+    const personalQueries = [
+        [COL.wallet, "userId"],
+        [COL.matches, "userId"],
+        [COL.adEvents, "uid"],
+        [COL.rewardedAdSessions, "uid"],
+        [COL.rafflePurchases, "userId"],
+        [COL.finalizedMatchRequests, "uid"],
+        [COL.referrals, "inviterUserId"],
+        [COL.referrals, "invitedUserId"],
+    ];
+    for (const [collection, field] of personalQueries) {
+        await deleteWhere(collection, field);
+    }
+    const auditRef = `deleted_${hashId(uid).slice(0, 20)}`;
+    for (const [collection, field] of [
+        [COL.rewardClaims, "userId"],
+        [COL.fraudLogs, "uid"],
+    ]) {
+        const snap = await db.collection(collection).where(field, "==", uid).limit(500).get();
+        if (!snap.empty) {
+            const batch = db.batch();
+            snap.docs.forEach((doc) => batch.update(doc.ref, {
+                [field]: auditRef,
+                userName: firestore_2.FieldValue.delete(),
+                userEmail: firestore_2.FieldValue.delete(),
+                email: firestore_2.FieldValue.delete(),
+                pixKey: firestore_2.FieldValue.delete(),
+                accountDeletedAt: firestore_2.FieldValue.serverTimestamp(),
+            }));
+            await batch.commit();
+        }
+    }
+    await Promise.all([
+        db.recursiveDelete(userRef).catch(() => undefined),
+        db.recursiveDelete(db.doc(`${COL.userChests}/${uid}`)).catch(() => undefined),
+        db.recursiveDelete(db.doc(`${COL.userMissions}/${uid}`)).catch(() => undefined),
+        db.doc(`${COL.clanJoinRequests}/${uid}`).delete().catch(() => undefined),
+        db.doc(`${COL.multiplayerSlots}/${uid}`).delete().catch(() => undefined),
+        db.doc(`${COL.referrals}/${uid}`).delete().catch(() => undefined),
+        username ? db.doc(`${COL.uniqueUsernames}/${username}`).delete().catch(() => undefined) : Promise.resolve(),
+        referralCode ? db.doc(`${COL.referralCodes}/${referralCode}`).delete().catch(() => undefined) : Promise.resolve(),
+        (0, storage_1.getStorage)().bucket().deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => undefined),
+    ]);
+    await (0, auth_1.getAuth)().deleteUser(uid);
     return { ok: true };
 });
 //# sourceMappingURL=index.js.map

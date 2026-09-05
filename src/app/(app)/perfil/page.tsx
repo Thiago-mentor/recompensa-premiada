@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { resetUserAvatar, uploadUserAvatar } from "@/services/users/avatarService";
+import { DeleteAccountPanel } from "@/components/account/DeleteAccountPanel";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import {
   canUploadCustomAvatar,
@@ -442,6 +443,9 @@ export default function PerfilPage() {
               <Button variant="danger" className="w-full" onClick={sair}>
                 Sair
               </Button>
+              <div className="mt-2 border-t border-white/10 pt-5">
+                <DeleteAccountPanel compact />
+              </div>
             </div>
           </ProfileSectionCard>
         ) : null}

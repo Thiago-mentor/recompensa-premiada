@@ -11,6 +11,7 @@ export const ROUTES = {
   recompensas: "/recompensas",
   carteira: "/carteira",
   perfil: "/perfil",
+  excluirConta: "/excluir-conta",
   loja: "/loja",
   convidar: "/convidar",
   cla: "/cla",

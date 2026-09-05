@@ -40,6 +40,7 @@ export const CALLABLES = {
   initializeUserProfile: "initializeUserProfile",
   getPublicProfile: "getPublicProfile",
   updateUserAvatar: "updateUserAvatar",
+  deleteMyAccount: "deleteMyAccount",
   getArenaOverallRanking: "getArenaOverallRanking",
   joinAutoMatch: "joinAutoMatch",
   getMatchmakingStats: "getMatchmakingStats",

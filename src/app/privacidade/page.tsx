@@ -15,7 +15,7 @@ export default function PrivacyPolicyPage() {
         <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
           Política de Privacidade
         </h1>
-        <p className="mt-2 text-sm text-slate-400">Última atualização: 11 de julho de 2026</p>
+        <p className="mt-2 text-sm text-slate-400">Última atualização: 5 de setembro de 2026</p>
 
         <div className="mt-8 space-y-7 text-sm leading-7 text-slate-300">
           <section>
@@ -75,10 +75,13 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">6. Seus direitos e exclusão</h2>
             <p className="mt-2">
-              Você pode solicitar acesso, correção ou exclusão dos dados associados à sua conta,
-              observadas as informações que precisamos manter por obrigação legal, segurança ou
-              prevenção de fraude. Para solicitar atendimento, use o canal de suporte disponível
-              dentro do aplicativo.
+              Você pode solicitar acesso, correção ou exclusão dos dados associados à sua conta.
+              A exclusão pode ser iniciada dentro do Perfil ou pela página pública de{" "}
+              <Link href="/excluir-conta" className="font-semibold text-cyan-300 hover:text-cyan-200">exclusão de conta</Link>.
+              Apagamos autenticação, perfil, avatar, saldos, progresso e dados pessoais vinculados.
+              Comprovantes de premiações e registros indispensáveis para obrigação legal,
+              auditoria e prevenção de fraude podem ser mantidos de forma anonimizada somente pelo
+              período necessário a essas finalidades.
             </p>
           </section>
 
