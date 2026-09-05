@@ -39,6 +39,18 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Identificadores públicos do AdMob usados pelo JavaScript carregado no WebView do Capacitor.
+  # Sem eles, o bundle hospedado recai nos blocos de demonstração do Google.
+  - variable: NEXT_PUBLIC_ADMOB_ANDROID_APP_ID
+    value: ca-app-pub-5625145645090801~5900782294
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_ADMOB_ANDROID_REWARDED_DEFAULT_ID
+    value: ca-app-pub-5625145645090801/8145267296
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: NEXT_PUBLIC_WEB_REWARDED_AD_TEST_MODE
     # Produção nunca simula anúncio: no navegador, o giro por anúncio fica indisponível.
     # O AdMob recompensado só é executado dentro do aplicativo Android nativo.
