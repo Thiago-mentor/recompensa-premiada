@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   DEFAULT_ECONOMY_STREAK_SLICE,
   fetchEconomyStreakSlice,
+  subscribeEconomyStreakSlice,
   type EconomyStreakSlice,
 } from "@/services/economy/economyStreakConfig";
 import { processDailyLogin } from "@/services/streak/dailyLoginService";
@@ -23,6 +24,7 @@ export function DailyRewardModalHost() {
   const [economy, setEconomy] = useState<EconomyStreakSlice>(
     () => DEFAULT_ECONOMY_STREAK_SLICE,
   );
+  const [economyReady, setEconomyReady] = useState(false);
   const [claimLoading, setClaimLoading] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [dismissedPeriodKey, setDismissedPeriodKey] = useState<string | null>(null);
@@ -30,17 +32,26 @@ export function DailyRewardModalHost() {
   const [storageRev, setStorageRev] = useState(0);
 
   useEffect(() => {
-    let c = false;
-    (async () => {
-      try {
-        const e = await fetchEconomyStreakSlice();
-        if (!c) setEconomy(e);
-      } catch {
-        if (!c) setEconomy(DEFAULT_ECONOMY_STREAK_SLICE);
-      }
-    })();
+    let cancelled = false;
+    const unsubscribe = subscribeEconomyStreakSlice(
+      (value) => {
+        if (cancelled) return;
+        setEconomy(value);
+        setEconomyReady(true);
+      },
+      () => {
+        void fetchEconomyStreakSlice()
+          .then((value) => {
+            if (!cancelled) setEconomy(value);
+          })
+          .finally(() => {
+            if (!cancelled) setEconomyReady(true);
+          });
+      },
+    );
     return () => {
-      c = true;
+      cancelled = true;
+      unsubscribe();
     };
   }, []);
 
@@ -80,13 +91,14 @@ export function DailyRewardModalHost() {
     if (dismissedPeriodKey === getDailyPeriodKey()) return false;
     if (hiddenByUserToday) return false;
     if (loading) return false;
+    if (!economyReady) return false;
     if (!user) return false;
     if (!profile) return false;
     if (profileLoading) return false;
     if (profile?.banido) return false;
     if (ui.kind !== "can_claim") return false;
     return slots.length > 0;
-  }, [dismissedPeriodKey, hiddenByUserToday, loading, user, profile, profileLoading, ui, slots]);
+  }, [dismissedPeriodKey, hiddenByUserToday, loading, economyReady, user, profile, profileLoading, ui, slots]);
 
   const hideForToday = useCallback(() => {
     setClaimError(null);

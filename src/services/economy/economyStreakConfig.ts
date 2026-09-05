@@ -1,6 +1,10 @@
 "use client";
 
-import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";import type { StreakRewardTier } from "@/types/systemConfig";
+import { doc, onSnapshot } from "firebase/firestore";
+import { COLLECTIONS } from "@/lib/constants/collections";
+import { getFirebaseFirestore } from "@/lib/firebase/client";
+import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
+import type { StreakRewardTier, SystemEconomyConfig } from "@/types/systemConfig";
 import { normalizeStreakTable } from "@/utils/streakReward";
 
 export type EconomyStreakSlice = {
@@ -26,8 +30,7 @@ export const DEFAULT_ECONOMY_STREAK_SLICE: EconomyStreakSlice = {
   streakDisplayDays: DEFAULT_STREAK_DISPLAY_DAYS,
 };
 
-export async function fetchEconomyStreakSlice(): Promise<EconomyStreakSlice> {
-  const raw = await fetchEconomyConfigDocument();
+function normalizeEconomyStreakSlice(raw: Partial<SystemEconomyConfig> | null): EconomyStreakSlice {
   const d = raw ?? {};
   const dailyLoginBonus =
     typeof d.dailyLoginBonus === "number" && Number.isFinite(d.dailyLoginBonus)
@@ -38,4 +41,27 @@ export async function fetchEconomyStreakSlice(): Promise<EconomyStreakSlice> {
     streakTable: normalizeStreakTable(d.streakTable),
     streakDisplayDays: normalizeStreakDisplayDays(d.streakDisplayDays),
   };
+}
+
+export async function fetchEconomyStreakSlice(): Promise<EconomyStreakSlice> {
+  const raw = await fetchEconomyConfigDocument();
+  return normalizeEconomyStreakSlice(raw);
+}
+
+/** Mantém o calendário do jogador alinhado ao documento salvo pelo admin. */
+export function subscribeEconomyStreakSlice(
+  onValue: (value: EconomyStreakSlice) => void,
+  onError: (error: Error) => void,
+): () => void {
+  return onSnapshot(
+    doc(getFirebaseFirestore(), COLLECTIONS.systemConfigs, "economy"),
+    (snapshot) => {
+      onValue(
+        normalizeEconomyStreakSlice(
+          snapshot.exists() ? (snapshot.data() as Partial<SystemEconomyConfig>) : null,
+        ),
+      );
+    },
+    (error) => onError(error),
+  );
 }
