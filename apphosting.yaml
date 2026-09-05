@@ -40,7 +40,9 @@ env:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_WEB_REWARDED_AD_TEST_MODE
-    value: "true"
+    # Produção nunca simula anúncio: no navegador, o giro por anúncio fica indisponível.
+    # O AdMob recompensado só é executado dentro do aplicativo Android nativo.
+    value: "false"
     availability:
       - BUILD
       - RUNTIME

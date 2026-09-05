@@ -99,10 +99,12 @@ export function RoletaGameScreen() {
 
   const todayDailyKey = appDailyKey();
   const dailySpinKey = String(profile?.rouletteDailyAdSpinDayKey ?? "").trim();
+  const nativeAndroid = isNativeAndroidPlatform();
   const webTestMode =
-    isAdmin && webRewardedAdTestModeEnabled && !isNativeAndroidPlatform();
+    isAdmin && webRewardedAdTestModeEnabled && !nativeAndroid;
+  const dailyAdAvailable = nativeAndroid || webTestMode;
   const dailyFreeUsed = Boolean(
-    user && !webTestMode && dailySpinKey !== "" && dailySpinKey === todayDailyKey,
+    user && dailySpinKey !== "" && dailySpinKey === todayDailyKey,
   );
   const dailyBlockedUnknown = Boolean(user && (profileLoading || !profile));
 
@@ -161,7 +163,7 @@ export function RoletaGameScreen() {
     setBusy(true);
     setToast(null);
 
-    if (mode === "daily_ad" && (dailyFreeUsed || dailyBlockedUnknown)) {
+    if (mode === "daily_ad" && (!dailyAdAvailable || dailyFreeUsed || dailyBlockedUnknown)) {
       setBusy(false);
       setModal({
         open: true,
@@ -169,7 +171,9 @@ export function RoletaGameScreen() {
         title: "Giro não disponível",
         rewardCoins: 0,
         grantedChest: null,
-        error: dailyBlockedUnknown
+        error: !dailyAdAvailable
+          ? "O anúncio recompensado está disponível somente no aplicativo Rivaliza para Android. Nenhum giro foi consumido."
+          : dailyBlockedUnknown
           ? "Carregando seu perfil. Tente novamente em instantes."
           : "O giro grátis por anúncio já foi usado hoje. Volte após meia-noite no horário de Brasília.",
       });
@@ -332,9 +336,11 @@ export function RoletaGameScreen() {
           {profileLoading
             ? "Sincronizando giro grátis…"
             : dailyFreeUsed
-              ? "Giro grátis de hoje: já usado"
+              ? "Giro por anúncio hoje: 1/1 usado"
               : user
-                ? "Giro grátis disponível · 1x por dia (Brasília)"
+                ? dailyAdAvailable
+                  ? "Giro por anúncio hoje: 0/1 disponível"
+                  : "Giro por anúncio disponível no app Android"
                 : "Entre para girar"}
         </p>
 
@@ -383,7 +389,7 @@ export function RoletaGameScreen() {
             type="button"
             onClick={() => void spin("daily_ad")}
             disabled={
-              spinning || busy || segmentCount < 1 || dailyBlockedUnknown || dailyFreeUsed || !user
+              spinning || busy || segmentCount < 1 || !dailyAdAvailable || dailyBlockedUnknown || dailyFreeUsed || !user
             }
             title={
               dailyFreeUsed
@@ -398,7 +404,7 @@ export function RoletaGameScreen() {
               {spinning ? "..." : busy ? "..." : "Girar"}
             </span>
             <span className="mt-1 text-[10px] font-black uppercase tracking-wide text-white/90">
-              {dailyFreeUsed ? "Amanhã" : "Anúncio"}
+              {dailyFreeUsed ? "Amanhã" : dailyAdAvailable ? "Anúncio" : "No app"}
             </span>
           </button>
         </div>
@@ -418,7 +424,7 @@ export function RoletaGameScreen() {
       <div className="relative mx-auto mt-4 flex max-w-[340px] flex-col gap-2">
         <Button
           className="h-auto min-h-0 w-full flex-row justify-start gap-3 rounded-xl border-fuchsia-400/45 py-2.5 pl-3.5 pr-3 shadow-[0_0_26px_-10px_rgba(217,70,239,0.65)] [&>svg]:shrink-0"
-          disabled={spinning || busy || dailyBlockedUnknown || dailyFreeUsed || !user}
+          disabled={spinning || busy || !dailyAdAvailable || dailyBlockedUnknown || dailyFreeUsed || !user}
           onClick={() => void spin("daily_ad")}
           variant="jackpot"
           size="md"
@@ -427,7 +433,11 @@ export function RoletaGameScreen() {
           <span className="flex min-w-0 flex-col items-start gap-0.5 text-left leading-tight">
             <span className="text-[13px] font-bold uppercase tracking-wide">Giro com anúncio</span>
             <span className="font-normal normal-case opacity-85 text-[11px] leading-snug text-white/75">
-              1x por dia · assista até o final
+              {dailyFreeUsed
+                ? "Limite diário utilizado · 1/1"
+                : dailyAdAvailable
+                  ? "Limite diário 0/1 · assista até o final"
+                  : "Abra o aplicativo Android para assistir"}
             </span>
           </span>
         </Button>

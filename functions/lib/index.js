@@ -5413,7 +5413,9 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
         };
         let paidCost = null;
         if (mode === "daily_ad") {
-            if (!adminWebTestMode && String(u.rouletteDailyAdSpinDayKey || "") === today) {
+            // Mesmo o mock administrativo deve reproduzir os limites reais da roleta.
+            // O mock autoriza apenas testar a conclusão do anúncio; nunca libera giros ilimitados.
+            if (String(u.rouletteDailyAdSpinDayKey || "") === today) {
                 throw new https_1.HttpsError("already-exists", "Você já usou o giro diário por anúncio hoje.");
             }
             if (adSnap?.exists) {
@@ -5421,7 +5423,7 @@ exports.processRouletteSpin = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
             }
             const currentDayKey = String(u.rewardedAdsDayKey || "");
             const currentCount = currentDayKey === today ? Math.max(0, Math.floor(Number(u.rewardedAdsCount || 0))) : 0;
-            if (!adminWebTestMode && currentCount >= economyConfig.limiteDiarioAds) {
+            if (currentCount >= economyConfig.limiteDiarioAds) {
                 throw new https_1.HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
             }
             userPatch.rewardedAdsDayKey = today;
