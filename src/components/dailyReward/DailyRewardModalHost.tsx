@@ -27,7 +27,7 @@ export function DailyRewardModalHost() {
   const [economyReady, setEconomyReady] = useState(false);
   const [claimLoading, setClaimLoading] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
-  const [dismissedPeriodKey, setDismissedPeriodKey] = useState<string | null>(null);
+  const [dismissedUserPeriodKey, setDismissedUserPeriodKey] = useState<string | null>(null);
   /** Força releitura do sessionStorage após fechar o modal. */
   const [storageRev, setStorageRev] = useState(0);
 
@@ -79,16 +79,17 @@ export function DailyRewardModalHost() {
 
   const hiddenByUserToday = useMemo(() => {
     if (typeof window === "undefined") return false;
+    if (!user?.uid) return false;
     void storageRev;
     try {
-      return sessionStorage.getItem(HIDE_KEY_PREFIX + getDailyPeriodKey()) === "1";
+      return sessionStorage.getItem(`${HIDE_KEY_PREFIX}${user.uid}_${getDailyPeriodKey()}`) === "1";
     } catch {
       return false;
     }
-  }, [storageRev]);
+  }, [storageRev, user?.uid]);
 
   const modalOpen = useMemo(() => {
-    if (dismissedPeriodKey === getDailyPeriodKey()) return false;
+    if (dismissedUserPeriodKey === `${user?.uid ?? ""}_${getDailyPeriodKey()}`) return false;
     if (hiddenByUserToday) return false;
     if (loading) return false;
     if (!economyReady) return false;
@@ -98,20 +99,21 @@ export function DailyRewardModalHost() {
     if (profile?.banido) return false;
     if (ui.kind !== "can_claim") return false;
     return slots.length > 0;
-  }, [dismissedPeriodKey, hiddenByUserToday, loading, economyReady, user, profile, profileLoading, ui, slots]);
+  }, [dismissedUserPeriodKey, hiddenByUserToday, loading, economyReady, user, profile, profileLoading, ui, slots]);
 
   const hideForToday = useCallback(() => {
     setClaimError(null);
     setClaimLoading(false);
     const today = getDailyPeriodKey();
-    setDismissedPeriodKey(today);
+    if (!user?.uid) return;
+    setDismissedUserPeriodKey(`${user.uid}_${today}`);
     try {
-      sessionStorage.setItem(HIDE_KEY_PREFIX + today, "1");
+      sessionStorage.setItem(`${HIDE_KEY_PREFIX}${user.uid}_${today}`, "1");
     } catch {
       /* ignore */
     }
     setStorageRev((n) => n + 1);
-  }, []);
+  }, [user?.uid]);
 
   const onClaim = useCallback(async () => {
     if (claimLoading) return;
