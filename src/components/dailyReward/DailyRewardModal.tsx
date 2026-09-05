@@ -385,6 +385,19 @@ export function DailyRewardModal({
                   </motion.div>
 
                   <div className="relative z-[2] mt-2 flex min-h-[3rem] flex-col justify-center gap-1">
+                    {s.tipoBonus === "bau" && s.coins === 0 && s.gems === 0 ? (
+                      <div
+                        className={cn(
+                          "flex w-full items-center justify-center gap-1 rounded-lg px-1 py-1 font-black uppercase leading-none",
+                          layout.amountClassName,
+                          isCurrent ? "bg-cyan-950/10 text-cyan-950" : "bg-cyan-400/10 text-cyan-100",
+                        )}
+                      >
+                        <Gift className="h-3.5 w-3.5 shrink-0 text-cyan-300" strokeWidth={2.5} />
+                        <span>1</span>
+                        <span className={cn("font-extrabold opacity-80", layout.amountLabelClassName)}>Baú</span>
+                      </div>
+                    ) : null}
                     {s.coins > 0 ? (
                       <div
                         className={cn(
@@ -413,7 +426,7 @@ export function DailyRewardModal({
                     ) : null}
                   </div>
 
-                  {bonusLabel ? (
+                  {bonusLabel && (s.coins > 0 || s.gems > 0) ? (
                     <span
                       className={cn(
                         "relative z-[2] mt-1 inline-flex items-center justify-center gap-0.5 rounded-md font-black uppercase tracking-wide",
