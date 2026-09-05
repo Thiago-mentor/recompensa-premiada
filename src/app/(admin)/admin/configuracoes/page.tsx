@@ -344,7 +344,7 @@ export default function AdminConfigPage() {
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
           <h2 className="text-lg font-semibold text-white">Recompensas e limites</h2>
           <Field label="PR por anúncio (global)" value={rewardAd} onChange={setRewardAd} />
-          <Field label="Bônus login diário" value={dailyBonus} onChange={setDailyBonus} />
+          <Field label="PR padrão após o calendário diário" value={dailyBonus} onChange={setDailyBonus} />
           <Field label="Limite diário de ads" value={limiteAds} onChange={setLimiteAds} />
           <Field label="Limite diário de PR" value={limiteCoins} onChange={setLimiteCoins} />
         </div>

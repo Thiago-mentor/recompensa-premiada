@@ -1,23 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { Clock3, Gift, Sparkles, TimerReset } from "lucide-react";
+import { ArrowRight, CalendarDays, Clock3, Sparkles } from "lucide-react";
 import { AdminAdCooldownGuide } from "@/components/admin/AdminAdCooldownGuide";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminPageHero } from "@/components/admin/AdminPageHero";
 import { ChestSystemConfigPanel } from "@/components/admin/ChestSystemConfigPanel";
 import { useAdminSaveFeedback } from "@/components/admin/AdminSaveFeedback";
-import { Button } from "@/components/ui/Button";
+import { Button, goldButtonLinkClassName } from "@/components/ui/Button";
 import { getFirebaseFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/constants/collections";
-import type { StreakRewardTier, SystemEconomyConfig } from "@/types/systemConfig";
-import {
-  DEFAULT_STREAK_DISPLAY_DAYS,
-  MAX_STREAK_DISPLAY_DAYS,
-  normalizeStreakDisplayDays,
-} from "@/services/economy/economyStreakConfig";
-import { normalizeStreakTable } from "@/utils/streakReward";
+import { ROUTES } from "@/lib/constants/routes";
+import type { SystemEconomyConfig } from "@/types/systemConfig";
 import { invalidateEconomyConfigCache } from "@/services/systemConfigs/economyDocumentCache";
 import {
   formatCooldownMinutesDisplay,
@@ -27,24 +23,12 @@ import {
 
 const ECONOMY_ID = "economy";
 
-const emptyTier = (): StreakRewardTier => ({
-  dia: 7,
-  coins: 100,
-  gems: 0,
-  tipoBonus: "bau",
-});
-
 export default function AdminBausPage() {
   const { notify } = useAdminSaveFeedback();
-  const [dailyBonus, setDailyBonus] = useState("50");
   const [chestCooldownMinutes, setChestCooldownMinutes] = useState(() =>
     secondsToMinutesInputValue(3600),
   );
   const [boostEnabled, setBoostEnabled] = useState(false);
-  const [streakRows, setStreakRows] = useState<StreakRewardTier[]>([]);
-  const [streakDisplayDays, setStreakDisplayDays] = useState(
-    String(DEFAULT_STREAK_DISPLAY_DAYS),
-  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -55,17 +39,12 @@ export default function AdminBausPage() {
         const snapshot = await getDoc(doc(db, COLLECTIONS.systemConfigs, ECONOMY_ID));
         if (!snapshot.exists() || cancelled) return;
         const data = snapshot.data() as Partial<SystemEconomyConfig>;
-        if (typeof data.dailyLoginBonus === "number") {
-          setDailyBonus(String(data.dailyLoginBonus));
-        }
         if (typeof data.chestCooldownSegundos === "number") {
           setChestCooldownMinutes(secondsToMinutesInputValue(data.chestCooldownSegundos));
         }
         if (typeof data.boostEnabled === "boolean") {
           setBoostEnabled(data.boostEnabled);
         }
-        setStreakDisplayDays(String(normalizeStreakDisplayDays(data.streakDisplayDays)));
-        setStreakRows(normalizeStreakTable(data.streakTable));
       } catch {
         /* ignore */
       }
@@ -84,20 +63,11 @@ export default function AdminBausPage() {
         {
           id: ECONOMY_ID,
           chestCooldownSegundos: minutesInputToSeconds(chestCooldownMinutes, 86_400 * 30),
-          streakDisplayDays: normalizeStreakDisplayDays(streakDisplayDays),
-          streakTable: streakRows
-            .map((row) => ({
-              dia: Math.max(1, Math.floor(Number(row.dia)) || 1),
-              coins: Math.max(0, Math.floor(Number(row.coins)) || 0),
-              gems: Math.max(0, Math.floor(Number(row.gems)) || 0),
-              tipoBonus: row.tipoBonus,
-            }))
-            .sort((a, b) => a.dia - b.dia),
         },
         { merge: true },
       );
       invalidateEconomyConfigCache();
-      notify("success", "Configurações de baús ligadas à economia salvas.");
+      notify("success", "Configuração do mini-jogo Baú salva.");
     } catch (error) {
       notify(
         "error",
@@ -108,7 +78,6 @@ export default function AdminBausPage() {
     }
   }
 
-  const normalizedDisplayDays = normalizeStreakDisplayDays(streakDisplayDays);
   const cooldownSeconds = minutesInputToSeconds(chestCooldownMinutes, 86_400 * 30);
 
   return (
@@ -119,42 +88,27 @@ export default function AdminBausPage() {
         accent="amber"
         description={
           <>
-            Centralize aqui o mini-jogo Baú, os marcos da streak que podem entregar baús e o painel
-            dedicado do documento <code>system_configs/chest_system</code>. O botão de economia salva
-            os campos em <code>system_configs/economy</code>; o sistema de baús continua com salvamento
-            próprio logo abaixo.
+            Centralize aqui o mini-jogo Baú e o painel dedicado do documento
+            <code> system_configs/chest_system</code>. A jornada de check-in foi organizada em uma
+            página própria de Recompensa diária.
           </>
         }
         actions={
           <Button type="button" variant="secondary" onClick={saveBausEconomy} disabled={saving}>
-            {saving ? "Salvando..." : "Salvar economia dos baús"}
+            {saving ? "Salvando..." : "Salvar mini-jogo Baú"}
           </Button>
         }
       />
 
       <AdminAdCooldownGuide />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2">
         <AdminMetricCard
           title="Cooldown"
           value={formatCooldownMinutesDisplay(cooldownSeconds)}
           hint="Mini-jogo legado de baú (valor em minutos no formulário)"
           tone="amber"
           icon={<Clock3 className="h-4 w-4" />}
-        />
-        <AdminMetricCard
-          title="Marcos"
-          value={String(streakRows.length)}
-          hint="Faixas configuradas na streak"
-          tone="violet"
-          icon={<Gift className="h-4 w-4" />}
-        />
-        <AdminMetricCard
-          title="Dias visíveis"
-          value={String(normalizedDisplayDays)}
-          hint="Modal diário de entrada"
-          tone="cyan"
-          icon={<TimerReset className="h-4 w-4" />}
         />
         <AdminMetricCard
           title="Boost"
@@ -165,7 +119,7 @@ export default function AdminBausPage() {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+      <section className="grid gap-4">
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
           <h2 className="text-lg font-semibold text-white">Mini-jogo Baú</h2>
           <p className="text-xs text-slate-400">
@@ -178,150 +132,29 @@ export default function AdminBausPage() {
           />
         </div>
 
-        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-          <h2 className="text-lg font-semibold text-white">Streak diária com baús</h2>
-          <p className="text-xs text-slate-400">
-            O bônus fixo do login diário continua na aba <strong className="text-white">Configurações</strong>,
-            mas os marcos abaixo definem quando a sequência libera baú ou prêmio especial.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field
-              label="Bônus login diário atual (referência)"
-              value={dailyBonus}
-              onChange={() => undefined}
-              disabled
-            />
-            <Field
-              label={`Dias visíveis no modal de entrada (1-${MAX_STREAK_DISPLAY_DAYS})`}
-              value={streakDisplayDays}
-              onChange={setStreakDisplayDays}
-            />
-          </div>
-        </div>
       </section>
 
-      <section className="space-y-3 rounded-xl border border-white/10 bg-slate-900/80 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Marcos da streak diária</h2>
-            <p className="mt-1 max-w-2xl text-xs text-slate-400">
-              A recompensa do dia usa o marco cujo <strong>dia</strong> coincide com a sequência
-              atual. Nos demais dias, segue valendo o bônus fixo de login diário configurado na
-              economia.
-            </p>
+      <section className="overflow-hidden rounded-[1.5rem] border border-violet-300/20 bg-[radial-gradient(circle_at_top_right,rgba(168,85,247,0.2),transparent_40%),linear-gradient(145deg,rgba(2,6,23,0.98),rgba(30,20,70,0.92))] p-5">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-violet-300/25 bg-violet-400/10 text-violet-200">
+              <CalendarDays className="h-6 w-6" />
+            </span>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-violet-300/75">Agora em uma página própria</p>
+              <h2 className="mt-1 text-xl font-black text-white">Calendário de recompensa diária</h2>
+              <p className="mt-1 max-w-xl text-sm leading-relaxed text-slate-400">Escolha a premiação de cada dia usando PR, TICKET, Baú ou Combo especial, com uma prévia visual antes de salvar.</p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-xs"
-              onClick={() => setStreakRows((prev) => [...prev, emptyTier()])}
-            >
-              + Marco
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-xs"
-              onClick={() => {
-                const base = Math.max(0, Math.floor(Number(dailyBonus)) || 50);
-                setStreakRows([
-                  { dia: 1, coins: base, gems: 0, tipoBonus: "nenhum" },
-                  { dia: 7, coins: base * 4, gems: 5, tipoBonus: "bau" },
-                  { dia: 30, coins: base * 12, gems: 25, tipoBonus: "especial" },
-                ]);
-              }}
-            >
-              Preencher 1 / 7 / 30
-            </Button>
-          </div>
+          <Link href={ROUTES.admin.recompensaDiaria} className={goldButtonLinkClassName("shrink-0 sm:w-auto sm:px-5")}>
+            Configurar dias <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
-
-        {streakRows.length === 0 ? (
-          <p className="text-sm text-slate-500">Nenhum marco configurado.</p>
-        ) : (
-          <div className="space-y-2">
-            {streakRows.map((row, index) => (
-              <div
-                key={index}
-                className="grid gap-2 rounded-lg border border-white/10 bg-black/20 p-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]"
-              >
-                <Field
-                  label="Dia da sequência"
-                  value={String(row.dia)}
-                  onChange={(value) => {
-                    const nextDay = Math.max(1, Math.floor(Number(value)) || 1);
-                    setStreakRows((prev) =>
-                      prev.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, dia: nextDay } : item,
-                      ),
-                    );
-                  }}
-                />
-                <Field
-                  label="PR"
-                  value={String(row.coins)}
-                  onChange={(value) => {
-                    const nextCoins = Math.max(0, Math.floor(Number(value)) || 0);
-                    setStreakRows((prev) =>
-                      prev.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, coins: nextCoins } : item,
-                      ),
-                    );
-                  }}
-                />
-                <Field
-                  label="TICKET (streak)"
-                  value={String(row.gems)}
-                  onChange={(value) => {
-                    const nextGems = Math.max(0, Math.floor(Number(value)) || 0);
-                    setStreakRows((prev) =>
-                      prev.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, gems: nextGems } : item,
-                      ),
-                    );
-                  }}
-                />
-                <div>
-                  <label className="text-xs text-slate-400">Tipo</label>
-                  <select
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-white"
-                    value={row.tipoBonus}
-                    onChange={(event) => {
-                      const tipoBonus = event.target.value as StreakRewardTier["tipoBonus"];
-                      setStreakRows((prev) =>
-                        prev.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, tipoBonus } : item,
-                        ),
-                      );
-                    }}
-                  >
-                    <option value="nenhum">Nenhum</option>
-                    <option value="bau">Baú</option>
-                    <option value="especial">Especial</option>
-                  </select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-xs text-red-300"
-                    onClick={() =>
-                      setStreakRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
-                    }
-                  >
-                    Remover
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       <div className="flex justify-end">
         <Button type="button" onClick={saveBausEconomy} disabled={saving}>
-          {saving ? "Salvando..." : "Salvar economia dos baús"}
+          {saving ? "Salvando..." : "Salvar mini-jogo Baú"}
         </Button>
       </div>
 

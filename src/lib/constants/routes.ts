@@ -26,6 +26,7 @@ export const ROUTES = {
     sorteios: "/admin/sorteios",
     quiz: "/admin/quiz",
     baus: "/admin/baus",
+    recompensaDiaria: "/admin/recompensa-diaria",
     recompensas: "/admin/recompensas",
     missoes: "/admin/missoes",
     configuracoes: "/admin/configuracoes",
