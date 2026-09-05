@@ -6,7 +6,7 @@ import { callFunction } from "@/services/callables/client";
 
 export async function requestRewardClaim(input: {
   valor: number;
-  tipo: "pix" | "voucher" | "outro";
+  tipo: "pix";
   chavePix: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const uid = getFirebaseAuth().currentUser?.uid;

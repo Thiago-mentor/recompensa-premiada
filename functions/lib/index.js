@@ -1,44 +1,12 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.getPublicProfile = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
-exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.reapStaleAutoMatchSlots = void 0;
-const admin = __importStar(require("firebase-admin"));
+exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.cleanupExpiredRateLimits = exports.reapStaleAutoMatchSlots = void 0;
 const node_crypto_1 = require("node:crypto");
 const vision_1 = require("@google-cloud/vision");
 const app_1 = require("firebase-admin/app");
+const auth_1 = require("firebase-admin/auth");
+const storage_1 = require("firebase-admin/storage");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
@@ -46,7 +14,9 @@ const firestore_2 = require("firebase-admin/firestore");
 const gameEconomy_1 = require("./gameEconomy");
 const streakEconomy_1 = require("./streakEconomy");
 const quizQuestions_1 = require("./quizQuestions");
-admin.initializeApp();
+const security_1 = require("./security");
+const rateLimit_1 = require("./rateLimit");
+(0, app_1.initializeApp)();
 const firestoreDbId = process.env.FIRESTORE_DATABASE_ID?.trim();
 const db = firestoreDbId && firestoreDbId !== "(default)"
     ? (0, firestore_1.getFirestore)((0, app_1.getApp)(), firestoreDbId)
@@ -84,6 +54,9 @@ const COL = {
     matchmakingQueue: "matchmaking_queue",
     gameRooms: "game_rooms",
     multiplayerSlots: "multiplayer_slots",
+    uniqueUsernames: "unique_usernames",
+    referralCodes: "referral_codes",
+    rateLimits: "rate_limits",
 };
 const AUTO_QUEUE_GAMES = new Set(["ppt", "quiz", "reaction_tap", "card_battle"]);
 const RANKING_GAME_IDS = [
@@ -217,7 +190,7 @@ function readPositiveIntEnv(name, fallback) {
 }
 const MULTIPLAYER_FUNCTIONS_REGION = process.env.FUNCTIONS_REGION?.trim() || "southamerica-east1";
 const MULTIPLAYER_FUNCTIONS_MIN_INSTANCES = readPositiveIntEnv("MULTIPLAYER_FUNCTIONS_MIN_INSTANCES", 0);
-const APP_CHECK_ENFORCED = process.env.ENFORCE_APP_CHECK === "true" &&
+const APP_CHECK_ENFORCED = process.env.ENFORCE_APP_CHECK !== "false" &&
     process.env.FUNCTIONS_EMULATOR !== "true" &&
     !process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const MULTIPLAYER_CALLABLE_OPTS = {
@@ -681,7 +654,7 @@ function assertAuthed(uid) {
         throw new https_1.HttpsError("unauthenticated", "Login obrigatório.");
 }
 async function assertAdmin(uid) {
-    const user = await admin.auth().getUser(uid);
+    const user = await (0, auth_1.getAuth)().getUser(uid);
     if (user.customClaims?.admin !== true) {
         throw new https_1.HttpsError("permission-denied", "Apenas administradores.");
     }
@@ -2612,18 +2585,6 @@ function randomCode(len = 8) {
         s += chars[Math.floor(Math.random() * chars.length)];
     return s;
 }
-async function addWalletTx(input) {
-    await db.collection(COL.wallet).add({
-        userId: input.userId,
-        tipo: input.tipo,
-        moeda: input.moeda,
-        valor: input.valor,
-        saldoApos: input.saldoApos,
-        descricao: input.descricao,
-        referenciaId: input.referenciaId ?? null,
-        criadoEm: firestore_2.FieldValue.serverTimestamp(),
-    });
-}
 function hashId(...parts) {
     return (0, node_crypto_1.createHash)("sha256").update(parts.join("|")).digest("hex").slice(0, 32);
 }
@@ -2728,7 +2689,7 @@ async function evaluateReferralForUser(uid) {
             return;
         const invitedData = invitedSnap.data();
         const inviterData = inviterSnap.data();
-        const authUser = await admin.auth().getUser(invitedUid);
+        const authUser = await (0, auth_1.getAuth)().getUser(invitedUid);
         const rules = campaign?.config.qualificationRules ?? config.qualificationRules;
         const progressSnapshot = buildReferralProgressSnapshot(invitedData, authUser.emailVerified === true);
         const referralProgressPatch = {
@@ -3473,33 +3434,37 @@ const PPT_BOTH_IDLE_NO_PICK_MS = 22000;
 const MATCHMAKING_SLOT_STALE_MS = 30000;
 const CLIENT_RISK_WINDOW_MS = 60000;
 const CLIENT_RISK_MAX_EVENTS_PER_WINDOW = 6;
-const clientRiskWindows = new Map();
 const PUBLIC_PROFILE_WINDOW_MS = 60000;
 const PUBLIC_PROFILE_MAX_READS_PER_WINDOW = 30;
-const publicProfileWindows = new Map();
+async function assertDistributedRateLimit(input) {
+    const allowed = await (0, rateLimit_1.consumeDistributedRateLimit)({
+        db,
+        collection: COL.rateLimits,
+        uid: input.uid,
+        scope: input.scope,
+        windowMs: input.windowMs,
+        maxEvents: input.maxEvents,
+    });
+    if (!allowed)
+        throw new https_1.HttpsError("resource-exhausted", input.message);
+}
 function assertClientRiskRateLimit(uid) {
-    const nowMs = Date.now();
-    const current = clientRiskWindows.get(uid);
-    if (!current || nowMs - current.startedAtMs >= CLIENT_RISK_WINDOW_MS) {
-        clientRiskWindows.set(uid, { startedAtMs: nowMs, count: 1 });
-        return;
-    }
-    if (current.count >= CLIENT_RISK_MAX_EVENTS_PER_WINDOW) {
-        throw new https_1.HttpsError("resource-exhausted", "Muitos sinais de atividade. Tente novamente em instantes.");
-    }
-    current.count += 1;
+    return assertDistributedRateLimit({
+        uid,
+        scope: "client_risk",
+        windowMs: CLIENT_RISK_WINDOW_MS,
+        maxEvents: CLIENT_RISK_MAX_EVENTS_PER_WINDOW,
+        message: "Muitos sinais de atividade. Tente novamente em instantes.",
+    });
 }
 function assertPublicProfileRateLimit(uid) {
-    const nowMs = Date.now();
-    const current = publicProfileWindows.get(uid);
-    if (!current || nowMs - current.startedAtMs >= PUBLIC_PROFILE_WINDOW_MS) {
-        publicProfileWindows.set(uid, { startedAtMs: nowMs, count: 1 });
-        return;
-    }
-    if (current.count >= PUBLIC_PROFILE_MAX_READS_PER_WINDOW) {
-        throw new https_1.HttpsError("resource-exhausted", "Muitos perfis consultados. Tente novamente em instantes.");
-    }
-    current.count += 1;
+    return assertDistributedRateLimit({
+        uid,
+        scope: "public_profile",
+        windowMs: PUBLIC_PROFILE_WINDOW_MS,
+        maxEvents: PUBLIC_PROFILE_MAX_READS_PER_WINDOW,
+        message: "Muitos perfis consultados. Tente novamente em instantes.",
+    });
 }
 async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, forfeitMeta) {
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
@@ -4985,17 +4950,24 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const username = String(request.data?.username || "")
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, "");
-    const rawFoto = typeof request.data?.foto === "string" ? request.data.foto.trim() : "";
-    const email = request.data?.email ?? null;
-    const codigoConvite = request.data?.codigoConvite
-        ? String(request.data.codigoConvite).toUpperCase()
+    const rawFoto = typeof request.auth?.token.picture === "string"
+        ? request.auth.token.picture.trim().slice(0, 2048)
+        : "";
+    const email = typeof request.auth?.token.email === "string"
+        ? request.auth.token.email.trim().slice(0, 320) || null
         : null;
-    if (nome.length < 2 || username.length < 3 || username.length > 10) {
+    const codigoConvite = request.data?.codigoConvite
+        ? String(request.data.codigoConvite).trim().toUpperCase()
+        : null;
+    if (nome.length < 2 || nome.length > 60 || username.length < 3 || username.length > 10) {
         throw new https_1.HttpsError("invalid-argument", "Nome ou username inválidos. Username: 3 a 10 caracteres (a-z, 0-9, _).");
     }
     assertAllowedPublicName(nome, "Nome");
     assertAllowedPublicName(username, "Username");
-    const foto = rawFoto || buildDefaultAvatarDataUrl(username || uid, nome);
+    if (codigoConvite && !/^[A-Z0-9]{4,16}$/.test(codigoConvite)) {
+        throw new https_1.HttpsError("invalid-argument", "Código de convite inválido.");
+    }
+    const foto = normalizeHttpPhotoUrl(rawFoto) || buildDefaultAvatarDataUrl(username || uid, nome);
     const userRef = db.doc(`${COL.users}/${uid}`);
     const existing = await userRef.get();
     if (existing.exists) {
@@ -5038,7 +5010,34 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
     const economy = await getEconomy();
     const codigo = await generateUniqueReferralCode(buildReferralCodeSeed(nome, username));
     const campaign = await getActiveReferralCampaign(referralConfig);
-    await db.runTransaction(async (tx) => {
+    const usernameReservationRef = db.doc(`${COL.uniqueUsernames}/${username}`);
+    const referralCodeReservationRef = db.doc(`${COL.referralCodes}/${codigo}`);
+    const created = await db.runTransaction(async (tx) => {
+        const [currentUserSnap, usernameReservationSnap, referralCodeReservationSnap] = await Promise.all([
+            tx.get(userRef),
+            tx.get(usernameReservationRef),
+            tx.get(referralCodeReservationRef),
+        ]);
+        if (currentUserSnap.exists)
+            return false;
+        if (usernameReservationSnap.exists &&
+            String(usernameReservationSnap.data()?.uid || "") !== uid) {
+            throw new https_1.HttpsError("already-exists", "Username já em uso.");
+        }
+        if (referralCodeReservationSnap.exists &&
+            String(referralCodeReservationSnap.data()?.uid || "") !== uid) {
+            throw new https_1.HttpsError("aborted", "Não foi possível reservar o código de convite. Tente novamente.");
+        }
+        tx.set(usernameReservationRef, {
+            uid,
+            username,
+            createdAt: firestore_2.FieldValue.serverTimestamp(),
+        });
+        tx.set(referralCodeReservationRef, {
+            uid,
+            code: codigo,
+            createdAt: firestore_2.FieldValue.serverTimestamp(),
+        });
         tx.set(userRef, {
             uid,
             nome,
@@ -5148,22 +5147,26 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
             });
             await upsertReferralRankingEntry(tx, convidadoPor, inviterName || "Jogador", inviterPhoto, { pending: 1 });
         }
+        addWalletTxInTx(tx, {
+            id: `welcome_${uid}`,
+            userId: uid,
+            tipo: "bonus_admin",
+            moeda: "coins",
+            valor: economy.welcomeBonus,
+            saldoApos: economy.welcomeBonus,
+            descricao: "Bônus de boas-vindas",
+            referenciaId: "welcome",
+        });
+        return true;
     });
-    await addWalletTx({
-        userId: uid,
-        tipo: "bonus_admin",
-        moeda: "coins",
-        valor: economy.welcomeBonus,
-        saldoApos: economy.welcomeBonus,
-        descricao: "Bônus de boas-vindas",
-        referenciaId: "welcome",
-    });
+    if (!created)
+        return { ok: true, existing: true };
     return { ok: true, codigoConvite: codigo };
 });
 exports.getPublicProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const requesterUid = request.auth?.uid;
     assertAuthed(requesterUid);
-    assertPublicProfileRateLimit(requesterUid);
+    await assertPublicProfileRateLimit(requesterUid);
     const targetUid = String(request.data?.uid || "").trim();
     if (!targetUid || targetUid.length > 128 || targetUid.includes("/")) {
         throw new https_1.HttpsError("invalid-argument", "Perfil invÃ¡lido.");
@@ -5219,7 +5222,7 @@ exports.updateUserAvatar = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (req
             foto: photoURL,
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         }, { merge: true }),
-        admin.auth().updateUser(uid, { photoURL: authPhotoURL }),
+        (0, auth_1.getAuth)().updateUser(uid, { photoURL: authPhotoURL }),
         syncUserPresentation(uid, nome, photoURL),
     ]);
     return { ok: true, photoURL };
@@ -5336,18 +5339,23 @@ async function bumpWatchAdMissions(uid) {
         .get();
     for (const m of missionsSnap.docs) {
         const progRef = db.doc(`${COL.userMissions}/${uid}/daily/${m.id}`);
-        const pSnap = await progRef.get();
-        const meta = Number(m.data().meta || 1);
-        const cur = pSnap.exists ? Number(pSnap.data()?.progresso || 0) : 0;
-        const next = Math.min(meta, cur + 1);
-        await progRef.set({
-            missionId: m.id,
-            progresso: next,
-            concluida: next >= meta,
-            recompensaResgatada: pSnap.data()?.recompensaResgatada ?? false,
-            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-            periodoChave: dailyKey(),
-        }, { merge: true });
+        const meta = Math.max(1, Math.floor(Number(m.data().meta || 1)));
+        const periodKey = dailyKey();
+        await db.runTransaction(async (tx) => {
+            const pSnap = await tx.get(progRef);
+            const previous = (pSnap.data() || {});
+            const samePeriod = String(previous.periodoChave || "") === periodKey;
+            const current = samePeriod ? Math.max(0, Math.floor(Number(previous.progresso || 0))) : 0;
+            const next = Math.min(meta, current + 1);
+            tx.set(progRef, {
+                missionId: m.id,
+                progresso: next,
+                concluida: next >= meta,
+                recompensaResgatada: samePeriod ? previous.recompensaResgatada === true : false,
+                atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+                periodoChave: periodKey,
+            }, { merge: true });
+        });
     }
 }
 /**
@@ -6515,12 +6523,17 @@ exports.activateStoredBoost = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
 exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
     const uid = request.auth?.uid;
     assertAuthed(uid);
-    const valor = Math.floor(Number(request.data?.valor));
-    const tipo = String(request.data?.tipo || "pix");
-    const chavePix = String(request.data?.chavePix || "").trim();
-    if (!Number.isFinite(valor) || valor <= 0 || !chavePix) {
-        throw new https_1.HttpsError("invalid-argument", "Dados inválidos.");
+    let parsed;
+    try {
+        parsed = (0, security_1.parseRewardClaimInput)(request.data);
     }
+    catch (error) {
+        if (error instanceof security_1.InputValidationError) {
+            throw new https_1.HttpsError("invalid-argument", error.message);
+        }
+        throw error;
+    }
+    const { valor, tipo, chavePix } = parsed;
     const userRef = db.doc(`${COL.users}/${uid}`);
     const ref = db.collection(COL.rewardClaims).doc();
     await db.runTransaction(async (tx) => {
@@ -6532,8 +6545,9 @@ exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
         if (valor > bal) {
             throw new https_1.HttpsError("failed-precondition", "Saldo insuficiente.");
         }
+        const saldoApos = bal - valor;
         tx.update(userRef, {
-            rewardBalance: firestore_2.FieldValue.increment(-valor),
+            rewardBalance: saldoApos,
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
         tx.set(ref, {
@@ -6551,17 +6565,16 @@ exports.requestRewardClaim = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (r
             criadoEm: firestore_2.FieldValue.serverTimestamp(),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
-    });
-    const after = await userRef.get();
-    const saldoApos = Number(after.data()?.rewardBalance ?? 0);
-    await addWalletTx({
-        userId: uid,
-        tipo: "resgate_pendente",
-        moeda: "rewardBalance",
-        valor: -valor,
-        saldoApos,
-        descricao: "Retenção para saque PIX (em análise)",
-        referenciaId: ref.id,
+        addWalletTxInTx(tx, {
+            id: `reward_claim_hold_${ref.id}`,
+            userId: uid,
+            tipo: "resgate_pendente",
+            moeda: "rewardBalance",
+            valor: -valor,
+            saldoApos,
+            descricao: "Retenção para saque PIX (em análise)",
+            referenciaId: ref.id,
+        });
     });
     return { claimId: ref.id };
 });
@@ -6602,33 +6615,37 @@ exports.adminGrantEconomy = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (re
         targetUid = q.docs[0].id;
     }
     const userRef = db.doc(`${COL.users}/${targetUid}`);
-    const uSnap = await userRef.get();
-    if (!uSnap.exists)
-        throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
-    const u = uSnap.data();
-    if (u.banido)
-        throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
     const field = kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
-    const before = kind === "coins"
-        ? Number(u.coins ?? 0)
-        : kind === "gems"
-            ? Number(u.gems ?? 0)
-            : Number(u.rewardBalance ?? 0);
-    const after = before + amount;
-    await userRef.update({
-        [field]: firestore_2.FieldValue.increment(amount),
-        atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
-    });
     const moeda = kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
     const label = kind === "coins" ? "PR" : kind === "gems" ? "TICKET" : "CASH";
-    await addWalletTx({
-        userId: targetUid,
-        tipo: "bonus_admin",
-        moeda,
-        valor: amount,
-        saldoApos: after,
-        descricao: `Crédito admin: +${amount} ${label}`,
-        referenciaId: adminUid,
+    const walletEntryId = db.collection(COL.wallet).doc().id;
+    const after = await db.runTransaction(async (tx) => {
+        const uSnap = await tx.get(userRef);
+        if (!uSnap.exists)
+            throw new https_1.HttpsError("failed-precondition", "Perfil inexistente.");
+        const u = uSnap.data();
+        if (u.banido)
+            throw new https_1.HttpsError("permission-denied", "Conta suspensa.");
+        const before = Number(u[field] ?? 0);
+        const nextBalance = before + amount;
+        if (!Number.isSafeInteger(nextBalance)) {
+            throw new https_1.HttpsError("failed-precondition", "Saldo resultante inválido.");
+        }
+        tx.update(userRef, {
+            [field]: nextBalance,
+            atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+        });
+        addWalletTxInTx(tx, {
+            id: walletEntryId,
+            userId: targetUid,
+            tipo: "bonus_admin",
+            moeda,
+            valor: amount,
+            saldoApos: nextBalance,
+            descricao: `Crédito admin: +${amount} ${label}`,
+            referenciaId: adminUid,
+        });
+        return nextBalance;
     });
     return { ok: true, targetUid, field, newBalance: after };
 });
@@ -6850,6 +6867,7 @@ exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
     const coinsPerGemBuy = economy.conversionCoinsPerGemBuy;
     const coinsPerGemSell = economy.conversionCoinsPerGemSell;
     const userRef = db.doc(`${COL.users}/${uid}`);
+    const conversionId = db.collection(COL.wallet).doc().id;
     const out = await db.runTransaction(async (tx) => {
         const uSnap = await tx.get(userRef);
         if (!uSnap.exists)
@@ -6872,6 +6890,26 @@ exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
                 coins: firestore_2.FieldValue.increment(-cost),
                 gems: firestore_2.FieldValue.increment(amount),
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
+            });
+            addWalletTxInTx(tx, {
+                id: `${conversionId}_coins`,
+                userId: uid,
+                tipo: "conversao",
+                moeda: "coins",
+                valor: -cost,
+                saldoApos: newCoins,
+                descricao: `Conversão: ${cost} PR → ${amount} TICKET`,
+                referenciaId: conversionId,
+            });
+            addWalletTxInTx(tx, {
+                id: `${conversionId}_gems`,
+                userId: uid,
+                tipo: "conversao",
+                moeda: "gems",
+                valor: amount,
+                saldoApos: newGems,
+                descricao: `Conversão: +${amount} TICKET`,
+                referenciaId: conversionId,
             });
             return {
                 direction: "coins_to_gems",
@@ -6897,6 +6935,26 @@ exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
             gems: firestore_2.FieldValue.increment(-amount),
             atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
         });
+        addWalletTxInTx(tx, {
+            id: `${conversionId}_gems`,
+            userId: uid,
+            tipo: "conversao",
+            moeda: "gems",
+            valor: -amount,
+            saldoApos: newGems,
+            descricao: `Conversão: ${amount} TICKET → ${payout} PR`,
+            referenciaId: conversionId,
+        });
+        addWalletTxInTx(tx, {
+            id: `${conversionId}_coins`,
+            userId: uid,
+            tipo: "conversao",
+            moeda: "coins",
+            valor: payout,
+            saldoApos: newCoins,
+            descricao: `Conversão: +${payout} PR`,
+            referenciaId: conversionId,
+        });
         return {
             direction: "gems_to_coins",
             payout,
@@ -6905,43 +6963,7 @@ exports.convertCurrency = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (requ
             newGems,
         };
     });
-    if (out.direction === "coins_to_gems") {
-        await addWalletTx({
-            userId: uid,
-            tipo: "conversao",
-            moeda: "coins",
-            valor: -out.cost,
-            saldoApos: out.newCoins,
-            descricao: `Conversão: ${out.cost} PR → ${out.gemsBought} TICKET`,
-        });
-        await addWalletTx({
-            userId: uid,
-            tipo: "conversao",
-            moeda: "gems",
-            valor: out.gemsBought,
-            saldoApos: out.newGems,
-            descricao: `Conversão: +${out.gemsBought} TICKET`,
-        });
-    }
-    else if (out.direction === "gems_to_coins") {
-        await addWalletTx({
-            userId: uid,
-            tipo: "conversao",
-            moeda: "gems",
-            valor: -out.gemsSold,
-            saldoApos: out.newGems,
-            descricao: `Conversão: ${out.gemsSold} TICKET → ${out.payout} PR`,
-        });
-        await addWalletTx({
-            userId: uid,
-            tipo: "conversao",
-            moeda: "coins",
-            valor: out.payout,
-            saldoApos: out.newCoins,
-            descricao: `Conversão: +${out.payout} PR`,
-        });
-    }
-    return { ok: true, ...out };
+    return { ok: true, conversionId, ...out };
 });
 async function assertNoOtherActiveRaffle(exceptId) {
     const q = await db.collection(COL.raffles).where("status", "==", "active").limit(5).get();
@@ -9657,7 +9679,7 @@ exports.riskAnalysisOnUserEvent = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asy
     if (detailsSize > 2000) {
         throw new https_1.HttpsError("invalid-argument", "Detalhes do evento muito extensos.");
     }
-    assertClientRiskRateLimit(uid);
+    await assertClientRiskRateLimit(uid);
     await db.collection(COL.fraudLogs).add({
         uid,
         tipo,
@@ -10543,6 +10565,24 @@ exports.reapStaleAutoMatchSlots = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHED
         }
     }
 });
+exports.cleanupExpiredRateLimits = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "17 3 * * *" }, async () => {
+    const now = firestore_2.Timestamp.now();
+    for (let page = 0; page < 10; page += 1) {
+        const expired = await db
+            .collection(COL.rateLimits)
+            .where("expiresAt", "<=", now)
+            .limit(400)
+            .get();
+        if (expired.empty)
+            return;
+        const batch = db.batch();
+        for (const docSnap of expired.docs)
+            batch.delete(docSnap.ref);
+        await batch.commit();
+        if (expired.size < 400)
+            return;
+    }
+});
 exports.closeDailyRanking = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" }, async () => {
     await closeRankingJob("diario");
 });
@@ -10764,7 +10804,7 @@ async function deleteClanAssetIfExists(rawUrl) {
     if (!objectPath)
         return;
     try {
-        const file = admin.storage().bucket().file(objectPath);
+        const file = (0, storage_1.getStorage)().bucket().file(objectPath);
         const [exists] = await file.exists();
         if (exists) {
             await file.delete();

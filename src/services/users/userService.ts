@@ -39,8 +39,6 @@ export function subscribeUserProfile(
 export async function ensureUserProfileRemote(input: {
   nome: string;
   username: string;
-  foto: string | null;
-  email: string | null;
   codigoConviteOpcional?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const uid = getFirebaseAuth().currentUser?.uid;
@@ -50,8 +48,6 @@ export async function ensureUserProfileRemote(input: {
     await callFunction("initializeUserProfile", {
       nome: input.nome,
       username: input.username,
-      foto: input.foto,
-      email: input.email,
       codigoConvite: input.codigoConviteOpcional ?? null,
     });
     return { ok: true };

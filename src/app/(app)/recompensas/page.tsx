@@ -121,8 +121,13 @@ export default function RecompensasPage() {
       setMsg("Você não tem saldo suficiente.");
       return;
     }
+    const chavePix = chave.trim();
+    if (!chavePix || chavePix.length > 200) {
+      setMsg("Chave PIX inválida.");
+      return;
+    }
     setLoading(true);
-    const r = await requestRewardClaim({ valor: vi, tipo: "pix", chavePix: chave });
+    const r = await requestRewardClaim({ valor: vi, tipo: "pix", chavePix });
     setLoading(false);
     if (r.ok) {
       setMsg("Pedido registrado.");
@@ -235,6 +240,7 @@ export default function RecompensasPage() {
                 className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-3 text-lg font-semibold text-white outline-none focus:border-violet-500/60"
                 value={valor}
                 onChange={(e) => setValor(e.target.value)}
+                required
               />
               {valorNum > 0 ? (
                 <p className="mt-2 text-sm text-emerald-200/85">
@@ -254,7 +260,14 @@ export default function RecompensasPage() {
                 value={chave}
                 onChange={(e) => setChave(e.target.value)}
                 placeholder="CPF, e-mail, telefone ou chave aleatória"
+                maxLength={200}
+                autoComplete="off"
+                spellCheck={false}
+                required
               />
+              <p className="mt-2 text-xs text-white/35">
+                O pedido será conferido e pago manualmente pela equipe.
+              </p>
             </div>
             <Button type="submit" className="w-full" size="lg" disabled={loading}>
               {loading ? "Enviando…" : "Solicitar resgate"}

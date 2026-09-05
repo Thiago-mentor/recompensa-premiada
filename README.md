@@ -1,36 +1,117 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rivaliza
 
-## Getting Started
+Aplicação de gamificação com missões, jogos solo e PvP, clãs, rankings, sorteios,
+anúncios recompensados e carteira virtual. Os pedidos de saque PIX são registrados
+pelo cliente e revisados/pagos manualmente no painel administrativo.
 
-First, run the development server:
+## Arquitetura
+
+- Next.js 16 e React 19 no App Router.
+- Firebase Authentication, Firestore, Storage, App Check e Analytics.
+- Cloud Functions v2 em Node.js 22 para toda mutação de economia e autorização sensível.
+- Firebase App Hosting para a aplicação web.
+- Capacitor para Android/iOS, carregando a URL HTTPS do App Hosting.
+- AdMob Rewarded Ads com validação SSV no backend.
+
+O frontend nunca grava diretamente saldos, extratos, partidas, sorteios ou saques.
+Essas operações passam por HTTPS Callables e transações no backend. As regras do
+Firestore e Storage complementam essa fronteira.
+
+## Desenvolvimento local
+
+Requisitos: Node.js 22, npm e Java para os emuladores Firebase.
+
+```bash
+npm ci
+npm --prefix functions ci
+copy .env.example .env.local
+npm run emulators
+```
+
+Em outro terminal:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Preencha as variáveis Firebase de `.env.local`. Para usar os emuladores, mantenha
+`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`. Mocks de anúncio só devem ser usados no
+emulador ou por uma conta administradora em ambiente controlado.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Verificações
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run test:emulators
+npm run build
+npm run audit:prod
+```
 
-## Learn More
+`npm run verify` executa lint, tipos, testes unitários e builds. Os testes de regras
+sobem os emuladores de Firestore e Storage separadamente.
 
-To learn more about Next.js, take a look at the following resources:
+## Configuração de segurança
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+App Check é exigido por padrão nas Functions fora dos emuladores. A chave pública
+Web fica em `NEXT_PUBLIC_APPCHECK_SITE_KEY`. Para um diagnóstico temporário, o
+enforcement pode ser desativado explicitamente com `ENFORCE_APP_CHECK=false` durante
+o deploy; não mantenha essa opção em produção.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+As coleções `unique_usernames`, `referral_codes` e `rate_limits` são internas e só
+podem ser acessadas pelo Admin SDK. Uma Function agendada remove diariamente os
+contadores de rate limit expirados; o TTL do Firestore pode ser habilitado como
+camada adicional usando o campo `rate_limits.expiresAt`.
 
-## Deploy on Vercel
+Nunca versione `.env.local`, chaves de conta de serviço, keystores ou credenciais.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploy
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Cloud Functions:
+
+```bash
+npm --prefix functions run build
+npm run deploy:functions
+```
+
+Regras:
+
+```bash
+npm run deploy:rules
+```
+
+App Hosting:
+
+```bash
+npm run deploy:apphosting
+```
+
+O workflow de CI usa Node.js 22, executa todas as verificações e bloqueia builds com
+vulnerabilidades conhecidas nas dependências de produção.
+
+## Capacitor
+
+Defina `CAPACITOR_SERVER_URL` em `.env.local` com a URL HTTPS do App Hosting e rode:
+
+```bash
+npm run cap:sync:android
+npm run cap:sync:ios
+```
+
+Os scripts validam a URL antes de sincronizar, impedindo que um pacote de produção
+seja gerado apontando para a página placeholder. HTTP é aceito apenas para hosts de
+desenvolvimento local.
+
+## Organização do código
+
+- `src/app`: rotas web e shells de autenticação/admin.
+- `src/services`: acesso a Firebase e Callables.
+- `src/modules/jogos`: telas, engines e fluxo compartilhado dos jogos.
+- `functions/src`: regras de negócio e endpoints do backend.
+- `firestore.rules` e `storage.rules`: autorização de acesso direto.
+- `test` e `functions/test`: testes de regras e testes unitários do backend.
+- `docs`: checklists operacionais e decisões específicas de domínio.
+
+Ao adicionar uma operação que altera economia, use transação no backend e grave o
+lançamento de carteira na mesma transação com identificador determinístico.

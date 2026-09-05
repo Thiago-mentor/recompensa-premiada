@@ -1,7 +1,8 @@
-import * as admin from "firebase-admin";
 import { createHash, createVerify, randomInt } from "node:crypto";
 import { ImageAnnotatorClient } from "@google-cloud/vision";
-import { getApp } from "firebase-admin/app";
+import { getApp, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
 import { getFirestore } from "firebase-admin/firestore";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -9,9 +10,11 @@ import {
   FieldPath,
   FieldValue,
   Timestamp,
+  type DocumentData,
   type DocumentReference,
   type DocumentSnapshot,
   type Transaction,
+  type UpdateData,
 } from "firebase-admin/firestore";
 import {
   type GameId,
@@ -24,8 +27,13 @@ import {
 } from "./gameEconomy";
 import { normalizeStreakTable, resolveStreakRewardForDay } from "./streakEconomy";
 import { getQuizQuestionById, pickQuizQuestion } from "./quizQuestions";
+import {
+  InputValidationError,
+  parseRewardClaimInput,
+} from "./security";
+import { consumeDistributedRateLimit } from "./rateLimit";
 
-admin.initializeApp();
+initializeApp();
 
 const firestoreDbId = process.env.FIRESTORE_DATABASE_ID?.trim();
 const db =
@@ -66,6 +74,9 @@ const COL = {
   matchmakingQueue: "matchmaking_queue",
   gameRooms: "game_rooms",
   multiplayerSlots: "multiplayer_slots",
+  uniqueUsernames: "unique_usernames",
+  referralCodes: "referral_codes",
+  rateLimits: "rate_limits",
 } as const;
 
 const AUTO_QUEUE_GAMES = new Set<GameId>(["ppt", "quiz", "reaction_tap", "card_battle"]);
@@ -242,7 +253,7 @@ const MULTIPLAYER_FUNCTIONS_MIN_INSTANCES = readPositiveIntEnv(
   0,
 );
 const APP_CHECK_ENFORCED =
-  process.env.ENFORCE_APP_CHECK === "true" &&
+  process.env.ENFORCE_APP_CHECK !== "false" &&
   process.env.FUNCTIONS_EMULATOR !== "true" &&
   !process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const MULTIPLAYER_CALLABLE_OPTS = {
@@ -810,7 +821,7 @@ function assertAuthed(uid: string | undefined): asserts uid {
 }
 
 async function assertAdmin(uid: string) {
-  const user = await admin.auth().getUser(uid);
+  const user = await getAuth().getUser(uid);
   if (user.customClaims?.admin !== true) {
     throw new HttpsError("permission-denied", "Apenas administradores.");
   }
@@ -1569,7 +1580,7 @@ function applyRewardedAdMonetaryGrantInTx(input: {
   u: FirebaseFirestore.DocumentData;
   economy: Awaited<ReturnType<typeof getEconomy>>;
   monetary: { baseCoins: number; gems: number; rewardBalance: number };
-  userPatch: admin.firestore.UpdateData<admin.firestore.DocumentData>;
+  userPatch: UpdateData<DocumentData>;
 }): { coins: number; boostCoins: number; gems: number; rewardBalance: number } {
   const { baseCoins, gems, rewardBalance } = input.monetary;
   const boosted = resolveBoostedCoins(
@@ -2053,7 +2064,7 @@ function normalizeChestSlotsAndQueue(
 
 function chestItemPatch(
   item: ChestDocState,
-): admin.firestore.UpdateData<admin.firestore.DocumentData> {
+): UpdateData<DocumentData> {
   return {
     status: item.status,
     slotIndex: item.slotIndex,
@@ -3398,27 +3409,6 @@ function randomCode(len = 8) {
   return s;
 }
 
-async function addWalletTx(input: {
-  userId: string;
-  tipo: string;
-  moeda: "coins" | "gems" | "rewardBalance";
-  valor: number;
-  saldoApos: number;
-  descricao: string;
-  referenciaId?: string | null;
-}) {
-  await db.collection(COL.wallet).add({
-    userId: input.userId,
-    tipo: input.tipo,
-    moeda: input.moeda,
-    valor: input.valor,
-    saldoApos: input.saldoApos,
-    descricao: input.descricao,
-    referenciaId: input.referenciaId ?? null,
-    criadoEm: FieldValue.serverTimestamp(),
-  });
-}
-
 function hashId(...parts: string[]): string {
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 32);
 }
@@ -3555,7 +3545,7 @@ async function evaluateReferralForUser(uid: string): Promise<void> {
 
     const invitedData = invitedSnap.data() as Record<string, unknown>;
     const inviterData = inviterSnap.data() as Record<string, unknown>;
-    const authUser = await admin.auth().getUser(invitedUid);
+    const authUser = await getAuth().getUser(invitedUid);
     const rules = campaign?.config.qualificationRules ?? config.qualificationRules;
     const progressSnapshot = buildReferralProgressSnapshot(invitedData, authUser.emailVerified === true);
     const referralProgressPatch = {
@@ -3869,7 +3859,7 @@ async function grantRewardedAdPlacement(input: {
       throw new HttpsError("resource-exhausted", "Limite diário de anúncios atingido.");
     }
 
-    const userPatch: admin.firestore.UpdateData<admin.firestore.DocumentData> = {
+    const userPatch: UpdateData<DocumentData> = {
       rewardedAdsDayKey: today,
       rewardedAdsCount: currentCount + 1,
       totalAdsAssistidos: FieldValue.increment(1),
@@ -4479,35 +4469,45 @@ const MATCHMAKING_SLOT_STALE_MS = 30_000;
 
 const CLIENT_RISK_WINDOW_MS = 60_000;
 const CLIENT_RISK_MAX_EVENTS_PER_WINDOW = 6;
-const clientRiskWindows = new Map<string, { startedAtMs: number; count: number }>();
 const PUBLIC_PROFILE_WINDOW_MS = 60_000;
 const PUBLIC_PROFILE_MAX_READS_PER_WINDOW = 30;
-const publicProfileWindows = new Map<string, { startedAtMs: number; count: number }>();
 
-function assertClientRiskRateLimit(uid: string): void {
-  const nowMs = Date.now();
-  const current = clientRiskWindows.get(uid);
-  if (!current || nowMs - current.startedAtMs >= CLIENT_RISK_WINDOW_MS) {
-    clientRiskWindows.set(uid, { startedAtMs: nowMs, count: 1 });
-    return;
-  }
-  if (current.count >= CLIENT_RISK_MAX_EVENTS_PER_WINDOW) {
-    throw new HttpsError("resource-exhausted", "Muitos sinais de atividade. Tente novamente em instantes.");
-  }
-  current.count += 1;
+async function assertDistributedRateLimit(input: {
+  uid: string;
+  scope: "client_risk" | "public_profile";
+  windowMs: number;
+  maxEvents: number;
+  message: string;
+}): Promise<void> {
+  const allowed = await consumeDistributedRateLimit({
+    db,
+    collection: COL.rateLimits,
+    uid: input.uid,
+    scope: input.scope,
+    windowMs: input.windowMs,
+    maxEvents: input.maxEvents,
+  });
+  if (!allowed) throw new HttpsError("resource-exhausted", input.message);
 }
 
-function assertPublicProfileRateLimit(uid: string): void {
-  const nowMs = Date.now();
-  const current = publicProfileWindows.get(uid);
-  if (!current || nowMs - current.startedAtMs >= PUBLIC_PROFILE_WINDOW_MS) {
-    publicProfileWindows.set(uid, { startedAtMs: nowMs, count: 1 });
-    return;
-  }
-  if (current.count >= PUBLIC_PROFILE_MAX_READS_PER_WINDOW) {
-    throw new HttpsError("resource-exhausted", "Muitos perfis consultados. Tente novamente em instantes.");
-  }
-  current.count += 1;
+function assertClientRiskRateLimit(uid: string): Promise<void> {
+  return assertDistributedRateLimit({
+    uid,
+    scope: "client_risk",
+    windowMs: CLIENT_RISK_WINDOW_MS,
+    maxEvents: CLIENT_RISK_MAX_EVENTS_PER_WINDOW,
+    message: "Muitos sinais de atividade. Tente novamente em instantes.",
+  });
+}
+
+function assertPublicProfileRateLimit(uid: string): Promise<void> {
+  return assertDistributedRateLimit({
+    uid,
+    scope: "public_profile",
+    windowMs: PUBLIC_PROFILE_WINDOW_MS,
+    maxEvents: PUBLIC_PROFILE_MAX_READS_PER_WINDOW,
+    message: "Muitos perfis consultados. Tente novamente em instantes.",
+  });
 }
 
 async function postPptMatchRankingFromWinner(
@@ -6342,13 +6342,19 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
   const username = String(request.data?.username || "")
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, "");
-  const rawFoto = typeof request.data?.foto === "string" ? request.data.foto.trim() : "";
-  const email = request.data?.email ?? null;
+  const rawFoto =
+    typeof request.auth?.token.picture === "string"
+      ? request.auth.token.picture.trim().slice(0, 2_048)
+      : "";
+  const email =
+    typeof request.auth?.token.email === "string"
+      ? request.auth.token.email.trim().slice(0, 320) || null
+      : null;
   const codigoConvite = request.data?.codigoConvite
-    ? String(request.data.codigoConvite).toUpperCase()
+    ? String(request.data.codigoConvite).trim().toUpperCase()
     : null;
 
-  if (nome.length < 2 || username.length < 3 || username.length > 10) {
+  if (nome.length < 2 || nome.length > 60 || username.length < 3 || username.length > 10) {
     throw new HttpsError(
       "invalid-argument",
       "Nome ou username inválidos. Username: 3 a 10 caracteres (a-z, 0-9, _).",
@@ -6356,8 +6362,11 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
   }
   assertAllowedPublicName(nome, "Nome");
   assertAllowedPublicName(username, "Username");
+  if (codigoConvite && !/^[A-Z0-9]{4,16}$/.test(codigoConvite)) {
+    throw new HttpsError("invalid-argument", "Código de convite inválido.");
+  }
 
-  const foto = rawFoto || buildDefaultAvatarDataUrl(username || uid, nome);
+  const foto = normalizeHttpPhotoUrl(rawFoto) || buildDefaultAvatarDataUrl(username || uid, nome);
 
   const userRef = db.doc(`${COL.users}/${uid}`);
   const existing = await userRef.get();
@@ -6403,8 +6412,43 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
   const economy = await getEconomy();
   const codigo = await generateUniqueReferralCode(buildReferralCodeSeed(nome, username));
   const campaign = await getActiveReferralCampaign(referralConfig);
+  const usernameReservationRef = db.doc(`${COL.uniqueUsernames}/${username}`);
+  const referralCodeReservationRef = db.doc(`${COL.referralCodes}/${codigo}`);
 
-  await db.runTransaction(async (tx) => {
+  const created = await db.runTransaction(async (tx) => {
+    const [currentUserSnap, usernameReservationSnap, referralCodeReservationSnap] =
+      await Promise.all([
+        tx.get(userRef),
+        tx.get(usernameReservationRef),
+        tx.get(referralCodeReservationRef),
+      ]);
+    if (currentUserSnap.exists) return false;
+    if (
+      usernameReservationSnap.exists &&
+      String(usernameReservationSnap.data()?.uid || "") !== uid
+    ) {
+      throw new HttpsError("already-exists", "Username já em uso.");
+    }
+    if (
+      referralCodeReservationSnap.exists &&
+      String(referralCodeReservationSnap.data()?.uid || "") !== uid
+    ) {
+      throw new HttpsError(
+        "aborted",
+        "Não foi possível reservar o código de convite. Tente novamente.",
+      );
+    }
+
+    tx.set(usernameReservationRef, {
+      uid,
+      username,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(referralCodeReservationRef, {
+      uid,
+      code: codigo,
+      createdAt: FieldValue.serverTimestamp(),
+    });
     tx.set(userRef, {
       uid,
       nome,
@@ -6524,17 +6568,20 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
         { pending: 1 },
       );
     }
+    addWalletTxInTx(tx, {
+      id: `welcome_${uid}`,
+      userId: uid,
+      tipo: "bonus_admin",
+      moeda: "coins",
+      valor: economy.welcomeBonus,
+      saldoApos: economy.welcomeBonus,
+      descricao: "Bônus de boas-vindas",
+      referenciaId: "welcome",
+    });
+    return true;
   });
 
-  await addWalletTx({
-    userId: uid,
-    tipo: "bonus_admin",
-    moeda: "coins",
-    valor: economy.welcomeBonus,
-    saldoApos: economy.welcomeBonus,
-    descricao: "Bônus de boas-vindas",
-    referenciaId: "welcome",
-  });
+  if (!created) return { ok: true, existing: true };
 
   return { ok: true, codigoConvite: codigo };
 });
@@ -6542,7 +6589,7 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
 export const getPublicProfile = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const requesterUid = request.auth?.uid;
   assertAuthed(requesterUid);
-  assertPublicProfileRateLimit(requesterUid);
+  await assertPublicProfileRateLimit(requesterUid);
 
   const targetUid = String(request.data?.uid || "").trim();
   if (!targetUid || targetUid.length > 128 || targetUid.includes("/")) {
@@ -6609,7 +6656,7 @@ export const updateUserAvatar = onCall(DEFAULT_CALLABLE_OPTS, async (request) =>
       },
       { merge: true },
     ),
-    admin.auth().updateUser(uid, { photoURL: authPhotoURL }),
+    getAuth().updateUser(uid, { photoURL: authPhotoURL }),
     syncUserPresentation(uid, nome, photoURL),
   ]);
 
@@ -6665,7 +6712,7 @@ export const processDailyLogin = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
     const newCoins = curCoins + boostedCoins.totalCoins;
     const newGems = curGems + reward.gems;
 
-    const patch: admin.firestore.UpdateData<admin.firestore.DocumentData> = {
+    const patch: UpdateData<DocumentData> = {
       streakAtual: streak,
       melhorStreak: melhor,
       ultimaEntradaEm: Timestamp.fromDate(now),
@@ -6737,21 +6784,27 @@ async function bumpWatchAdMissions(uid: string) {
     .get();
   for (const m of missionsSnap.docs) {
     const progRef = db.doc(`${COL.userMissions}/${uid}/daily/${m.id}`);
-    const pSnap = await progRef.get();
-    const meta = Number(m.data().meta || 1);
-    const cur = pSnap.exists ? Number(pSnap.data()?.progresso || 0) : 0;
-    const next = Math.min(meta, cur + 1);
-    await progRef.set(
-      {
-        missionId: m.id,
-        progresso: next,
-        concluida: next >= meta,
-        recompensaResgatada: pSnap.data()?.recompensaResgatada ?? false,
-        atualizadoEm: FieldValue.serverTimestamp(),
-        periodoChave: dailyKey(),
-      },
-      { merge: true },
-    );
+    const meta = Math.max(1, Math.floor(Number(m.data().meta || 1)));
+    const periodKey = dailyKey();
+    await db.runTransaction(async (tx) => {
+      const pSnap = await tx.get(progRef);
+      const previous = (pSnap.data() || {}) as Record<string, unknown>;
+      const samePeriod = String(previous.periodoChave || "") === periodKey;
+      const current = samePeriod ? Math.max(0, Math.floor(Number(previous.progresso || 0))) : 0;
+      const next = Math.min(meta, current + 1);
+      tx.set(
+        progRef,
+        {
+          missionId: m.id,
+          progresso: next,
+          concluida: next >= meta,
+          recompensaResgatada: samePeriod ? previous.recompensaResgatada === true : false,
+          atualizadoEm: FieldValue.serverTimestamp(),
+          periodoChave: periodKey,
+        },
+        { merge: true },
+      );
+    });
   }
 }
 
@@ -6812,7 +6865,7 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
     const u = userSnap.data() as Record<string, unknown>;
     if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
 
-    const userPatch: admin.firestore.UpdateData<admin.firestore.DocumentData> = {
+    const userPatch: UpdateData<DocumentData> = {
       atualizadoEm: FieldValue.serverTimestamp(),
     };
 
@@ -8168,12 +8221,16 @@ export const activateStoredBoost = onCall(DEFAULT_CALLABLE_OPTS, async (request)
 export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
-  const valor = Math.floor(Number(request.data?.valor));
-  const tipo = String(request.data?.tipo || "pix");
-  const chavePix = String(request.data?.chavePix || "").trim();
-  if (!Number.isFinite(valor) || valor <= 0 || !chavePix) {
-    throw new HttpsError("invalid-argument", "Dados inválidos.");
+  let parsed: ReturnType<typeof parseRewardClaimInput>;
+  try {
+    parsed = parseRewardClaimInput(request.data);
+  } catch (error) {
+    if (error instanceof InputValidationError) {
+      throw new HttpsError("invalid-argument", error.message);
+    }
+    throw error;
   }
+  const { valor, tipo, chavePix } = parsed;
 
   const userRef = db.doc(`${COL.users}/${uid}`);
   const ref = db.collection(COL.rewardClaims).doc();
@@ -8186,8 +8243,9 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     if (valor > bal) {
       throw new HttpsError("failed-precondition", "Saldo insuficiente.");
     }
+    const saldoApos = bal - valor;
     tx.update(userRef, {
-      rewardBalance: FieldValue.increment(-valor),
+      rewardBalance: saldoApos,
       atualizadoEm: FieldValue.serverTimestamp(),
     });
     tx.set(ref, {
@@ -8205,18 +8263,16 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
       criadoEm: FieldValue.serverTimestamp(),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
-  });
-
-  const after = await userRef.get();
-  const saldoApos = Number(after.data()?.rewardBalance ?? 0);
-  await addWalletTx({
-    userId: uid,
-    tipo: "resgate_pendente",
-    moeda: "rewardBalance",
-    valor: -valor,
-    saldoApos,
-    descricao: "Retenção para saque PIX (em análise)",
-    referenciaId: ref.id,
+    addWalletTxInTx(tx, {
+      id: `reward_claim_hold_${ref.id}`,
+      userId: uid,
+      tipo: "resgate_pendente",
+      moeda: "rewardBalance",
+      valor: -valor,
+      saldoApos,
+      descricao: "Retenção para saque PIX (em análise)",
+      referenciaId: ref.id,
+    });
   });
 
   return { claimId: ref.id };
@@ -8261,36 +8317,36 @@ export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   }
 
   const userRef = db.doc(`${COL.users}/${targetUid}`);
-  const uSnap = await userRef.get();
-  if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
-  const u = uSnap.data()!;
-  if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
-
   const field = kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
-  const before =
-    kind === "coins"
-      ? Number(u.coins ?? 0)
-      : kind === "gems"
-        ? Number(u.gems ?? 0)
-        : Number(u.rewardBalance ?? 0);
-  const after = before + amount;
-
-  await userRef.update({
-    [field]: FieldValue.increment(amount),
-    atualizadoEm: FieldValue.serverTimestamp(),
-  });
-
   const moeda: "coins" | "gems" | "rewardBalance" =
     kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
   const label = kind === "coins" ? "PR" : kind === "gems" ? "TICKET" : "CASH";
-  await addWalletTx({
-    userId: targetUid,
-    tipo: "bonus_admin",
-    moeda,
-    valor: amount,
-    saldoApos: after,
-    descricao: `Crédito admin: +${amount} ${label}`,
-    referenciaId: adminUid,
+  const walletEntryId = db.collection(COL.wallet).doc().id;
+  const after = await db.runTransaction(async (tx) => {
+    const uSnap = await tx.get(userRef);
+    if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
+    const u = uSnap.data()!;
+    if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
+    const before = Number(u[field] ?? 0);
+    const nextBalance = before + amount;
+    if (!Number.isSafeInteger(nextBalance)) {
+      throw new HttpsError("failed-precondition", "Saldo resultante inválido.");
+    }
+    tx.update(userRef, {
+      [field]: nextBalance,
+      atualizadoEm: FieldValue.serverTimestamp(),
+    });
+    addWalletTxInTx(tx, {
+      id: walletEntryId,
+      userId: targetUid,
+      tipo: "bonus_admin",
+      moeda,
+      valor: amount,
+      saldoApos: nextBalance,
+      descricao: `Crédito admin: +${amount} ${label}`,
+      referenciaId: adminUid,
+    });
+    return nextBalance;
   });
 
   return { ok: true, targetUid, field, newBalance: after };
@@ -8537,6 +8593,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
   const coinsPerGemSell = economy.conversionCoinsPerGemSell;
 
   const userRef = db.doc(`${COL.users}/${uid}`);
+  const conversionId = db.collection(COL.wallet).doc().id;
 
   const out = await db.runTransaction(async (tx) => {
     const uSnap = await tx.get(userRef);
@@ -8559,6 +8616,26 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
         coins: FieldValue.increment(-cost),
         gems: FieldValue.increment(amount),
         atualizadoEm: FieldValue.serverTimestamp(),
+      });
+      addWalletTxInTx(tx, {
+        id: `${conversionId}_coins`,
+        userId: uid,
+        tipo: "conversao",
+        moeda: "coins",
+        valor: -cost,
+        saldoApos: newCoins,
+        descricao: `Conversão: ${cost} PR → ${amount} TICKET`,
+        referenciaId: conversionId,
+      });
+      addWalletTxInTx(tx, {
+        id: `${conversionId}_gems`,
+        userId: uid,
+        tipo: "conversao",
+        moeda: "gems",
+        valor: amount,
+        saldoApos: newGems,
+        descricao: `Conversão: +${amount} TICKET`,
+        referenciaId: conversionId,
       });
       return {
         direction: "coins_to_gems" as const,
@@ -8587,6 +8664,26 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
       gems: FieldValue.increment(-amount),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
+    addWalletTxInTx(tx, {
+      id: `${conversionId}_gems`,
+      userId: uid,
+      tipo: "conversao",
+      moeda: "gems",
+      valor: -amount,
+      saldoApos: newGems,
+      descricao: `Conversão: ${amount} TICKET → ${payout} PR`,
+      referenciaId: conversionId,
+    });
+    addWalletTxInTx(tx, {
+      id: `${conversionId}_coins`,
+      userId: uid,
+      tipo: "conversao",
+      moeda: "coins",
+      valor: payout,
+      saldoApos: newCoins,
+      descricao: `Conversão: +${payout} PR`,
+      referenciaId: conversionId,
+    });
     return {
       direction: "gems_to_coins" as const,
       payout,
@@ -8596,43 +8693,7 @@ export const convertCurrency = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
     };
   });
 
-  if (out.direction === "coins_to_gems") {
-    await addWalletTx({
-      userId: uid,
-      tipo: "conversao",
-      moeda: "coins",
-      valor: -out.cost,
-      saldoApos: out.newCoins,
-      descricao: `Conversão: ${out.cost} PR → ${out.gemsBought} TICKET`,
-    });
-    await addWalletTx({
-      userId: uid,
-      tipo: "conversao",
-      moeda: "gems",
-      valor: out.gemsBought,
-      saldoApos: out.newGems,
-      descricao: `Conversão: +${out.gemsBought} TICKET`,
-    });
-  } else if (out.direction === "gems_to_coins") {
-    await addWalletTx({
-      userId: uid,
-      tipo: "conversao",
-      moeda: "gems",
-      valor: -out.gemsSold,
-      saldoApos: out.newGems,
-      descricao: `Conversão: ${out.gemsSold} TICKET → ${out.payout} PR`,
-    });
-    await addWalletTx({
-      userId: uid,
-      tipo: "conversao",
-      moeda: "coins",
-      valor: out.payout,
-      saldoApos: out.newCoins,
-      descricao: `Conversão: +${out.payout} PR`,
-    });
-  }
-
-   return { ok: true, ...out };
+   return { ok: true, conversionId, ...out };
 });
 
 async function assertNoOtherActiveRaffle(exceptId: string | null) {
@@ -11969,7 +12030,7 @@ export const riskAnalysisOnUserEvent = onCall(DEFAULT_CALLABLE_OPTS, async (requ
   if (detailsSize > 2_000) {
     throw new HttpsError("invalid-argument", "Detalhes do evento muito extensos.");
   }
-  assertClientRiskRateLimit(uid);
+  await assertClientRiskRateLimit(uid);
   await db.collection(COL.fraudLogs).add({
     uid,
     tipo,
@@ -13027,6 +13088,25 @@ export const reapStaleAutoMatchSlots = onSchedule(
   },
 );
 
+export const cleanupExpiredRateLimits = onSchedule(
+  { ...DEFAULT_SCHEDULE_OPTS, schedule: "17 3 * * *" },
+  async () => {
+    const now = Timestamp.now();
+    for (let page = 0; page < 10; page += 1) {
+      const expired = await db
+        .collection(COL.rateLimits)
+        .where("expiresAt", "<=", now)
+        .limit(400)
+        .get();
+      if (expired.empty) return;
+      const batch = db.batch();
+      for (const docSnap of expired.docs) batch.delete(docSnap.ref);
+      await batch.commit();
+      if (expired.size < 400) return;
+    }
+  },
+);
+
 export const closeDailyRanking = onSchedule(
   { ...DEFAULT_SCHEDULE_OPTS, schedule: "0 0 * * *" },
   async () => {
@@ -13312,7 +13392,7 @@ async function deleteClanAssetIfExists(rawUrl: unknown): Promise<void> {
   const objectPath = extractClanAssetPathFromUrl(rawUrl);
   if (!objectPath) return;
   try {
-    const file = admin.storage().bucket().file(objectPath);
+    const file = getStorage().bucket().file(objectPath);
     const [exists] = await file.exists();
     if (exists) {
       await file.delete();
@@ -13740,7 +13820,7 @@ function buildClanJoinRequestPayload(input: {
   status?: "pending" | "approved" | "rejected" | "cancelled";
   reviewedByUid?: string | null;
   reviewedByName?: string | null;
-  reviewedAt?: admin.firestore.FieldValue | null;
+  reviewedAt?: FieldValue | null;
 }) {
   return {
     userId: input.userId,

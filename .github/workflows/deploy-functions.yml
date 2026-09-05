@@ -27,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: functions/package-lock.json
 
@@ -41,3 +41,4 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FUNCTIONS_REGION: southamerica-east1
           MULTIPLAYER_FUNCTIONS_MIN_INSTANCES: "0"
+          ENFORCE_APP_CHECK: "true"

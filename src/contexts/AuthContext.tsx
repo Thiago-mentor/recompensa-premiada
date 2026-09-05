@@ -166,8 +166,6 @@ export async function syncUserProfileAfterAuth(input: {
   return ensureUserProfileRemote({
     nome,
     username: input.username,
-    foto: input.user.photoURL,
-    email: input.user.email,
     codigoConviteOpcional: input.codigoConvite,
   });
 }
