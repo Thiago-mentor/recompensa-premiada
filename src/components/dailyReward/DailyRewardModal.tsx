@@ -50,17 +50,17 @@ function getDailyRewardLayout(slotCount: number): DailyRewardLayout {
   if (slotCount >= 15) {
     return {
       dialogClassName: "max-w-[min(100vw-0.75rem,44rem)] sm:max-w-2xl",
-      edgeMaskClassName: "w-6",
-      trackClassName: "gap-1.5 pb-1.5 pt-3",
-      slotWidth: "4.35rem",
-      slotClassName: "px-1.5 pb-2.5 pt-1.5 min-h-[11.3rem]",
-      titleClassName: "min-h-[1.85rem] text-[9px]",
-      artworkClassName: "h-[3.75rem]",
-      amountClassName: "text-[10px]",
-      amountLabelClassName: "text-[8px]",
-      ticketClassName: "text-[8px]",
-      bonusClassName: "px-1 py-0.5 text-[6px]",
-      todayBadgeClassName: "px-1.5 py-0.5 text-[7px]",
+      edgeMaskClassName: "w-8",
+      trackClassName: "gap-2.5 pb-2 pt-3",
+      slotWidth: "5.85rem",
+      slotClassName: "px-2.5 pb-3 pt-2 min-h-[13rem]",
+      titleClassName: "min-h-[2rem] text-[10px]",
+      artworkClassName: "h-[4.8rem]",
+      amountClassName: "text-[11px]",
+      amountLabelClassName: "text-[9px]",
+      ticketClassName: "text-[9px]",
+      bonusClassName: "px-1.5 py-1 text-[7px]",
+      todayBadgeClassName: "px-2 py-0.5 text-[8px]",
     };
   }
 
@@ -69,15 +69,15 @@ function getDailyRewardLayout(slotCount: number): DailyRewardLayout {
       dialogClassName: "max-w-[min(100vw-0.75rem,38rem)] sm:max-w-xl",
       edgeMaskClassName: "w-7",
       trackClassName: "gap-2 pb-2 pt-3",
-      slotWidth: "5rem",
-      slotClassName: "px-2 pb-3 pt-2 min-h-[11.8rem]",
-      titleClassName: "min-h-[2rem] text-[9px]",
-      artworkClassName: "h-[4rem]",
+      slotWidth: "5.95rem",
+      slotClassName: "px-2.5 pb-3 pt-2 min-h-[13rem]",
+      titleClassName: "min-h-[2rem] text-[10px]",
+      artworkClassName: "h-[4.8rem]",
       amountClassName: "text-[11px]",
       amountLabelClassName: "text-[9px]",
-      ticketClassName: "text-[8px]",
-      bonusClassName: "px-1 py-0.5 text-[7px]",
-      todayBadgeClassName: "px-1.5 py-0.5 text-[7px]",
+      ticketClassName: "text-[9px]",
+      bonusClassName: "px-1.5 py-1 text-[7px]",
+      todayBadgeClassName: "px-2 py-0.5 text-[8px]",
     };
   }
 
@@ -85,10 +85,10 @@ function getDailyRewardLayout(slotCount: number): DailyRewardLayout {
     dialogClassName: "max-w-md",
     edgeMaskClassName: "w-8",
     trackClassName: "gap-2.5 pb-2 pt-3",
-    slotWidth: "5.7rem",
-    slotClassName: "px-2 pb-3 pt-2 min-h-[12.2rem]",
+    slotWidth: "6.1rem",
+    slotClassName: "px-2.5 pb-3 pt-2 min-h-[13rem]",
     titleClassName: "min-h-[2.1rem] text-[10px]",
-    artworkClassName: "h-[4.35rem]",
+    artworkClassName: "h-[4.8rem]",
     amountClassName: "text-[11px]",
     amountLabelClassName: "text-[9px]",
     ticketClassName: "text-[9px]",
@@ -325,7 +325,7 @@ export function DailyRewardModal({
 
                   <motion.div
                     className={cn(
-                      "relative mx-auto mt-1 w-full overflow-hidden rounded-xl border [transform-style:preserve-3d]",
+                      "relative mx-auto mt-1 w-full overflow-hidden rounded-2xl border",
                       layout.artworkClassName,
                       isCurrent
                         ? "border-white/55 bg-[radial-gradient(circle_at_50%_30%,#fff8cf,rgba(255,255,255,0.2)_45%,rgba(146,64,14,0.2)_100%)]"
@@ -333,15 +333,15 @@ export function DailyRewardModal({
                     )}
                     animate={
                       isCurrent
-                        ? { y: [0, -2, 0], rotateY: [-4, 4, -4] }
-                        : { rotateY: 0 }
+                        ? { y: [0, -2, 0] }
+                        : { y: 0 }
                     }
                     transition={
                       isCurrent
                         ? { duration: 3.2, repeat: Infinity, ease: "easeInOut" }
                         : { duration: 0.2 }
                     }
-                    whileHover={{ scale: 1.05, rotateX: -4, rotateY: 7 }}
+                    whileHover={{ scale: 1.035 }}
                   >
                     <Sparkles
                       className={cn(
@@ -350,25 +350,26 @@ export function DailyRewardModal({
                       )}
                       aria-hidden
                     />
-                    <div className="absolute inset-x-2 bottom-1.5 h-1.5 rounded-full bg-black/25 blur-[2px]" />
-                    <div
-                      className={cn(
-                        "absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-2xl border shadow-[inset_0_2px_3px_rgba(255,255,255,0.55),0_6px_0_rgba(0,0,0,0.18),0_10px_18px_-7px_rgba(0,0,0,0.8)]",
-                        isCurrent
-                          ? "border-amber-50 bg-gradient-to-br from-white via-amber-200 to-amber-500 text-amber-800"
-                          : "border-violet-100/40 bg-gradient-to-br from-violet-100 via-fuchsia-300 to-violet-700 text-violet-950",
-                      )}
-                      style={{ transform: "translate(-50%, -50%) translateZ(12px)" }}
-                    >
-                      {s.tipoBonus === "bau" ? (
-                        <Gift className="h-6 w-6" strokeWidth={2.2} aria-label="Baú de prêmio" />
-                      ) : s.tipoBonus === "especial" ? (
-                        <Crown className="h-6 w-6" strokeWidth={2.2} aria-label="Prêmio especial" />
-                      ) : s.gems > 0 ? (
-                        <Gem className="h-6 w-6" strokeWidth={2.2} aria-label="Ticket" />
-                      ) : (
-                        <Coins className="h-6 w-6" strokeWidth={2.2} aria-label="Moedas PR" />
-                      )}
+                    <div className="absolute inset-x-3 bottom-2 h-2 rounded-full bg-black/25 blur-[3px]" />
+                    <div className="absolute inset-0 flex items-center justify-center p-2">
+                      <div
+                        className={cn(
+                          "flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.15rem] border shadow-[inset_0_2px_3px_rgba(255,255,255,0.6),0_6px_0_rgba(0,0,0,0.18),0_12px_20px_-8px_rgba(0,0,0,0.85)]",
+                          isCurrent
+                            ? "border-amber-50 bg-gradient-to-br from-white via-amber-200 to-amber-500 text-amber-800"
+                            : "border-violet-100/50 bg-gradient-to-br from-white via-fuchsia-300 to-violet-700 text-violet-950",
+                        )}
+                      >
+                        {s.tipoBonus === "bau" ? (
+                          <Gift className="h-7 w-7" strokeWidth={2.2} aria-label="Baú de prêmio" />
+                        ) : s.tipoBonus === "especial" ? (
+                          <Crown className="h-7 w-7" strokeWidth={2.2} aria-label="Prêmio especial" />
+                        ) : s.gems > 0 ? (
+                          <Gem className="h-7 w-7" strokeWidth={2.2} aria-label="Ticket" />
+                        ) : (
+                          <Coins className="h-7 w-7" strokeWidth={2.2} aria-label="Moedas PR" />
+                        )}
+                      </div>
                     </div>
 
                     {bonusLabel && s.coins > 0 ? (
@@ -383,18 +384,20 @@ export function DailyRewardModal({
                     ) : null}
                   </motion.div>
 
-                  <div className="relative z-[2] mt-2 space-y-1">
-                    <div
-                      className={cn(
-                        "flex items-center justify-center gap-1 rounded-lg px-1 py-1 font-black leading-none",
-                        layout.amountClassName,
-                        isCurrent ? "bg-amber-950/10 text-slate-950" : "bg-black/20 text-amber-100",
-                      )}
-                    >
-                      <Coins className="h-3.5 w-3.5 shrink-0 text-amber-500" strokeWidth={2.5} />
-                      <span>{formatCoins(s.coins)}</span>
-                      <span className={cn("font-extrabold opacity-75", layout.amountLabelClassName)}>PR</span>
-                    </div>
+                  <div className="relative z-[2] mt-2 flex min-h-[3rem] flex-col justify-center gap-1">
+                    {s.coins > 0 ? (
+                      <div
+                        className={cn(
+                          "flex items-center justify-center gap-1 rounded-lg px-1 py-1 font-black leading-none",
+                          layout.amountClassName,
+                          isCurrent ? "bg-amber-950/10 text-slate-950" : "bg-black/20 text-amber-100",
+                        )}
+                      >
+                        <Coins className="h-3.5 w-3.5 shrink-0 text-amber-500" strokeWidth={2.5} />
+                        <span>{formatCoins(s.coins)}</span>
+                        <span className={cn("font-extrabold opacity-75", layout.amountLabelClassName)}>PR</span>
+                      </div>
+                    ) : null}
                     {s.gems > 0 ? (
                       <div
                         className={cn(
