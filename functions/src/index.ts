@@ -312,12 +312,14 @@ const ROULETTE_DAILY_SPIN_PLACEMENT_ID = "roulette_daily_spin";
 const CLAN_MESSAGE_RETENTION_LIMIT = 80;
 /** Anúncio recompensado → 1 número do sorteio (quando `entryMode` do sorteio é `rewarded_ad`). */
 const RAFFLE_NUMBER_PLACEMENT_ID = "raffle_number";
+const CHEST_SPEEDUP_PLACEMENT_ID = "chest_speedup";
 const ALLOWED_REWARDED_AD_PLACEMENTS = new Set<string>([
   HOME_REWARDED_PLACEMENT_ID,
   ROULETTE_DAILY_SPIN_PLACEMENT_ID,
   PPT_PVP_DUELS_PLACEMENT_ID,
   QUIZ_PVP_DUELS_PLACEMENT_ID,
   REACTION_PVP_DUELS_PLACEMENT_ID,
+  CHEST_SPEEDUP_PLACEMENT_ID,
   RAFFLE_NUMBER_PLACEMENT_ID,
 ]);
 const REWARDED_AD_MOCK_PREFIX = "mock_";
@@ -345,7 +347,6 @@ let admobSsvKeysCache:
     }
   | null = null;
 const CHEST_SYSTEM_CONFIG_ID = "chest_system";
-const CHEST_SPEEDUP_PLACEMENT_ID = "chest_speedup";
 const CHEST_RARITIES = ["comum", "raro", "epico", "lendario"] as const;
 const CHEST_SOURCES = [
   "multiplayer_win",
@@ -3128,6 +3129,33 @@ function normalizeHttpPhotoUrl(photoUrl: string | null | undefined): string | nu
   return null;
 }
 
+function isAllowedUserAvatarUrl(rawUrl: string, uid: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.hostname === "lh3.googleusercontent.com") return true;
+    if (url.hostname !== "firebasestorage.googleapis.com") return false;
+    const marker = "/o/";
+    const index = url.pathname.indexOf(marker);
+    if (index < 0) return false;
+    const objectPath = decodeURIComponent(url.pathname.slice(index + marker.length));
+    return objectPath.startsWith(`avatars/${uid}/`);
+  } catch {
+    return false;
+  }
+}
+
+function isOwnClanAssetUrl(rawUrl: string, uid: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.hostname !== "firebasestorage.googleapis.com") return false;
+    const index = url.pathname.indexOf("/o/");
+    if (index < 0) return false;
+    return decodeURIComponent(url.pathname.slice(index + 3)).startsWith(`clan_assets/${uid}/`);
+  } catch {
+    return false;
+  }
+}
+
 async function generateUniqueReferralCode(seed: string): Promise<string> {
   for (let i = 0; i < 12; i++) {
     const code = randomReferralCode(seed);
@@ -3578,7 +3606,10 @@ function referralMeetsQualification(
     if (!String(userData.nome || "").trim() || !String(userData.username || "").trim()) return false;
   }
   if (Number(userData.totalAdsAssistidos || 0) < rules.minAdsWatched) return false;
-  if (Number(userData.totalPartidas || 0) < rules.minMatchesPlayed) return false;
+  // Contadores de partidas enviados pelo cliente são apenas históricos e não
+  // podem qualificar bônus de indicação. Use somente partidas PvP concluídas
+  // pelo motor do servidor.
+  if (Number(userData.serverVerifiedPvpMatches || 0) < rules.minMatchesPlayed) return false;
   if (Number(userData.totalMissionRewardsClaimed || 0) < rules.minMissionRewardsClaimed) return false;
   return true;
 }
@@ -3591,7 +3622,7 @@ function buildReferralProgressSnapshot(
     emailVerified,
     profileCompleted: Boolean(String(userData.nome || "").trim() && String(userData.username || "").trim()),
     adsWatched: Number(userData.totalAdsAssistidos || 0),
-    matchesPlayed: Number(userData.totalPartidas || 0),
+    matchesPlayed: Number(userData.serverVerifiedPvpMatches || 0),
     missionRewardsClaimed: Number(userData.totalMissionRewardsClaimed || 0),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -4190,6 +4221,8 @@ async function upsertRanking(input: {
     tx.set(
       userRef,
       {
+        serverVerifiedPvpMatches: FieldValue.increment(1),
+        serverVerifiedPvpWins: FieldValue.increment(input.win ? 1 : 0),
         scoreRankingDiarioKey: dailyPeriod.key,
         scoreRankingDiario:
           String(userData.scoreRankingDiarioKey || "") !== dailyPeriod.key
@@ -4389,7 +4422,13 @@ function getVisionClient() {
 }
 
 async function downloadImageForModeration(url: string): Promise<Buffer> {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (response.status >= 300 && response.status < 400) {
+    throw new HttpsError("invalid-argument", "A imagem não pode redirecionar para outro endereço.");
+  }
   if (!response.ok) {
     throw new HttpsError("invalid-argument", "Não foi possível baixar a imagem para moderação.");
   }
@@ -4575,7 +4614,31 @@ async function shouldCreditRankedPvpMatch(input: {
 
   return db.runTransaction(async (tx) => {
     const [matchSnap, pairSnap] = await Promise.all([tx.get(matchRef), tx.get(pairRef)]);
-    if (matchSnap.exists) return matchSnap.data()?.credited === true;
+    if (matchSnap.exists) {
+      const wasCredited = matchSnap.data()?.credited === true;
+      // A elegibilidade pode ter sido reservada ao criar a sala, mas uma
+      // desistência explícita nunca pode produzir economia/ranking.
+      if (input.forfeit === true && wasCredited) {
+        tx.set(
+          matchRef,
+          {
+            credited: false,
+            reason: "explicit_forfeit",
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+        tx.set(
+          pairRef,
+          {
+            creditedMatches: FieldValue.increment(-1),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+      return input.forfeit === true ? false : wasCredited;
+    }
 
     const previousCount = Math.max(0, Math.floor(Number(pairSnap.data()?.completedMatches) || 0));
     const credited = input.forfeit !== true && previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
@@ -4610,9 +4673,53 @@ async function shouldCreditRankedPvpMatch(input: {
   });
 }
 
+/**
+ * Reserva, dentro da própria transação de matchmaking, se a sala poderá gerar
+ * valor. Assim moedas, baús, missões, clã e ranking usam a mesma decisão
+ * imutável e duas contas não conseguem cultivar recompensas indefinidamente.
+ */
+async function reservePvpEconomyEligibilityInTx(
+  tx: Transaction,
+  input: { roomId: string; gameId: GameId; hostUid: string; guestUid: string },
+): Promise<boolean> {
+  const day = dailyKey();
+  const pair = [input.hostUid, input.guestUid].sort().join("|");
+  const pairId = hashId("ranking_pair", day, input.gameId, pair);
+  const matchId = hashId("ranking_match", input.gameId, input.roomId);
+  const pairRef = db.doc(`${COL.rankingIntegrity}/${day}/pairs/${pairId}`);
+  const matchRef = db.doc(`${COL.rankingIntegrity}/${day}/matches/${matchId}`);
+  const [pairSnap, matchSnap] = await Promise.all([tx.get(pairRef), tx.get(matchRef)]);
+  if (matchSnap.exists) return matchSnap.data()?.credited === true;
+
+  const previousCount = Math.max(0, Math.floor(Number(pairSnap.data()?.completedMatches) || 0));
+  const credited = previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
+  tx.set(
+    pairRef,
+    {
+      day,
+      gameId: input.gameId,
+      participantHashes: [hashId(input.hostUid), hashId(input.guestUid)].sort(),
+      completedMatches: previousCount + 1,
+      creditedMatches: FieldValue.increment(credited ? 1 : 0),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  tx.set(matchRef, {
+    roomIdHash: hashId(input.roomId),
+    pairId,
+    day,
+    gameId: input.gameId,
+    credited,
+    reason: credited ? null : "pair_daily_limit",
+    reservedAt: FieldValue.serverTimestamp(),
+  });
+  return credited;
+}
+
 async function assertDistributedRateLimit(input: {
   uid: string;
-  scope: "client_risk" | "public_profile";
+  scope: string;
   windowMs: number;
   maxEvents: number;
   message: string;
@@ -4701,10 +4808,12 @@ async function postPptMatchRankingFromWinner(
       idempotencyKey: `${roomId}:guest`,
     });
   }
-  await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
-  await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
-  await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
-  await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+  if (rankingCredited) {
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
+    await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+  }
 }
 
 function clampQuizResponseMs(raw: unknown): number {
@@ -4780,10 +4889,12 @@ async function postQuizMatchRankingFromWinner(
     gameId: "quiz",
     idempotencyKey: `${roomId}:guest`,
   });
-  await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
-  await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
-  await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
-  await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+  if (rankingCredited) {
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
+    await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+  }
 }
 
 function clampReactionResponseMs(raw: unknown): number {
@@ -4881,12 +4992,14 @@ async function postReactionTapRanking(
     gameId: "reaction_tap",
     idempotencyKey: `${roomId}:guest`,
   });
-  await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
-  await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
-  await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
+  if (rankingCredited) {
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
+  }
   const matchWinner =
     hostRes === "vitoria" ? "host" : guestRes === "vitoria" ? "guest" : null;
-  if (matchWinner) {
+  if (rankingCredited && matchWinner) {
     await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
   }
 }
@@ -4958,10 +5071,12 @@ async function postCardBattleRankingFromWinner(
     gameId: "card_battle",
     idempotencyKey: `${roomId}:guest`,
   });
-  await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
-  await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
-  await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
-  await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+  if (rankingCredited) {
+    await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
+    await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
+    await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
+    await grantPvpVictoryChestAndSyncRoom({ roomId, hostUid, guestUid, matchWinner });
+  }
 }
 
 async function applyCardBattleMatchCompletionInTransaction(
@@ -5024,12 +5139,13 @@ async function applyCardBattleMatchCompletionInTransaction(
     { ...metaBase, cardPower: guestPower },
     economyConfig.matchRewardOverrides,
   );
-  const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu as Record<string, unknown>, economyConfig);
-  const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu as Record<string, unknown>, economyConfig);
+  const rewardsAllowed = r.economyEligible === true && !forfeitByUid;
+  const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu as Record<string, unknown>, economyConfig);
+  const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu as Record<string, unknown>, economyConfig);
   const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
   const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
-  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, { wins: hostRes === "vitoria" ? 1 : 0 });
-  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, { wins: guestRes === "vitoria" ? 1 : 0 });
+  writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, { wins: rewardsAllowed && hostRes === "vitoria" ? 1 : 0 });
+  writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, { wins: rewardsAllowed && guestRes === "vitoria" ? 1 : 0 });
 
   const finishedTs = Timestamp.now();
   const mHost = db.collection(COL.matches).doc();
@@ -5280,13 +5396,14 @@ async function applyQuizMatchCompletionInTransaction(
   const economyConfig = await getEconomy();
   const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
   const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
+  const rewardsAllowed = r.economyEligible === true;
   const boostedH = resolveBoostedCoins(
-    ecoH.rewardCoins,
+    rewardsAllowed ? ecoH.rewardCoins : 0,
     hUSnap.data() as Record<string, unknown>,
     economyConfig,
   );
   const boostedG = resolveBoostedCoins(
-    ecoG.rewardCoins,
+    rewardsAllowed ? ecoG.rewardCoins : 0,
     gUSnap.data() as Record<string, unknown>,
     economyConfig,
   );
@@ -5299,10 +5416,10 @@ async function applyQuizMatchCompletionInTransaction(
   const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
   const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
   writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
-    wins: hostRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && hostRes === "vitoria" ? 1 : 0,
   });
   writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
-    wins: guestRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && guestRes === "vitoria" ? 1 : 0,
   });
 
   tx.set(mHost, {
@@ -5478,13 +5595,15 @@ async function applyQuizForfeitInTransaction(
   const economyConfig = await getEconomy();
   const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
   const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
+  // Desistência explícita encerra a sala, mas não gera valor para nenhuma conta.
+  const rewardsAllowed = false;
   const boostedH = resolveBoostedCoins(
-    ecoH.rewardCoins,
+    rewardsAllowed ? ecoH.rewardCoins : 0,
     hUSnap.data() as Record<string, unknown>,
     economyConfig,
   );
   const boostedG = resolveBoostedCoins(
-    ecoG.rewardCoins,
+    rewardsAllowed ? ecoG.rewardCoins : 0,
     gUSnap.data() as Record<string, unknown>,
     economyConfig,
   );
@@ -5497,10 +5616,10 @@ async function applyQuizForfeitInTransaction(
   const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
   const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
   writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
-    wins: hostRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && hostRes === "vitoria" ? 1 : 0,
   });
   writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
-    wins: guestRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && guestRes === "vitoria" ? 1 : 0,
   });
 
   tx.set(mHost, {
@@ -5719,13 +5838,14 @@ async function applyReactionMatchCompletionInTransaction(
     guestMeta,
     economyConfig.matchRewardOverrides,
   );
+  const rewardsAllowed = r.economyEligible === true;
   const boostedH = resolveBoostedCoins(
-    ecoH.rewardCoins,
+    rewardsAllowed ? ecoH.rewardCoins : 0,
     hUSnap.data() as Record<string, unknown>,
     economyConfig,
   );
   const boostedG = resolveBoostedCoins(
-    ecoG.rewardCoins,
+    rewardsAllowed ? ecoG.rewardCoins : 0,
     gUSnap.data() as Record<string, unknown>,
     economyConfig,
   );
@@ -5738,10 +5858,10 @@ async function applyReactionMatchCompletionInTransaction(
   const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
   const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
   writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
-    wins: hostRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && hostRes === "vitoria" ? 1 : 0,
   });
   writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
-    wins: guestRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && guestRes === "vitoria" ? 1 : 0,
   });
 
   tx.set(mHost, {
@@ -5995,8 +6115,9 @@ async function applyPptForfeitInTransaction(
   const economyConfig = await getEconomy();
   const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
   const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
-  const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu as Record<string, unknown>, economyConfig);
-  const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu as Record<string, unknown>, economyConfig);
+  const rewardsAllowed = false;
+  const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu as Record<string, unknown>, economyConfig);
+  const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu as Record<string, unknown>, economyConfig);
 
   const finishedTs = Timestamp.now();
   const mHost = db.collection(COL.matches).doc();
@@ -6004,10 +6125,10 @@ async function applyPptForfeitInTransaction(
   const wHost = db.collection(COL.wallet).doc();
   const wGuest = db.collection(COL.wallet).doc();
   writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
-    wins: hostRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && hostRes === "vitoria" ? 1 : 0,
   });
   writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
-    wins: guestRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && guestRes === "vitoria" ? 1 : 0,
   });
 
   tx.set(mHost, {
@@ -6357,15 +6478,16 @@ async function applyPptRoundResultInTransaction(
   }
   const hu = hUSnap.data()!;
   const gu = gUSnap.data()!;
-  const boostedH = resolveBoostedCoins(ecoH.rewardCoins, hu as Record<string, unknown>, economyConfig);
-  const boostedG = resolveBoostedCoins(ecoG.rewardCoins, gu as Record<string, unknown>, economyConfig);
+  const rewardsAllowed = r.economyEligible === true;
+  const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu as Record<string, unknown>, economyConfig);
+  const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu as Record<string, unknown>, economyConfig);
   const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
   const guestClanScoreTarget = await readClanScoreCreditTargetTx(tx, guestUid);
   writeClanScoreCreditForTargetTx(tx, hostClanScoreTarget, {
-    wins: hostRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && hostRes === "vitoria" ? 1 : 0,
   });
   writeClanScoreCreditForTargetTx(tx, guestClanScoreTarget, {
-    wins: guestRes === "vitoria" ? 1 : 0,
+    wins: rewardsAllowed && guestRes === "vitoria" ? 1 : 0,
   });
   if (pickRefs) {
     tx.delete(pickRefs.hostRef);
@@ -6657,6 +6779,8 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       dailyLoginCount: 0,
       totalAdsAssistidos: 0,
       totalPartidas: 0,
+      serverVerifiedPvpMatches: 0,
+      serverVerifiedPvpWins: 0,
       totalPptPartidas: 0,
       totalQuizPartidas: 0,
       totalReactionPartidas: 0,
@@ -6813,6 +6937,9 @@ export const updateUserAvatar = onCall(DEFAULT_CALLABLE_OPTS, async (request) =>
   const authPhotoURL = normalizeHttpPhotoUrl(rawPhotoUrl);
   const photoURL = authPhotoURL || buildDefaultAvatarDataUrl(username, nome);
   if (authPhotoURL) {
+    if (!isAllowedUserAvatarUrl(authPhotoURL, uid)) {
+      throw new HttpsError("invalid-argument", "Use uma foto do Google ou do armazenamento oficial do app.");
+    }
     assertAvatarUploadUnlocked(userData, economy);
     await assertAvatarImageAllowed(authPhotoURL);
   }
@@ -6984,6 +7111,12 @@ async function bumpWatchAdMissions(uid: string) {
 export const processRewardedAd = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
+  if (!IS_LOCAL_EMULATOR) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Recompensas de anúncio em produção precisam da confirmação SSV do AdMob.",
+    );
+  }
   const placementId = String(request.data?.placementId || "").trim();
   if (!ALLOWED_REWARDED_AD_PLACEMENTS.has(placementId)) {
     throw new HttpsError("invalid-argument", "placementId inválido.");
@@ -7344,6 +7477,7 @@ export const prepareRewardedAdSession = onCall(DEFAULT_CALLABLE_OPTS, async (req
   }
 
   let raffleIdForSession: string | null = null;
+  let chestIdForSession: string | null = null;
   if (placementId === RAFFLE_NUMBER_PLACEMENT_ID) {
     const raffleIdForAd = String(request.data?.raffleId || "").trim();
     if (!raffleIdForAd) {
@@ -7370,6 +7504,15 @@ export const prepareRewardedAdSession = onCall(DEFAULT_CALLABLE_OPTS, async (req
     assertCanClaimRaffleAdNumber(userData as Record<string, unknown>, raffleForAd, nowAd);
     raffleIdForSession = raffleIdForAd;
   }
+  if (placementId === CHEST_SPEEDUP_PLACEMENT_ID) {
+    const chestIdForAd = String(request.data?.chestId || "").trim();
+    if (!chestIdForAd || chestIdForAd.includes("/")) {
+      throw new HttpsError("invalid-argument", "Informe o baú para preparar o anúncio.");
+    }
+    const chestSnap = await db.doc(`${COL.userChests}/${uid}/items/${chestIdForAd}`).get();
+    if (!chestSnap.exists) throw new HttpsError("not-found", "Baú não encontrado.");
+    chestIdForSession = chestIdForAd;
+  }
 
   const sessionRef = db.collection(COL.rewardedAdSessions).doc();
   const expiresAtMs = Date.now() + REWARDED_AD_SESSION_TTL_MS;
@@ -7378,6 +7521,7 @@ export const prepareRewardedAdSession = onCall(DEFAULT_CALLABLE_OPTS, async (req
     userId: uid,
     placementId,
     ...(raffleIdForSession ? { raffleId: raffleIdForSession } : {}),
+    ...(chestIdForSession ? { chestId: chestIdForSession } : {}),
     status: "solicitado",
     provider: "admob_ssv",
     mock: false,
@@ -7572,6 +7716,8 @@ export const adMobRewardedSsv = onRequest(
       // libera uma sessão que será consumida atomicamente pelo giro.
       const result = placementId === ROULETTE_DAILY_SPIN_PLACEMENT_ID
         ? { rouletteReady: true, providerTransactionId: transactionId }
+        : placementId === CHEST_SPEEDUP_PLACEMENT_ID
+          ? { chestSpeedupReady: true, chestId: String(session.chestId || ""), providerTransactionId: transactionId }
         : await grantRewardedAdPlacement({
         uid,
         placementId,
@@ -7710,13 +7856,10 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
       grantedChest: null,
     };
   }
-  const [uSnap, membershipSnap] = await Promise.all([userRef.get(), clanMembershipRef(uid).get()]);
+  const uSnap = await userRef.get();
   if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
   const u = uSnap.data()!;
   if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
-  const clanIdAtEvent = membershipSnap.exists
-    ? String((membershipSnap.data() || {}).clanId || "").trim() || null
-    : null;
 
   const now = Date.now();
   const gcMap = (u.gameCooldownUntil as Record<string, unknown>) || {};
@@ -7759,15 +7902,10 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   }
 
   const matchRef = db.collection(COL.matches).doc();
-  const win = effectiveResult === "vitoria";
-  const loss = effectiveResult === "derrota";
-  const boostedCoins = resolveBoostedCoins(
-    economy.rewardCoins,
-    u as Record<string, unknown>,
-    economyConfig,
-    now,
-  );
-  const rewardCoins = boostedCoins.totalCoins;
+  // Este endpoint recebe o resultado do minijogo do cliente. Nenhum valor
+  // econômico pode depender desse payload: somente o motor PvP do servidor
+  // possui autoridade para moedas, baús, missões e estatísticas premiadas.
+  const rewardCoins = 0;
   // O resultado deste endpoint vem de minijogos solo e, portanto, do cliente.
   // Ele pode render a recompensa normal do jogo, mas nunca pontos no ranking
   // premiado. Ranking só é creditado pelos fluxos PvP resolvidos pelo servidor.
@@ -7780,11 +7918,11 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     gameType: gameId,
     userId: uid,
     opponentId,
-    clanIdAtEvent,
+    clanIdAtEvent: null,
     resultado: effectiveResult,
     result: effectiveResult,
     score: economy.normalizedScore,
-    rewardCoins,
+    rewardCoins: 0,
     rankingPoints,
     startedAt: startedTs,
     finishedAt: finishedTs,
@@ -7824,37 +7962,18 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
       throw new HttpsError("resource-exhausted", "Muitas partidas em sequÃªncia. Aguarde um minuto.");
     }
 
-    const currentCoins = Number(currentUser.coins ?? 0);
     const transactionCooldownUntil = Timestamp.fromMillis(transactionNow + cdSec * 1000);
     tx.set(matchRef, matchDoc);
     tx.update(userRef, {
-      totalPartidas: FieldValue.increment(1),
-      ...gameMatchCounterPatch(gameId),
-      totalVitorias: FieldValue.increment(win ? 1 : 0),
-      totalDerrotas: FieldValue.increment(loss ? 1 : 0),
-      coins: FieldValue.increment(rewardCoins),
-      xp: FieldValue.increment(win ? 15 : effectiveResult === "empate" ? 8 : 5),
+      totalSoloPartidas: FieldValue.increment(1),
       atualizadoEm: FieldValue.serverTimestamp(),
       matchBurst: currentBurst.burst,
       [`gameCooldownUntil.${gameId}`]: transactionCooldownUntil,
     });
-    if (rewardCoins > 0) {
-      addWalletTxInTx(tx, {
-        id: hashId("match", matchRef.id, "coins"),
-        userId: uid,
-        tipo: "jogo",
-        moeda: "coins",
-        valor: rewardCoins,
-        saldoApos: currentCoins + rewardCoins,
-        descricao: withBoostDescription(`Minijogo ${gameId}`, boostedCoins.boostCoins),
-        referenciaId: matchRef.id,
-      });
-    }
-
     const result = {
       matchId: matchRef.id,
       rewardCoins,
-      boostCoins: boostedCoins.boostCoins,
+      boostCoins: 0,
       rankingPoints,
       normalizedScore: economy.normalizedScore,
     };
@@ -7867,30 +7986,13 @@ export const finalizeMatch = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
     });
     return result;
   });
-  await applyClanScoreCreditByClanId(clanIdAtEvent, {
-    uid,
-    wins: win ? 1 : 0,
-    idempotencyKey,
-  });
-
-  await bumpPlayMatchMissions(uid, `${idempotencyKey}:mission`);
-  await evaluateReferralForUser(uid);
-  const grantedChest =
-    AUTO_QUEUE_GAMES.has(gameId) && effectiveResult === "vitoria"
-      ? await grantChestIfEligible({
-          uid,
-          source: "multiplayer_win",
-          sourceRefId: appliedResult.matchId,
-        })
-      : null;
-
   return {
     matchId: appliedResult.matchId,
     rewardCoins: appliedResult.rewardCoins,
     boostCoins: appliedResult.boostCoins,
     rankingPoints: appliedResult.rankingPoints,
     normalizedScore: appliedResult.normalizedScore,
-    grantedChest,
+    grantedChest: null,
   };
 });
 
@@ -8110,6 +8212,7 @@ export const speedUpChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   if (!chestId) {
     throw new HttpsError("invalid-argument", "chestId obrigatório.");
   }
+  const adSessionId = String(request.data?.adSessionId || "").trim();
   const { token: completionToken, isMock } = parseRewardedAdCompletionToken(
     request.data?.mockCompletionToken,
     { allowMockForAdmin: request.auth?.token?.admin === true },
@@ -8121,19 +8224,24 @@ export const speedUpChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   }
 
   const tokenHash = hashId(uid, CHEST_SPEEDUP_PLACEMENT_ID, chestId, completionToken);
-  const adRef = db.doc(`${COL.adEvents}/${tokenHash}`);
+  if (!IS_LOCAL_EMULATOR && !adSessionId) {
+    throw new HttpsError("failed-precondition", "Validação do anúncio ainda não foi concluída pelo AdMob.");
+  }
+  const adRef = db.doc(`${COL.adEvents}/${adSessionId ? `ssv_chest_${adSessionId}` : tokenHash}`);
+  const adSessionRef = adSessionId ? db.doc(`${COL.rewardedAdSessions}/${adSessionId}`) : null;
   const userRef = db.doc(`${COL.users}/${uid}`);
   const metaRef = db.doc(`${COL.userChests}/${uid}`);
   const chestRef = db.doc(`${COL.userChests}/${uid}/items/${chestId}`);
   const itemsCol = db.collection(`${COL.userChests}/${uid}/items`);
 
   return db.runTransaction(async (tx) => {
-    const [userSnap, metaSnap, itemsSnap, chestSnap, adSnap] = await Promise.all([
+    const [userSnap, metaSnap, itemsSnap, chestSnap, adSnap, adSessionSnap] = await Promise.all([
       tx.get(userRef),
       tx.get(metaRef),
       tx.get(itemsCol),
       tx.get(chestRef),
       tx.get(adRef),
+      adSessionRef ? tx.get(adSessionRef) : Promise.resolve(null),
     ]);
     if (!userSnap.exists) {
       throw new HttpsError("failed-precondition", "Perfil inexistente.");
@@ -8143,6 +8251,16 @@ export const speedUpChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     }
     if (adSnap.exists) {
       throw new HttpsError("already-exists", "Este anúncio já foi processado.");
+    }
+    if (adSessionRef) {
+      if (!adSessionSnap?.exists) throw new HttpsError("failed-precondition", "Sessão de anúncio inexistente.");
+      const session = adSessionSnap.data() || {};
+      if (String(session.userId || "") !== uid || String(session.placementId || "") !== CHEST_SPEEDUP_PLACEMENT_ID || String(session.chestId || "") !== chestId) {
+        throw new HttpsError("permission-denied", "Sessão de anúncio inválida para este baú.");
+      }
+      if (String(session.status || "") !== "recompensado") {
+        throw new HttpsError("failed-precondition", "A recompensa do anúncio ainda está pendente.");
+      }
     }
 
     const userData = userSnap.data()!;
@@ -8214,6 +8332,7 @@ export const speedUpChestUnlock = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
       criadoEm: FieldValue.serverTimestamp(),
       atualizadoEm: FieldValue.serverTimestamp(),
     });
+    if (adSessionRef) tx.update(adSessionRef, { status: "consumido", consumedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
 
     writeChestMetaState(tx, metaRef, metaSnap, uid, {
       ...meta,
@@ -8448,6 +8567,16 @@ export const activateStoredBoost = onCall(DEFAULT_CALLABLE_OPTS, async (request)
 export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const uid = request.auth?.uid;
   assertAuthed(uid);
+  await assertDistributedRateLimit({
+    uid,
+    scope: "reward_claim",
+    windowMs: 60 * 60 * 1000,
+    maxEvents: 5,
+    message: "Muitas solicitações de saque. Tente novamente mais tarde.",
+  });
+  if (request.auth?.token?.email_verified !== true) {
+    throw new HttpsError("failed-precondition", "Verifique seu e-mail antes de solicitar um saque.");
+  }
   let parsed: ReturnType<typeof parseRewardClaimInput>;
   try {
     parsed = parseRewardClaimInput(request.data);
@@ -8466,6 +8595,12 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     const uSnap = await tx.get(userRef);
     if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
     const u = uSnap.data()!;
+    if (u.banido === true || u.riscoFraude === "alto" || u.riscoFraude === "medio") {
+      throw new HttpsError("permission-denied", "Saque temporariamente retido para análise de segurança.");
+    }
+    if (typeof u.activeRewardClaimId === "string" && u.activeRewardClaimId.trim()) {
+      throw new HttpsError("failed-precondition", "Você já possui um saque em análise.");
+    }
     const bal = Number(u.rewardBalance || 0);
     if (valor > bal) {
       throw new HttpsError("failed-precondition", "Saldo insuficiente.");
@@ -8473,6 +8608,7 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     const saldoApos = bal - valor;
     tx.update(userRef, {
       rewardBalance: saldoApos,
+      activeRewardClaimId: ref.id,
       atualizadoEm: FieldValue.serverTimestamp(),
     });
     tx.set(ref, {
@@ -8688,13 +8824,11 @@ export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
     }
 
     const userRef = db.doc(`${COL.users}/${userId}`);
-    const needsUserBalance =
-      (status === "aprovado" && !retained) || (status === "recusado" && retained);
-    const userSnap = needsUserBalance ? await tx.get(userRef) : null;
-    if (needsUserBalance && !userSnap?.exists) {
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) {
       throw new HttpsError("failed-precondition", "Usuário do pedido não encontrado.");
     }
-    const currentBalance = Number(userSnap?.data()?.rewardBalance || 0);
+    const currentBalance = Number(userSnap.data()?.rewardBalance || 0);
 
     if (status === "aprovado" && !retained) {
       if (currentBalance < value) {
@@ -8721,6 +8855,7 @@ export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
       const balanceAfter = currentBalance + value;
       tx.update(userRef, {
         rewardBalance: FieldValue.increment(value),
+        activeRewardClaimId: FieldValue.delete(),
         atualizadoEm: FieldValue.serverTimestamp(),
       });
       addWalletTxInTx(tx, {
@@ -8735,7 +8870,7 @@ export const reviewRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
       });
     }
 
-    tx.update(ref, {
+      tx.update(ref, {
       status,
       analisadoPor: uid,
       ...(status === "recusado"
@@ -8790,12 +8925,20 @@ export const confirmRewardClaimPix = onCall(DEFAULT_CALLABLE_OPTS, async (reques
     throw new HttpsError("failed-precondition", "Só é possível confirmar PIX de pedidos aprovados.");
   }
 
-  await ref.update({
-    status: "confirmado",
-    comprovanteUrl,
-    confirmadoPor: uid,
-    confirmadoEm: FieldValue.serverTimestamp(),
-    atualizadoEm: FieldValue.serverTimestamp(),
+  const userId = String(c.userId || "").trim();
+  await db.runTransaction(async (tx) => {
+    const claimSnap = await tx.get(ref);
+    if (!claimSnap.exists || claimSnap.data()?.status !== "aprovado") {
+      throw new HttpsError("failed-precondition", "O pedido já foi atualizado.");
+    }
+    tx.update(ref, {
+      status: "confirmado",
+      comprovanteUrl,
+      confirmadoPor: uid,
+      confirmadoEm: FieldValue.serverTimestamp(),
+      atualizadoEm: FieldValue.serverTimestamp(),
+    });
+    if (userId) tx.update(db.doc(`${COL.users}/${userId}`), { activeRewardClaimId: FieldValue.delete() });
   });
 
   return { ok: true };
@@ -10545,6 +10688,14 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
         console.warn("joinAutoMatch banned user in queue", { gameId });
         return null;
       }
+      // Toda leitura da transação precisa ocorrer antes das possíveis escritas
+      // feitas pelos helpers de recarga de duelos.
+      const economyEligible = await reservePvpEconomyEligibilityInTx(tx, {
+        roomId: roomRef.id,
+        gameId,
+        hostUid: host,
+        guestUid: guest,
+      });
       let pptHostC = 0;
       let pptGuestC = 0;
       let quizHostC = 0;
@@ -10690,6 +10841,8 @@ export const joinAutoMatch = onCall(MULTIPLAYER_CALLABLE_OPTS, async (request) =
         guestFoto: guestData.foto ?? null,
         status: "matched",
         phase: "lobby",
+        economyEligible,
+        economyIntegrityVersion: 2,
         ...(gameId === "ppt"
           ? {
               pptHostScore: 0,
@@ -13658,24 +13811,25 @@ async function generateUniqueClanInviteCode(): Promise<string> {
   throw new HttpsError("internal", "Não foi possível gerar um código de clã único.");
 }
 
-function extractClanAssetPathFromUrl(rawUrl: unknown): string | null {
+function extractClanAssetPathFromUrl(rawUrl: unknown, ownerUid: string): string | null {
   const urlValue = normalizeHttpPhotoUrl(typeof rawUrl === "string" ? rawUrl : null);
   if (!urlValue) return null;
   try {
     const url = new URL(urlValue);
+    if (url.hostname !== "firebasestorage.googleapis.com") return null;
     const marker = "/o/";
     const markerIndex = url.pathname.indexOf(marker);
     if (markerIndex < 0) return null;
     const encodedPath = url.pathname.slice(markerIndex + marker.length);
     const objectPath = decodeURIComponent(encodedPath);
-    return objectPath.startsWith("clan_assets/") ? objectPath : null;
+    return objectPath.startsWith(`clan_assets/${ownerUid}/`) ? objectPath : null;
   } catch {
     return null;
   }
 }
 
-async function deleteClanAssetIfExists(rawUrl: unknown): Promise<void> {
-  const objectPath = extractClanAssetPathFromUrl(rawUrl);
+async function deleteClanAssetIfExists(rawUrl: unknown, ownerUid: string): Promise<void> {
+  const objectPath = extractClanAssetPathFromUrl(rawUrl, ownerUid);
   if (!objectPath) return;
   try {
     const file = getStorage().bucket().file(objectPath);
@@ -14624,7 +14778,7 @@ export const leaveClan = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
       tx.delete(clanMembershipRef(uid));
     });
 
-    await Promise.all([deleteClanAssetIfExists(avatarUrl), deleteClanAssetIfExists(coverUrl)]);
+    await Promise.all([deleteClanAssetIfExists(avatarUrl, uid), deleteClanAssetIfExists(coverUrl, uid)]);
 
     const clanStill = await clanRef(clanId).get();
     if (clanStill.exists) {
@@ -14870,6 +15024,7 @@ export const updateClanSettings = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     if (!avatarUrl) {
       throw new HttpsError("invalid-argument", "URL de avatar do clã inválida.");
     }
+    if (!isOwnClanAssetUrl(avatarUrl, uid)) throw new HttpsError("permission-denied", "Avatar deve ser um arquivo do seu clã.");
     patch.avatarUrl = avatarUrl;
   }
   if (rawCoverUrl === null) {
@@ -14879,6 +15034,7 @@ export const updateClanSettings = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
     if (!coverUrl) {
       throw new HttpsError("invalid-argument", "URL de capa do clã inválida.");
     }
+    if (!isOwnClanAssetUrl(coverUrl, uid)) throw new HttpsError("permission-denied", "Capa deve ser um arquivo do seu clã.");
     patch.coverUrl = coverUrl;
   }
   if (rawCoverPositionX !== undefined) {
@@ -14940,10 +15096,10 @@ export const updateClanSettings = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   await batch.commit();
 
   if (previousAvatarUrl && previousAvatarUrl !== nextAvatarUrl) {
-    await deleteClanAssetIfExists(previousAvatarUrl);
+    await deleteClanAssetIfExists(previousAvatarUrl, uid);
   }
   if (previousCoverUrl && previousCoverUrl !== nextCoverUrl) {
-    await deleteClanAssetIfExists(previousCoverUrl);
+    await deleteClanAssetIfExists(previousCoverUrl, uid);
   }
 
   return { ok: true };
@@ -15688,8 +15844,8 @@ export const deleteMyAccount = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
   const personalQueries: Array<[string, string]> = [
     [COL.wallet, "userId"],
     [COL.matches, "userId"],
-    [COL.adEvents, "uid"],
-    [COL.rewardedAdSessions, "uid"],
+    [COL.adEvents, "userId"],
+    [COL.rewardedAdSessions, "userId"],
     [COL.rafflePurchases, "userId"],
     [COL.finalizedMatchRequests, "uid"],
     [COL.referrals, "inviterUserId"],
@@ -15713,9 +15869,22 @@ export const deleteMyAccount = onCall(DEFAULT_CALLABLE_OPTS, async (request) => 
         userEmail: FieldValue.delete(),
         email: FieldValue.delete(),
         pixKey: FieldValue.delete(),
+        chavePix: FieldValue.delete(),
+        comprovanteUrl: FieldValue.delete(),
         accountDeletedAt: FieldValue.serverTimestamp(),
       }));
       await batch.commit();
+    }
+  }
+
+  for (const [field] of [["uid"], ["userId"]] as const) {
+    while (true) {
+      const snap = await db.collectionGroup("entries").where(field, "==", uid).limit(400).get();
+      if (snap.empty) break;
+      const batch = db.batch();
+      snap.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+      if (snap.size < 400) break;
     }
   }
 

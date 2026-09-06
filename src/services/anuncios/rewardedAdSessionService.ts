@@ -26,7 +26,7 @@ export type RewardedAdSessionStatusResult =
 
 export async function prepareRewardedAdSessionCallable(
   placementId: RewardedAdPlacementId,
-  options?: { raffleId?: string },
+  options?: { raffleId?: string; chestId?: string },
 ): Promise<
   | {
       ok: true;
@@ -39,7 +39,7 @@ export async function prepareRewardedAdSessionCallable(
 > {
   try {
     const res = await callFunction<
-      { placementId: string; raffleId?: string },
+      { placementId: string; raffleId?: string; chestId?: string },
       {
         sessionId: string;
         userId: string;
@@ -49,6 +49,7 @@ export async function prepareRewardedAdSessionCallable(
     >("prepareRewardedAdSession", {
       placementId,
       ...(options?.raffleId ? { raffleId: options.raffleId } : {}),
+      ...(options?.chestId ? { chestId: options.chestId } : {}),
     });
     return { ok: true, ...res.data };
   } catch (error) {

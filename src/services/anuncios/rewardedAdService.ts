@@ -580,6 +580,26 @@ export async function runChestSpeedupRewardedAdFlow(
   | ({ ok: true } & ChestActionSnapshot & { reducedMs: number; dailyAdsUsed: number; message: string })
   | { ok: false; message: string }
 > {
+  if (isNativeAndroidPlatform() && !rewardedAdMockEnabled && admobAndroidSsvEnabled) {
+    const prepared = await prepareRewardedAdSessionCallable(CHEST_SPEEDUP_PLACEMENT_ID, { chestId });
+    if (!prepared.ok) return { ok: false, message: prepared.error };
+    const nativeResult = await showNativeRewardedAd(CHEST_SPEEDUP_PLACEMENT_ID, {
+      ssvUserId: prepared.userId,
+      ssvCustomData: prepared.customData,
+    });
+    if (nativeResult.status !== "granted") return { ok: false, message: displayFailureMessage(nativeResult) };
+    const sessionStatus = await waitForRewardedAdSessionResult(prepared.sessionId, { timeoutMs: 12000, intervalMs: 1000 });
+    if (!sessionStatus.ok || sessionStatus.status !== "rewarded") {
+      return { ok: false, message: sessionStatus.ok ? "Anúncio em validação. Tente novamente em instantes." : sessionStatus.error };
+    }
+    try {
+      const res = await callFunction<{ chestId: string; adSessionId: string }, ChestActionSnapshot & { reducedMs: number; dailyAdsUsed: number }>("speedUpChestUnlock", { chestId, adSessionId: prepared.sessionId });
+      const d = res.data;
+      return { ok: true, ...d, message: d.status === "ready" ? "Baú pronto para coletar." : `Tempo reduzido em ${Math.max(1, Math.ceil(d.reducedMs / 60000))} min.` };
+    } catch (e: unknown) {
+      return { ok: false, message: formatFirebaseError(e) };
+    }
+  }
   const adResult = await runRewardedAdDisplay(CHEST_SPEEDUP_PLACEMENT_ID, options);
   if (adResult.status !== "granted") {
     return {
