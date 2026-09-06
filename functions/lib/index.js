@@ -10,6 +10,7 @@ const storage_1 = require("firebase-admin/storage");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const roomMaintenance_1 = require("./roomMaintenance");
 const firestore_2 = require("firebase-admin/firestore");
 const gameEconomy_1 = require("./gameEconomy");
 const streakEconomy_1 = require("./streakEconomy");
@@ -7208,6 +7209,11 @@ async function drawClosedRaffle(raffleId, winningNumberRaw) {
 async function runRaffleLifecycleTick(nowMs = Date.now()) {
     const activeSnap = await db.collection(COL.raffles).where("status", "==", "active").limit(10).get();
     for (const docSnap of activeSnap.docs) {
+        // Avoid reading the raffle and its lock again every minute while it is not due.
+        // closeRaffleIfDue still rechecks atomically before closing it.
+        const raffle = raffleDocFromFirestore(docSnap.id, docSnap.data());
+        if (!shouldAutoCloseRaffle(raffle, nowMs))
+            continue;
         await closeRaffleIfDue(docSnap.id, nowMs);
     }
 }
@@ -9287,13 +9293,15 @@ async function resolveExpiredPvpRoom(roomRef, roomId, actorUid) {
         if (actorUid && actorUid !== r.hostUid && actorUid !== r.guestUid) {
             throw new https_1.HttpsError("permission-denied", "Você não está nesta sala.");
         }
-        if (r.phase === "completed" ||
-            r.status === "completed" ||
-            r.status === "cancelled" ||
-            r.pptRewardsApplied === true ||
-            r.quizRewardsApplied === true ||
-            r.reactionRewardsApplied === true ||
-            r.cardBattleRewardsApplied === true) {
+        if ((0, roomMaintenance_1.isTerminalRoom)(r)) {
+            // Repair old terminal rooms once, so the minute sweep stops rereading them.
+            // Keep the room, results and rewards intact; only remove transient scheduling state.
+            if (r.actionDeadlineAt != null || r.pptAwaitingBothPicks === true) {
+                tx.update(roomRef, {
+                    actionDeadlineAt: firestore_2.FieldValue.delete(),
+                    pptAwaitingBothPicks: firestore_2.FieldValue.delete(),
+                });
+            }
             return { kind: "noop" };
         }
         const deadlineMs = millisFromFirestoreTime(r.actionDeadlineAt);
@@ -10494,8 +10502,15 @@ exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCH
         const d = doc.data();
         if (String(d.gameId) !== "ppt")
             continue;
-        if (d.pptRewardsApplied === true || String(d.phase) === "completed")
+        if ((0, roomMaintenance_1.isTerminalRoom)(d)) {
+            try {
+                await resolveExpiredPvpRoom(doc.ref, doc.id);
+            }
+            catch (error) {
+                console.error("repairTerminalPptRoom", doc.id, error);
+            }
             continue;
+        }
         const picks = d.pptPickedUids ?? [];
         if (picks.length > 0)
             continue;
@@ -10509,7 +10524,7 @@ exports.reapPptBothInactiveRounds = (0, scheduler_1.onSchedule)({ ...DEFAULT_SCH
                 if (!rs.exists)
                     return;
                 const r = rs.data();
-                if (r.pptRewardsApplied === true || String(r.phase) === "completed")
+                if ((0, roomMaintenance_1.isTerminalRoom)(r))
                     return;
                 if (r.pptAwaitingBothPicks !== true)
                     return;

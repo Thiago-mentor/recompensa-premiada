@@ -6,6 +6,7 @@ import { getStorage } from "firebase-admin/storage";
 import { getFirestore } from "firebase-admin/firestore";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { isTerminalRoom } from "./roomMaintenance";
 import {
   FieldPath,
   FieldValue,
@@ -8990,6 +8991,10 @@ async function drawClosedRaffle(
 async function runRaffleLifecycleTick(nowMs = Date.now()) {
   const activeSnap = await db.collection(COL.raffles).where("status", "==", "active").limit(10).get();
   for (const docSnap of activeSnap.docs) {
+    // Avoid reading the raffle and its lock again every minute while it is not due.
+    // closeRaffleIfDue still rechecks atomically before closing it.
+    const raffle = raffleDocFromFirestore(docSnap.id, docSnap.data());
+    if (!shouldAutoCloseRaffle(raffle, nowMs)) continue;
     await closeRaffleIfDue(docSnap.id, nowMs);
   }
 }
@@ -11542,15 +11547,15 @@ async function resolveExpiredPvpRoom(roomRef: DocumentReference, roomId: string,
     if (actorUid && actorUid !== r.hostUid && actorUid !== r.guestUid) {
       throw new HttpsError("permission-denied", "Você não está nesta sala.");
     }
-    if (
-      r.phase === "completed" ||
-      r.status === "completed" ||
-      r.status === "cancelled" ||
-      r.pptRewardsApplied === true ||
-      r.quizRewardsApplied === true ||
-      r.reactionRewardsApplied === true ||
-      r.cardBattleRewardsApplied === true
-    ) {
+    if (isTerminalRoom(r)) {
+      // Repair old terminal rooms once, so the minute sweep stops rereading them.
+      // Keep the room, results and rewards intact; only remove transient scheduling state.
+      if (r.actionDeadlineAt != null || r.pptAwaitingBothPicks === true) {
+        tx.update(roomRef, {
+          actionDeadlineAt: FieldValue.delete(),
+          pptAwaitingBothPicks: FieldValue.delete(),
+        });
+      }
       return { kind: "noop" as const };
     }
     const deadlineMs = millisFromFirestoreTime(r.actionDeadlineAt);
@@ -13017,7 +13022,14 @@ export const reapPptBothInactiveRounds = onSchedule(
     for (const doc of snap.docs) {
       const d = doc.data() as Record<string, unknown>;
       if (String(d.gameId) !== "ppt") continue;
-      if (d.pptRewardsApplied === true || String(d.phase) === "completed") continue;
+      if (isTerminalRoom(d)) {
+        try {
+          await resolveExpiredPvpRoom(doc.ref, doc.id);
+        } catch (error) {
+          console.error("repairTerminalPptRoom", doc.id, error);
+        }
+        continue;
+      }
       const picks = (d.pptPickedUids as string[] | undefined) ?? [];
       if (picks.length > 0) continue;
       const startedMs = millisFromFirestoreTime(d.pptRoundStartedAt);
@@ -13029,7 +13041,7 @@ export const reapPptBothInactiveRounds = onSchedule(
           const rs = await tx.get(roomRef);
           if (!rs.exists) return;
           const r = rs.data() as Record<string, unknown>;
-          if (r.pptRewardsApplied === true || String(r.phase) === "completed") return;
+          if (isTerminalRoom(r)) return;
           if (r.pptAwaitingBothPicks !== true) return;
           const p2 = ((r.pptPickedUids as string[] | undefined) ?? []).length;
           if (p2 > 0) return;
