@@ -261,13 +261,14 @@ export default function AdminConfigPage() {
     setGrantLoading(true);
     try {
       const res = await callFunction<
-        { lookup: string; value: string; kind: string; amount: number },
+        { lookup: string; value: string; kind: string; amount: number; operationId: string },
         { ok: boolean; targetUid: string; field: string; newBalance: number }
       >("adminGrantEconomy", {
         lookup: grantLookup,
         value: grantValue.trim(),
         kind: grantKind,
         amount: amt,
+        operationId: crypto.randomUUID(),
       });
       const d = res.data;
       const label =

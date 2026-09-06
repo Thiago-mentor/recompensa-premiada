@@ -79,6 +79,7 @@ const COL = {
   uniqueUsernames: "unique_usernames",
   referralCodes: "referral_codes",
   rateLimits: "rate_limits",
+  adminOperations: "admin_operations",
 } as const;
 
 const AUTO_QUEUE_GAMES = new Set<GameId>(["ppt", "quiz", "reaction_tap", "card_battle"]);
@@ -836,6 +837,7 @@ async function assertAdmin(uid: string) {
     throw new HttpsError("permission-denied", "Apenas administradores.");
   }
 }
+
 
 async function getEconomy() {
   const snap = await db.doc(`${COL.systemConfigs}/economy`).get();
@@ -8641,7 +8643,7 @@ export const requestRewardClaim = onCall(DEFAULT_CALLABLE_OPTS, async (request) 
   return { claimId: ref.id };
 });
 
-const ADMIN_GRANT_ECONOMY_MAX = 5_000_000;
+const ADMIN_GRANT_ECONOMY_MAX = 500_000;
 
 export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
   const adminUid = request.auth?.uid;
@@ -8652,6 +8654,10 @@ export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   const value = String(request.data?.value || "").trim();
   const kind = String(request.data?.kind || "") as "coins" | "gems" | "rewardBalance";
   const amount = Math.floor(Number(request.data?.amount));
+  const operationId = String(request.data?.operationId || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(operationId)) {
+    throw new HttpsError("invalid-argument", "operationId obrigatório. Tente novamente.");
+  }
 
   if (!["username", "uid"].includes(lookup)) {
     throw new HttpsError("invalid-argument", "lookup deve ser username ou uid.");
@@ -8685,7 +8691,10 @@ export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
     kind === "coins" ? "coins" : kind === "gems" ? "gems" : "rewardBalance";
   const label = kind === "coins" ? "PR" : kind === "gems" ? "TICKET" : "CASH";
   const walletEntryId = db.collection(COL.wallet).doc().id;
+  const operationRef = db.doc(`${COL.adminOperations}/${operationId}`);
   const after = await db.runTransaction(async (tx) => {
+    const operationSnap = await tx.get(operationRef);
+    if (operationSnap.exists) throw new HttpsError("already-exists", "Esta operação já foi processada.");
     const uSnap = await tx.get(userRef);
     if (!uSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
     const u = uSnap.data()!;
@@ -8708,6 +8717,15 @@ export const adminGrantEconomy = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
       saldoApos: nextBalance,
       descricao: `Crédito admin: +${amount} ${label}`,
       referenciaId: adminUid,
+    });
+    tx.create(operationRef, {
+      operationId,
+      adminUid,
+      action: "adminGrantEconomy",
+      targetUid,
+      kind,
+      amount,
+      createdAt: FieldValue.serverTimestamp(),
     });
     return nextBalance;
   });
