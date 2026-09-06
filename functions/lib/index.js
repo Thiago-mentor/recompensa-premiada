@@ -52,6 +52,7 @@ const COL = {
     rankingsDaily: "rankings_daily",
     rankingsWeekly: "rankings_weekly",
     rankingsMonthly: "rankings_monthly",
+    rankingIntegrity: "ranking_integrity",
     matchmakingQueue: "matchmaking_queue",
     gameRooms: "game_rooms",
     multiplayerSlots: "multiplayer_slots",
@@ -3238,6 +3239,10 @@ async function upsertRanking(input) {
                 score: firestore_2.FieldValue.increment(input.deltaScore),
                 partidas: firestore_2.FieldValue.increment(1),
                 vitorias: firestore_2.FieldValue.increment(input.win ? 1 : 0),
+                serverVerifiedScore: firestore_2.FieldValue.increment(input.deltaScore),
+                serverVerifiedMatches: firestore_2.FieldValue.increment(1),
+                serverVerifiedWins: firestore_2.FieldValue.increment(input.win ? 1 : 0),
+                rankingIntegrityVersion: 2,
                 scope: "global",
                 atualizadoEm: firestore_2.FieldValue.serverTimestamp(),
             }, { merge: true });
@@ -3257,6 +3262,10 @@ async function upsertRanking(input) {
                 score: firestore_2.FieldValue.increment(input.deltaScore),
                 partidas: firestore_2.FieldValue.increment(1),
                 vitorias: firestore_2.FieldValue.increment(input.win ? 1 : 0),
+                serverVerifiedScore: firestore_2.FieldValue.increment(input.deltaScore),
+                serverVerifiedMatches: firestore_2.FieldValue.increment(1),
+                serverVerifiedWins: firestore_2.FieldValue.increment(input.win ? 1 : 0),
+                rankingIntegrityVersion: 2,
                 scope: "game",
                 gameId: input.gameId,
                 gameTitle: GAME_TITLES[input.gameId],
@@ -3498,6 +3507,46 @@ const CLIENT_RISK_WINDOW_MS = 60000;
 const CLIENT_RISK_MAX_EVENTS_PER_WINDOW = 6;
 const PUBLIC_PROFILE_WINDOW_MS = 60000;
 const PUBLIC_PROFILE_MAX_READS_PER_WINDOW = 30;
+/** Limita farming combinado entre as mesmas duas contas no ranking premiado. */
+const MAX_RANKED_MATCHES_PER_PAIR_PER_DAY = 5;
+async function shouldCreditRankedPvpMatch(input) {
+    const day = dailyKey();
+    const pair = [input.hostUid, input.guestUid].sort().join("|");
+    const pairId = hashId("ranking_pair", day, input.gameId, pair);
+    const matchId = hashId("ranking_match", input.gameId, input.roomId);
+    const pairRef = db.doc(`${COL.rankingIntegrity}/${day}/pairs/${pairId}`);
+    const matchRef = db.doc(`${COL.rankingIntegrity}/${day}/matches/${matchId}`);
+    return db.runTransaction(async (tx) => {
+        const [matchSnap, pairSnap] = await Promise.all([tx.get(matchRef), tx.get(pairRef)]);
+        if (matchSnap.exists)
+            return matchSnap.data()?.credited === true;
+        const previousCount = Math.max(0, Math.floor(Number(pairSnap.data()?.completedMatches) || 0));
+        const credited = input.forfeit !== true && previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
+        const reason = input.forfeit === true
+            ? "explicit_forfeit"
+            : credited
+                ? null
+                : "pair_daily_limit";
+        tx.set(pairRef, {
+            day,
+            gameId: input.gameId,
+            participantHashes: [hashId(input.hostUid), hashId(input.guestUid)].sort(),
+            completedMatches: previousCount + 1,
+            creditedMatches: firestore_2.FieldValue.increment(credited ? 1 : 0),
+            updatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        tx.set(matchRef, {
+            roomIdHash: hashId(input.roomId),
+            pairId,
+            day,
+            gameId: input.gameId,
+            credited,
+            reason,
+            createdAt: firestore_2.FieldValue.serverTimestamp(),
+        });
+        return credited;
+    });
+}
 async function assertDistributedRateLimit(input) {
     const allowed = await (0, rateLimit_1.consumeDistributedRateLimit)({
         db,
@@ -3529,6 +3578,13 @@ function assertPublicProfileRateLimit(uid) {
     });
 }
 async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, forfeitMeta) {
+    const rankingCredited = await shouldCreditRankedPvpMatch({
+        roomId,
+        gameId: "ppt",
+        hostUid,
+        guestUid,
+        forfeit: Boolean(forfeitMeta),
+    });
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
     const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
     const metaBase = {
@@ -3546,26 +3602,28 @@ async function postPptMatchRankingFromWinner(roomId, hostUid, guestUid, matchWin
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking({
-        uid: hostUid,
-        nome: String(hSnap.data()?.nome || "Jogador"),
-        username: String(hSnap.data()?.username || "") || null,
-        foto: hSnap.data()?.foto ?? null,
-        deltaScore: ecoH.rankingPoints,
-        win: hostRes === "vitoria",
-        gameId: "ppt",
-        idempotencyKey: `${roomId}:host`,
-    });
-    await upsertRanking({
-        uid: guestUid,
-        nome: String(gSnap.data()?.nome || "Jogador"),
-        username: String(gSnap.data()?.username || "") || null,
-        foto: gSnap.data()?.foto ?? null,
-        deltaScore: ecoG.rankingPoints,
-        win: guestRes === "vitoria",
-        gameId: "ppt",
-        idempotencyKey: `${roomId}:guest`,
-    });
+    if (rankingCredited) {
+        await upsertRanking({
+            uid: hostUid,
+            nome: String(hSnap.data()?.nome || "Jogador"),
+            username: String(hSnap.data()?.username || "") || null,
+            foto: hSnap.data()?.foto ?? null,
+            deltaScore: ecoH.rankingPoints,
+            win: hostRes === "vitoria",
+            gameId: "ppt",
+            idempotencyKey: `${roomId}:host`,
+        });
+        await upsertRanking({
+            uid: guestUid,
+            nome: String(gSnap.data()?.nome || "Jogador"),
+            username: String(gSnap.data()?.username || "") || null,
+            foto: gSnap.data()?.foto ?? null,
+            deltaScore: ecoG.rankingPoints,
+            win: guestRes === "vitoria",
+            gameId: "ppt",
+            idempotencyKey: `${roomId}:guest`,
+        });
+    }
     await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
     await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
@@ -3587,7 +3645,14 @@ function resolveQuizRoundWinner(hostCorrect, guestCorrect, hostResponseMs, guest
         return "guest";
     return "draw";
 }
-async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs) {
+async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWinner, hostResponseMs, guestResponseMs, forfeitMeta) {
+    const rankingCredited = await shouldCreditRankedPvpMatch({
+        roomId,
+        gameId: "quiz",
+        hostUid,
+        guestUid,
+        forfeit: Boolean(forfeitMeta),
+    });
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
     const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
     const economyConfig = await getEconomy();
@@ -3605,26 +3670,28 @@ async function postQuizMatchRankingFromWinner(roomId, hostUid, guestUid, matchWi
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking({
-        uid: hostUid,
-        nome: String(hSnap.data()?.nome || "Jogador"),
-        username: String(hSnap.data()?.username || "") || null,
-        foto: hSnap.data()?.foto ?? null,
-        deltaScore: ecoH.rankingPoints,
-        win: hostRes === "vitoria",
-        gameId: "quiz",
-        idempotencyKey: `${roomId}:host`,
-    });
-    await upsertRanking({
-        uid: guestUid,
-        nome: String(gSnap.data()?.nome || "Jogador"),
-        username: String(gSnap.data()?.username || "") || null,
-        foto: gSnap.data()?.foto ?? null,
-        deltaScore: ecoG.rankingPoints,
-        win: guestRes === "vitoria",
-        gameId: "quiz",
-        idempotencyKey: `${roomId}:guest`,
-    });
+    if (rankingCredited)
+        await upsertRanking({
+            uid: hostUid,
+            nome: String(hSnap.data()?.nome || "Jogador"),
+            username: String(hSnap.data()?.username || "") || null,
+            foto: hSnap.data()?.foto ?? null,
+            deltaScore: ecoH.rankingPoints,
+            win: hostRes === "vitoria",
+            gameId: "quiz",
+            idempotencyKey: `${roomId}:host`,
+        });
+    if (rankingCredited)
+        await upsertRanking({
+            uid: guestUid,
+            nome: String(gSnap.data()?.nome || "Jogador"),
+            username: String(gSnap.data()?.username || "") || null,
+            foto: gSnap.data()?.foto ?? null,
+            deltaScore: ecoG.rankingPoints,
+            win: guestRes === "vitoria",
+            gameId: "quiz",
+            idempotencyKey: `${roomId}:guest`,
+        });
     await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
     await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
@@ -3665,7 +3732,14 @@ function resolveReactionWinner(hostFalseStart, guestFalseStart, hostMs, guestMs)
         return "draw";
     return diff < 0 ? "host" : "guest";
 }
-async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestRes, hostMs, guestMs) {
+async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestRes, hostMs, guestMs, forfeitMeta) {
+    const rankingCredited = await shouldCreditRankedPvpMatch({
+        roomId,
+        gameId: "reaction_tap",
+        hostUid,
+        guestUid,
+        forfeit: Boolean(forfeitMeta),
+    });
     const economyConfig = await getEconomy();
     const [ecoH, ecoG] = await Promise.all([
         (0, gameEconomy_1.resolveMatchEconomy)("reaction_tap", hostRes, 0, {
@@ -3683,26 +3757,28 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking({
-        uid: hostUid,
-        nome: String(hSnap.data()?.nome || "Jogador"),
-        username: String(hSnap.data()?.username || "") || null,
-        foto: hSnap.data()?.foto ?? null,
-        deltaScore: ecoH.rankingPoints,
-        win: hostRes === "vitoria",
-        gameId: "reaction_tap",
-        idempotencyKey: `${roomId}:host`,
-    });
-    await upsertRanking({
-        uid: guestUid,
-        nome: String(gSnap.data()?.nome || "Jogador"),
-        username: String(gSnap.data()?.username || "") || null,
-        foto: gSnap.data()?.foto ?? null,
-        deltaScore: ecoG.rankingPoints,
-        win: guestRes === "vitoria",
-        gameId: "reaction_tap",
-        idempotencyKey: `${roomId}:guest`,
-    });
+    if (rankingCredited)
+        await upsertRanking({
+            uid: hostUid,
+            nome: String(hSnap.data()?.nome || "Jogador"),
+            username: String(hSnap.data()?.username || "") || null,
+            foto: hSnap.data()?.foto ?? null,
+            deltaScore: ecoH.rankingPoints,
+            win: hostRes === "vitoria",
+            gameId: "reaction_tap",
+            idempotencyKey: `${roomId}:host`,
+        });
+    if (rankingCredited)
+        await upsertRanking({
+            uid: guestUid,
+            nome: String(gSnap.data()?.nome || "Jogador"),
+            username: String(gSnap.data()?.username || "") || null,
+            foto: gSnap.data()?.foto ?? null,
+            deltaScore: ecoG.rankingPoints,
+            win: guestRes === "vitoria",
+            gameId: "reaction_tap",
+            idempotencyKey: `${roomId}:guest`,
+        });
     await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
     await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
@@ -3712,6 +3788,13 @@ async function postReactionTapRanking(roomId, hostUid, guestUid, hostRes, guestR
     }
 }
 async function postCardBattleRankingFromWinner(roomId, hostUid, guestUid, matchWinner, hostPower, guestPower, forfeitMeta) {
+    const rankingCredited = await shouldCreditRankedPvpMatch({
+        roomId,
+        gameId: "card_battle",
+        hostUid,
+        guestUid,
+        forfeit: Boolean(forfeitMeta),
+    });
     const hostRes = matchWinner === "host" ? "vitoria" : "derrota";
     const guestRes = matchWinner === "guest" ? "vitoria" : "derrota";
     const economyConfig = await getEconomy();
@@ -3731,26 +3814,28 @@ async function postCardBattleRankingFromWinner(roomId, hostUid, guestUid, matchW
         db.doc(`${COL.users}/${hostUid}`).get(),
         db.doc(`${COL.users}/${guestUid}`).get(),
     ]);
-    await upsertRanking({
-        uid: hostUid,
-        nome: String(hSnap.data()?.nome || "Jogador"),
-        username: String(hSnap.data()?.username || "") || null,
-        foto: hSnap.data()?.foto ?? null,
-        deltaScore: ecoH.rankingPoints,
-        win: hostRes === "vitoria",
-        gameId: "card_battle",
-        idempotencyKey: `${roomId}:host`,
-    });
-    await upsertRanking({
-        uid: guestUid,
-        nome: String(gSnap.data()?.nome || "Jogador"),
-        username: String(gSnap.data()?.username || "") || null,
-        foto: gSnap.data()?.foto ?? null,
-        deltaScore: ecoG.rankingPoints,
-        win: guestRes === "vitoria",
-        gameId: "card_battle",
-        idempotencyKey: `${roomId}:guest`,
-    });
+    if (rankingCredited)
+        await upsertRanking({
+            uid: hostUid,
+            nome: String(hSnap.data()?.nome || "Jogador"),
+            username: String(hSnap.data()?.username || "") || null,
+            foto: hSnap.data()?.foto ?? null,
+            deltaScore: ecoH.rankingPoints,
+            win: hostRes === "vitoria",
+            gameId: "card_battle",
+            idempotencyKey: `${roomId}:host`,
+        });
+    if (rankingCredited)
+        await upsertRanking({
+            uid: guestUid,
+            nome: String(gSnap.data()?.nome || "Jogador"),
+            username: String(gSnap.data()?.username || "") || null,
+            foto: gSnap.data()?.foto ?? null,
+            deltaScore: ecoG.rankingPoints,
+            win: guestRes === "vitoria",
+            gameId: "card_battle",
+            idempotencyKey: `${roomId}:guest`,
+        });
     await bumpPlayMatchMissions(hostUid, `${roomId}:host`);
     await bumpPlayMatchMissions(guestUid, `${roomId}:guest`);
     await Promise.all([evaluateReferralForUser(hostUid), evaluateReferralForUser(guestUid)]);
@@ -5981,6 +6066,12 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     const metadata = rawMeta && typeof rawMeta === "object" && !Array.isArray(rawMeta)
         ? rawMeta
         : {};
+    // Campos que identificam uma sala PvP são reservados ao servidor. Um cliente
+    // solo não pode se passar por uma partida oficial ao gravar seu histórico.
+    delete metadata.pvpRoomId;
+    delete metadata.pptMatchWinner;
+    delete metadata.quizMatchWinner;
+    delete metadata.cardBattleMatchWinner;
     const opponentId = request.data?.opponentId ? String(request.data.opponentId) : null;
     const startedAtRaw = request.data?.startedAt ? String(request.data.startedAt) : null;
     const requestedIdempotencyKey = String(request.data?.idempotencyKey || "").trim();
@@ -6049,7 +6140,10 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
     const loss = effectiveResult === "derrota";
     const boostedCoins = resolveBoostedCoins(economy.rewardCoins, u, economyConfig, now);
     const rewardCoins = boostedCoins.totalCoins;
-    const rankingPoints = economy.rankingPoints;
+    // O resultado deste endpoint vem de minijogos solo e, portanto, do cliente.
+    // Ele pode render a recompensa normal do jogo, mas nunca pontos no ranking
+    // premiado. Ranking só é creditado pelos fluxos PvP resolvidos pelo servidor.
+    const rankingPoints = 0;
     const finishedTs = firestore_2.Timestamp.now();
     const matchDoc = {
         id: matchRef.id,
@@ -6143,16 +6237,6 @@ exports.finalizeMatch = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (reques
         uid,
         wins: win ? 1 : 0,
         idempotencyKey,
-    });
-    await upsertRanking({
-        uid,
-        nome: String(u.nome || "Jogador"),
-        username: String(u.username || "") || null,
-        foto: u.foto ?? null,
-        deltaScore: rankingPoints,
-        win,
-        gameId,
-        idempotencyKey: `${idempotencyKey}:ranking`,
     });
     await bumpPlayMatchMissions(uid, `${idempotencyKey}:mission`);
     await evaluateReferralForUser(uid);
@@ -9387,7 +9471,7 @@ exports.forfeitPvpRoom = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (r
         }
         else {
             if (result.gameId === "reaction_tap") {
-                await postReactionTapRanking(roomId, result.hostUid, result.guestUid, result.hostRes, result.guestRes, result.hostMs, result.guestMs);
+                await postReactionTapRanking(roomId, result.hostUid, result.guestUid, result.hostRes, result.guestRes, result.hostMs, result.guestMs, { forfeitedByUid: uid });
                 return {
                     ok: true,
                     applied: result.applied,
@@ -9404,7 +9488,7 @@ exports.forfeitPvpRoom = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (r
                     gameId: result.gameId,
                 };
             }
-            await postQuizMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, result.hostResponseMs, result.guestResponseMs);
+            await postQuizMatchRankingFromWinner(roomId, result.hostUid, result.guestUid, result.matchWinner, result.hostResponseMs, result.guestResponseMs, { forfeitedByUid: uid });
         }
     }
     return {
@@ -9846,6 +9930,15 @@ async function payRankingWinnerAtomically(input) {
         if (!userSnap.exists)
             return false;
         const userData = (userSnap.data() || {});
+        const risk = String(userData.riscoFraude || "baixo");
+        if (userData.banido === true || risk === "medio" || risk === "alto") {
+            tx.set(input.entryRef, {
+                posicao: input.pos,
+                premioRetidoEm: firestore_2.FieldValue.serverTimestamp(),
+                premioRetidoMotivo: userData.banido === true ? "conta_suspensa" : `risco_${risk}`,
+            }, { merge: true });
+            return false;
+        }
         const rewardPatch = applyMultiCurrencyRewardPatch(userData, input.tier.rewards);
         if (Object.keys(rewardPatch.patch).length === 0)
             return false;
@@ -9904,17 +9997,7 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
         ? `${rankingRootPath}/entries`
         : `${collectionName}/${periodKey}/entries`;
     const victoryRankedGame = Boolean(gameId && VICTORY_RANKED_GAME_IDS.has(gameId));
-    const entriesSnap = victoryRankedGame
-        ? await db.collection(entriesPath).get()
-        : await db
-            .collection(entriesPath)
-            .orderBy("score", "desc")
-            .orderBy("vitorias", "desc")
-            .orderBy("partidas", "desc")
-            .orderBy("atualizadoEm", "desc")
-            .orderBy(firestore_2.FieldPath.documentId(), "desc")
-            .limit(maxPos)
-            .get();
+    const entriesSnap = await db.collection(entriesPath).limit(20000).get();
     if (entriesSnap.empty) {
         await payoutFlagRef.set({
             period,
@@ -9928,44 +10011,42 @@ async function closeRankingScopePayout(period, periodKey, prizeTiers, gameId) {
         });
         return;
     }
-    const winners = (victoryRankedGame
-        ? entriesSnap.docs
-            .map((docSnap) => {
-            const raw = (docSnap.data() || {});
-            return {
-                uid: docSnap.id,
-                entryRef: docSnap.ref,
-                vitorias: normalizeCounter(raw.vitorias),
-                score: normalizeCounter(raw.score),
-                partidas: normalizeCounter(raw.partidas),
-                atualizadoEm: raw.atualizadoEm ?? null,
-            };
-        })
-            .sort((a, b) => {
-            if (b.vitorias !== a.vitorias)
-                return b.vitorias - a.vitorias;
-            if (b.score !== a.score)
-                return b.score - a.score;
-            if (b.partidas !== a.partidas)
-                return b.partidas - a.partidas;
-            const updatedDiff = millisFromFirestoreTime(b.atualizadoEm) - millisFromFirestoreTime(a.atualizadoEm);
-            if (updatedDiff !== 0)
-                return updatedDiff;
-            return b.uid.localeCompare(a.uid, "pt-BR");
-        })
-            .slice(0, maxPos)
-            .map((entry, index) => ({
-            pos: index + 1,
-            uid: entry.uid,
-            entryRef: entry.entryRef,
-            tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
-        }))
-        : entriesSnap.docs.map((docSnap, index) => ({
-            pos: index + 1,
+    // A premiação usa exclusivamente os contadores gerados por partidas PvP
+    // verificadas no servidor. Campos legados/client-side nunca entram no cálculo.
+    const winners = entriesSnap.docs
+        .map((docSnap) => {
+        const raw = (docSnap.data() || {});
+        return {
             uid: docSnap.id,
             entryRef: docSnap.ref,
-            tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
-        })));
+            wins: normalizeCounter(raw.serverVerifiedWins),
+            score: normalizeCounter(raw.serverVerifiedScore),
+            matches: normalizeCounter(raw.serverVerifiedMatches),
+            updatedAt: raw.atualizadoEm ?? null,
+        };
+    })
+        .filter((entry) => entry.matches > 0)
+        .sort((a, b) => {
+        if (victoryRankedGame && b.wins !== a.wins)
+            return b.wins - a.wins;
+        if (b.score !== a.score)
+            return b.score - a.score;
+        if (!victoryRankedGame && b.wins !== a.wins)
+            return b.wins - a.wins;
+        if (b.matches !== a.matches)
+            return b.matches - a.matches;
+        const updatedDiff = millisFromFirestoreTime(b.updatedAt) - millisFromFirestoreTime(a.updatedAt);
+        if (updatedDiff !== 0)
+            return updatedDiff;
+        return b.uid.localeCompare(a.uid, "pt-BR");
+    })
+        .slice(0, maxPos)
+        .map((entry, index) => ({
+        pos: index + 1,
+        uid: entry.uid,
+        entryRef: entry.entryRef,
+        tier: rankingPrizeTierForPosition(prizeTiers, index + 1),
+    }));
     const rewardedWinners = winners.filter((winner) => winner.tier != null && hasRankingPrizeRewards(winner.tier.rewards));
     if (rewardedWinners.length === 0)
         return;
@@ -10305,10 +10386,14 @@ async function closeClanRankingPayout(period, periodKey, prizeTiers) {
                 const userSnap = userSnaps[index];
                 if (!userSnap?.exists)
                     return null;
+                const userData = userSnap.data();
+                const risk = String(userData.riscoFraude || "baixo");
+                if (userData.banido === true || risk === "medio" || risk === "alto")
+                    return null;
                 return {
                     contributor,
                     userRef: userRefs[index],
-                    userData: userSnap.data(),
+                    userData,
                 };
             })
                 .filter((row) => row != null);
@@ -10440,8 +10525,18 @@ async function payReferralRankingWinnerAtomically(input) {
             return false;
         if (!userSnap.exists || input.tier.amount <= 0)
             return false;
+        const userData = (userSnap.data() || {});
+        const risk = String(userData.riscoFraude || "baixo");
+        if (userData.banido === true || risk === "medio" || risk === "alto") {
+            tx.set(input.entryRef, {
+                posicao: input.pos,
+                premioRetidoEm: firestore_2.FieldValue.serverTimestamp(),
+                premioRetidoMotivo: userData.banido === true ? "conta_suspensa" : `risco_${risk}`,
+            }, { merge: true });
+            return false;
+        }
         const reward = { amount: input.tier.amount, currency: input.tier.currency };
-        const rewardPatch = applyRewardPatch((userSnap.data() || {}), reward);
+        const rewardPatch = applyRewardPatch(userData, reward);
         tx.set(userRef, { ...rewardPatch.patch, atualizadoEm: firestore_2.FieldValue.serverTimestamp() }, { merge: true });
         addWalletTxInTx(tx, {
             id: hashId("referral-ranking", input.period, input.periodKey, input.uid, input.tier.currency),
@@ -10772,6 +10867,11 @@ exports.getArenaOverallRanking = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asyn
         const userId = String(raw.userId || "").trim();
         const gameId = String(raw.gameId || "").trim();
         if (!userId || !ARENA_OVERALL_GAME_IDS.includes(gameId))
+            continue;
+        const matchMetadata = raw.metadata && typeof raw.metadata === "object"
+            ? raw.metadata
+            : {};
+        if (!String(matchMetadata.pvpRoomId || "").trim())
             continue;
         const score = normalizeCounter(raw.score);
         const result = String(raw.resultado || raw.result || "").trim();

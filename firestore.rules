@@ -297,5 +297,9 @@ service cloud.firestore {
     match /rate_limits/{id} {
       allow read, write: if false;
     }
+
+    match /ranking_integrity/{day}/{document=**} {
+      allow read, write: if false;
+    }
   }
 }

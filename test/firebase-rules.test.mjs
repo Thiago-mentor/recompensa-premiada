@@ -49,6 +49,7 @@ test("reservas de unicidade e rate limits são exclusivos do backend", async () 
   await assertFails(setDoc(doc(adminDb, "unique_usernames/alice"), { uid: "admin" }));
   await assertFails(setDoc(doc(adminDb, "referral_codes/ABC123"), { uid: "admin" }));
   await assertFails(setDoc(doc(adminDb, "rate_limits/test"), { count: 1 }));
+  await assertFails(setDoc(doc(adminDb, "ranking_integrity/2026-09-06/matches/test"), { credited: true }));
 });
 
 test("custom claim de admin permite configuração, mas não saldo direto", async () => {
