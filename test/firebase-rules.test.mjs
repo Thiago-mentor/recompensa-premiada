@@ -2,7 +2,7 @@ import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { initializeTestEnvironment, assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { getBytes, ref, uploadString } from "firebase/storage";
 
 function emulatorAddress(name, fallbackPort) {
@@ -55,6 +55,29 @@ test("custom claim de admin permite configuração, mas não saldo direto", asyn
   const adminDb = environment.authenticatedContext("admin", { admin: true }).firestore();
   await assertSucceeds(setDoc(doc(adminDb, "system_configs/economy"), { welcomeBonus: 10 }));
   await assertFails(setDoc(doc(adminDb, "users/alice"), { coins: 999 }, { merge: true }));
+});
+
+test("convites não expõem e-mail ou antifraude ao indicador", async () => {
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "referrals/convidado"), {
+      inviterUserId: "indicador",
+      invitedUserId: "convidado",
+      invitedUserEmail: "privado@example.com",
+      fraudFlags: { suspectedFraud: false },
+    });
+  });
+
+  const inviterDb = environment.authenticatedContext("indicador").firestore();
+  const invitedDb = environment.authenticatedContext("convidado").firestore();
+  const strangerDb = environment.authenticatedContext("terceiro").firestore();
+  const adminDb = environment.authenticatedContext("admin-referral", { admin: true }).firestore();
+
+  await assertFails(
+    getDocs(query(collection(inviterDb, "referrals"), where("inviterUserId", "==", "indicador"))),
+  );
+  await assertSucceeds(getDoc(doc(invitedDb, "referrals/convidado")));
+  await assertFails(getDoc(doc(strangerDb, "referrals/convidado")));
+  await assertSucceeds(getDoc(doc(adminDb, "referrals/convidado")));
 });
 
 test("Storage limita uploads ao namespace e tipo de imagem permitidos", async () => {

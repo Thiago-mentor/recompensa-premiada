@@ -161,45 +161,23 @@ export async function fetchActiveReferralCampaign(): Promise<ReferralCampaign | 
 }
 
 export function subscribeInvitedReferrals(
-  inviterUserId: string,
+  _inviterUserId: string,
   onNext: (rows: ReferralRecord[]) => void,
 ): Unsubscribe {
-  const db = getFirebaseFirestore();
-  let unsubscribe: Unsubscribe | null = null;
-
-  function subscribe(withOrderBy: boolean): Unsubscribe {
-    return onSnapshot(
-      withOrderBy
-        ? query(
-            collection(db, COLLECTIONS.referrals),
-            where("inviterUserId", "==", inviterUserId),
-            orderBy("createdAt", "desc"),
-            limit(50),
-          )
-        : query(
-            collection(db, COLLECTIONS.referrals),
-            where("inviterUserId", "==", inviterUserId),
-            limit(200),
-          ),
-      (snap) => {
-        const rows = snap.docs.map((item) => ({ id: item.id, ...item.data() }) as ReferralRecord);
-        onNext(withOrderBy ? rows : sortReferralRows(rows).slice(0, 50));
-      },
-      (error) => {
-        if (withOrderBy) {
-          console.warn("[Referral] Falha na query ordenada de convidados; usando fallback sem índice.", error);
-          unsubscribe = subscribe(false);
-          return;
-        }
-        console.error("[Referral] Falha ao carregar convidados.", error);
-        onNext([]);
-      },
-    );
-  }
-
-  unsubscribe = subscribe(true);
+  let cancelled = false;
+  void callFunction<Record<string, never>, { ok: boolean; items: ReferralRecord[] }>(
+    "listMyInvitedReferrals",
+    {},
+  )
+    .then((res) => {
+      if (!cancelled) onNext(sortReferralRows(res.data.items ?? []).slice(0, 50));
+    })
+    .catch((error) => {
+      console.error("[Referral] Falha ao carregar convidados.", error);
+      if (!cancelled) onNext([]);
+    });
   return () => {
-    unsubscribe?.();
+    cancelled = true;
   };
 }
 

@@ -191,11 +191,9 @@ service cloud.firestore {
 
     match /referrals/{id} {
       allow get, list: if isAdmin();
-      allow get: if isSignedIn()
-        && (request.auth.uid == id
-          || (resource != null && resource.data.inviterUserId == request.auth.uid));
-      allow list: if isSignedIn()
-        && resource.data.inviterUserId == request.auth.uid;
+      // O convidado pode consultar apenas o próprio registro. A lista do
+      // indicador passa por Callable para não expor e-mail nem sinais antifraude.
+      allow get: if isSignedIn() && request.auth.uid == id;
       allow create, update, delete: if false;
     }
 

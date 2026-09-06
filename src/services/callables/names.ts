@@ -33,6 +33,7 @@ export const CALLABLES = {
   closeMonthlyRanking: "closeMonthlyRanking",
   processReferralReward: "processReferralReward",
   getReferralPublicConfig: "getReferralPublicConfig",
+  listMyInvitedReferrals: "listMyInvitedReferrals",
   requestRewardClaim: "requestRewardClaim",
   reviewRewardClaim: "reviewRewardClaim",
   confirmRewardClaimPix: "confirmRewardClaimPix",

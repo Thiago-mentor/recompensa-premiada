@@ -14,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "functions/**"
+      - "firestore.rules"
       - "firebase.json"
       - ".firebaserc"
       - ".github/workflows/deploy-functions.yml"
@@ -35,8 +36,8 @@ jobs:
         working-directory: functions
         run: npm ci && npm run build
 
-      - name: Deploy functions
-        run: npx --yes firebase-tools@latest deploy --only functions --non-interactive
+      - name: Deploy functions and Firestore rules
+        run: npx --yes firebase-tools@latest deploy --only functions,firestore:rules --non-interactive
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FUNCTIONS_REGION: southamerica-east1

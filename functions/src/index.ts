@@ -3238,6 +3238,72 @@ export const getReferralPublicConfig = onCall(DEFAULT_CALLABLE_OPTS, async (requ
   return { ok: true, config };
 });
 
+function referralViewForInviter(docSnap: DocumentSnapshot): Record<string, unknown> {
+  const d = (docSnap.data() || {}) as Record<string, unknown>;
+  return {
+    id: docSnap.id,
+    inviterUserId: String(d.inviterUserId || ""),
+    inviterCode: String(d.inviterCode || ""),
+    inviterName: typeof d.inviterName === "string" ? d.inviterName : null,
+    invitedUserId: String(d.invitedUserId || ""),
+    invitedUserName: typeof d.invitedUserName === "string" ? d.invitedUserName : null,
+    invitedByCode: String(d.invitedByCode || ""),
+    invitedAt: d.invitedAt ?? null,
+    createdAt: d.createdAt ?? null,
+    updatedAt: d.updatedAt ?? null,
+    status: String(d.status || "pending"),
+    referralStatus: String(d.referralStatus || d.status || "pending"),
+    referralQualified: d.referralQualified === true,
+    referralRewardGiven: d.referralRewardGiven === true,
+    inviterRewardAmount: Math.max(0, Math.floor(Number(d.inviterRewardAmount) || 0)),
+    inviterRewardCurrency: normalizeRewardCurrency(d.inviterRewardCurrency, "coins"),
+    invitedRewardAmount: Math.max(0, Math.floor(Number(d.invitedRewardAmount) || 0)),
+    invitedRewardCurrency: normalizeRewardCurrency(d.invitedRewardCurrency, "coins"),
+    inviterRewardCoins: Math.max(0, Math.floor(Number(d.inviterRewardCoins) || 0)),
+    invitedRewardCoins: Math.max(0, Math.floor(Number(d.invitedRewardCoins) || 0)),
+    inviterRewardGrantedAt: d.inviterRewardGrantedAt ?? null,
+    invitedRewardGrantedAt: d.invitedRewardGrantedAt ?? null,
+    qualifiedAt: d.qualifiedAt ?? null,
+    rewardedAt: d.rewardedAt ?? null,
+    campaignId: typeof d.campaignId === "string" ? d.campaignId : null,
+    campaignName: typeof d.campaignName === "string" ? d.campaignName : null,
+    inviteSource: typeof d.inviteSource === "string" ? d.inviteSource : null,
+    qualificationSnapshot:
+      d.qualificationSnapshot && typeof d.qualificationSnapshot === "object"
+        ? d.qualificationSnapshot
+        : null,
+    progressSnapshot:
+      d.progressSnapshot && typeof d.progressSnapshot === "object" ? d.progressSnapshot : null,
+  };
+}
+
+export const listMyInvitedReferrals = onCall(DEFAULT_CALLABLE_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  assertAuthed(uid);
+  const snap = await db
+    .collection(COL.referrals)
+    .where("inviterUserId", "==", uid)
+    .limit(100)
+    .get();
+  const items = snap.docs
+    .sort((a, b) => {
+      const bMs = Math.max(
+        millisFromFirestoreTime(b.data()?.createdAt),
+        millisFromFirestoreTime(b.data()?.invitedAt),
+        millisFromFirestoreTime(b.data()?.updatedAt),
+      );
+      const aMs = Math.max(
+        millisFromFirestoreTime(a.data()?.createdAt),
+        millisFromFirestoreTime(a.data()?.invitedAt),
+        millisFromFirestoreTime(a.data()?.updatedAt),
+      );
+      return bMs - aMs;
+    })
+    .slice(0, 50)
+    .map(referralViewForInviter);
+  return { ok: true, items };
+});
+
 async function getActiveReferralCampaign(config: ReferralConfig): Promise<ReferralCampaignResolved | null> {
   if (config.activeCampaignId) {
     const snap = await db.doc(`${COL.referralCampaigns}/${config.activeCampaignId}`).get();
@@ -6528,7 +6594,6 @@ export const initializeUserProfile = onCall(DEFAULT_CALLABLE_OPTS, async (reques
         inviterName,
         invitedUserId: uid,
         invitedUserName: nome,
-        invitedUserEmail: email,
         invitedByCode,
         invitedAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),

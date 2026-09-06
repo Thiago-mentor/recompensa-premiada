@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reapPptBothInactiveRounds = exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.getPublicProfile = exports.initializeUserProfile = exports.getReferralPublicConfig = void 0;
-exports.deleteMyAccount = exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.cleanupExpiredRateLimits = exports.reapStaleAutoMatchSlots = void 0;
+exports.reapExpiredPvpRooms = exports.riskAnalysisOnUserEvent = exports.pvpPptPresence = exports.resolvePvpRoomTimeout = exports.forfeitPvpRoom = exports.submitReactionTap = exports.submitQuizAnswer = exports.submitCardBattleCard = exports.submitPptPick = exports.leaveAutoMatch = exports.reactionSyncDuelRefill = exports.quizSyncDuelRefill = exports.pptSyncDuelRefill = exports.getMatchmakingStats = exports.joinAutoMatch = exports.adminReviewReferral = exports.adminReprocessReferral = exports.processReferralReward = exports.adminDrawRaffle = exports.adminCloseRaffle = exports.adminCreateOrUpdateRaffle = exports.listMyRafflePurchases = exports.purchaseRaffleNumbers = exports.listPublishedRaffles = exports.getActiveRaffle = exports.convertCurrency = exports.confirmRewardClaimPix = exports.reviewRewardClaim = exports.adminUpdateFraudUserState = exports.adminGrantEconomy = exports.requestRewardClaim = exports.activateStoredBoost = exports.craftBoostFromFragments = exports.claimChestReward = exports.speedUpChestUnlock = exports.startChestUnlock = exports.getUserChestItems = exports.claimMissionReward = exports.finalizeMatch = exports.adMobRewardedSsv = exports.getRewardedAdSessionStatus = exports.prepareRewardedAdSession = exports.processRouletteSpin = exports.processRewardedAd = exports.processDailyLogin = exports.updateUserAvatar = exports.getPublicProfile = exports.initializeUserProfile = exports.listMyInvitedReferrals = exports.getReferralPublicConfig = void 0;
+exports.deleteMyAccount = exports.touchUserPresence = exports.getClanMemberShowcase = exports.kickClanMember = exports.cancelClanJoinRequest = exports.rejectClanJoinRequest = exports.approveClanJoinRequest = exports.transferClanOwnership = exports.changeClanMemberRole = exports.updateClanSettings = exports.markClanChatRead = exports.sendClanMessage = exports.leaveClan = exports.requestClanAccess = exports.joinClanByCode = exports.createClan = exports.tickRaffles = exports.adminCloseReferralRanking = exports.closeReferralMonthlyRanking = exports.closeReferralWeeklyRanking = exports.closeReferralDailyRanking = exports.getArenaOverallRanking = exports.adminCloseRanking = exports.closeMonthlyRanking = exports.closeWeeklyRanking = exports.closeDailyRanking = exports.cleanupExpiredRateLimits = exports.reapStaleAutoMatchSlots = exports.reapPptBothInactiveRounds = void 0;
 const node_crypto_1 = require("node:crypto");
 const vision_1 = require("@google-cloud/vision");
 const app_1 = require("firebase-admin/app");
@@ -2474,6 +2474,60 @@ exports.getReferralPublicConfig = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, asy
     const config = { ...snap.data() };
     delete config.antiFraudRules;
     return { ok: true, config };
+});
+function referralViewForInviter(docSnap) {
+    const d = (docSnap.data() || {});
+    return {
+        id: docSnap.id,
+        inviterUserId: String(d.inviterUserId || ""),
+        inviterCode: String(d.inviterCode || ""),
+        inviterName: typeof d.inviterName === "string" ? d.inviterName : null,
+        invitedUserId: String(d.invitedUserId || ""),
+        invitedUserName: typeof d.invitedUserName === "string" ? d.invitedUserName : null,
+        invitedByCode: String(d.invitedByCode || ""),
+        invitedAt: d.invitedAt ?? null,
+        createdAt: d.createdAt ?? null,
+        updatedAt: d.updatedAt ?? null,
+        status: String(d.status || "pending"),
+        referralStatus: String(d.referralStatus || d.status || "pending"),
+        referralQualified: d.referralQualified === true,
+        referralRewardGiven: d.referralRewardGiven === true,
+        inviterRewardAmount: Math.max(0, Math.floor(Number(d.inviterRewardAmount) || 0)),
+        inviterRewardCurrency: normalizeRewardCurrency(d.inviterRewardCurrency, "coins"),
+        invitedRewardAmount: Math.max(0, Math.floor(Number(d.invitedRewardAmount) || 0)),
+        invitedRewardCurrency: normalizeRewardCurrency(d.invitedRewardCurrency, "coins"),
+        inviterRewardCoins: Math.max(0, Math.floor(Number(d.inviterRewardCoins) || 0)),
+        invitedRewardCoins: Math.max(0, Math.floor(Number(d.invitedRewardCoins) || 0)),
+        inviterRewardGrantedAt: d.inviterRewardGrantedAt ?? null,
+        invitedRewardGrantedAt: d.invitedRewardGrantedAt ?? null,
+        qualifiedAt: d.qualifiedAt ?? null,
+        rewardedAt: d.rewardedAt ?? null,
+        campaignId: typeof d.campaignId === "string" ? d.campaignId : null,
+        campaignName: typeof d.campaignName === "string" ? d.campaignName : null,
+        inviteSource: typeof d.inviteSource === "string" ? d.inviteSource : null,
+        qualificationSnapshot: d.qualificationSnapshot && typeof d.qualificationSnapshot === "object"
+            ? d.qualificationSnapshot
+            : null,
+        progressSnapshot: d.progressSnapshot && typeof d.progressSnapshot === "object" ? d.progressSnapshot : null,
+    };
+}
+exports.listMyInvitedReferrals = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (request) => {
+    const uid = request.auth?.uid;
+    assertAuthed(uid);
+    const snap = await db
+        .collection(COL.referrals)
+        .where("inviterUserId", "==", uid)
+        .limit(100)
+        .get();
+    const items = snap.docs
+        .sort((a, b) => {
+        const bMs = Math.max(millisFromFirestoreTime(b.data()?.createdAt), millisFromFirestoreTime(b.data()?.invitedAt), millisFromFirestoreTime(b.data()?.updatedAt));
+        const aMs = Math.max(millisFromFirestoreTime(a.data()?.createdAt), millisFromFirestoreTime(a.data()?.invitedAt), millisFromFirestoreTime(a.data()?.updatedAt));
+        return bMs - aMs;
+    })
+        .slice(0, 50)
+        .map(referralViewForInviter);
+    return { ok: true, items };
 });
 async function getActiveReferralCampaign(config) {
     if (config.activeCampaignId) {
@@ -5114,7 +5168,6 @@ exports.initializeUserProfile = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async
                 inviterName,
                 invitedUserId: uid,
                 invitedUserName: nome,
-                invitedUserEmail: email,
                 invitedByCode,
                 invitedAt: firestore_2.FieldValue.serverTimestamp(),
                 createdAt: firestore_2.FieldValue.serverTimestamp(),

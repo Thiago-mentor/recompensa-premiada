@@ -698,7 +698,7 @@ export default function ConvidarPage() {
                     <>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-semibold text-white">{row.invitedUserName || row.invitedUserEmail || row.invitedUserId}</p>
+                    <p className="font-semibold text-white">{row.invitedUserName || "Convidado"}</p>
                     <p className="mt-1 text-xs text-white/45">Código usado: {row.invitedByCode}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2">
