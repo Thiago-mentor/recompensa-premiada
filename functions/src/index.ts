@@ -324,6 +324,13 @@ const REWARDED_AD_NATIVE_ANDROID_PREFIX = "native_android_";
 const REWARDED_AD_TOKEN_MIN_LEN = 16;
 const REWARDED_AD_TOKEN_MAX_LEN = 256;
 const REWARDED_AD_SESSION_TTL_MS = 20 * 60 * 1000;
+// Em produção, o giro diário precisa ser confirmado pelo callback SSV do AdMob.
+// O modo legado continua disponível apenas para testes locais e admins autorizados.
+const IS_LOCAL_EMULATOR =
+  process.env.FUNCTIONS_EMULATOR === "true" || Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST);
+const REQUIRE_ROULETTE_AD_SSV =
+  process.env.REQUIRE_ROULETTE_AD_SSV === "true" ||
+  (!IS_LOCAL_EMULATOR && process.env.REQUIRE_ROULETTE_AD_SSV !== "false");
 const ADMOB_SSV_KEYS_URL = "https://gstatic.com/admob/reward/verifier-keys.json";
 const ADMOB_SSV_KEYS_TTL_MS = 24 * 60 * 60 * 1000;
 const rewardAdMockAllowed =
@@ -6849,21 +6856,46 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
   const economyConfig = await getEconomy();
   const userRef = db.doc(`${COL.users}/${uid}`);
   const today = dailyKey();
-  const { token: completionToken, isMock } =
-    mode === "daily_ad"
+  const rewardedAdSessionId = String(request.data?.rewardedAdSessionId || "").trim();
+  const rouletteSsvRequired = REQUIRE_ROULETTE_AD_SSV && mode === "daily_ad";
+  const legacyAdProof =
+    mode === "daily_ad" && !rewardedAdSessionId
       ? parseRewardedAdCompletionToken(request.data?.mockCompletionToken, {
           allowMockForAdmin: request.auth?.token?.admin === true,
         })
       : { token: "", isMock: false };
+  if (rouletteSsvRequired && !rewardedAdSessionId) {
+    const localTest = IS_LOCAL_EMULATOR;
+    const adminMock = legacyAdProof.isMock && request.auth?.token?.admin === true;
+    if (!localTest && !adminMock) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Conclua o anúncio para que o AdMob confirme o giro da roleta.",
+      );
+    }
+  }
+  const completionToken = legacyAdProof.token;
+  const isMock = legacyAdProof.isMock;
   const adminWebTestMode = isMock && request.auth?.token?.admin === true;
   const adEventId =
     mode === "daily_ad" ? hashId(uid, ROULETTE_DAILY_SPIN_PLACEMENT_ID, today, completionToken) : "";
   const adRef = adEventId ? db.doc(`${COL.adEvents}/${adEventId}`) : null;
+  const rewardedSessionRef =
+    mode === "daily_ad" && rewardedAdSessionId
+      ? db.doc(`${COL.rewardedAdSessions}/${rewardedAdSessionId}`)
+      : null;
   const matchRef = db.collection(COL.matches).doc();
 
   const result = await db.runTransaction(async (tx) => {
-    const reads = adRef ? [tx.get(userRef), tx.get(adRef)] : [tx.get(userRef)];
-    const [userSnap, adSnap] = await Promise.all(reads);
+    const reads = [tx.get(userRef)];
+    if (adRef) reads.push(tx.get(adRef));
+    if (rewardedSessionRef) reads.push(tx.get(rewardedSessionRef));
+    const snapshots = await Promise.all(reads);
+    const userSnap = snapshots[0];
+    const adSnap = adRef ? snapshots[1] : null;
+    const sessionSnap = rewardedSessionRef
+      ? snapshots[adRef ? 2 : 1]
+      : null;
     if (!userSnap.exists) throw new HttpsError("failed-precondition", "Perfil inexistente.");
     const u = userSnap.data() as Record<string, unknown>;
     if (u.banido) throw new HttpsError("permission-denied", "Conta suspensa.");
@@ -6874,6 +6906,26 @@ export const processRouletteSpin = onCall(DEFAULT_CALLABLE_OPTS, async (request)
 
     let paidCost: { amount: number; currency: RewardCurrency; balanceAfter: number } | null = null;
     if (mode === "daily_ad") {
+      if (rewardedSessionRef) {
+        if (!sessionSnap?.exists) {
+          throw new HttpsError("not-found", "Sessão de anúncio não encontrada.");
+        }
+        const session = (sessionSnap.data() || {}) as Record<string, unknown>;
+        if (String(session.userId || "") !== uid) {
+          throw new HttpsError("permission-denied", "Sessão de anúncio inválida.");
+        }
+        if (String(session.placementId || "") !== ROULETTE_DAILY_SPIN_PLACEMENT_ID) {
+          throw new HttpsError("invalid-argument", "Sessão não pertence à roleta.");
+        }
+        if (String(session.status || "") !== "recompensado") {
+          throw new HttpsError("failed-precondition", "Aguardando confirmação do AdMob.");
+        }
+        tx.update(rewardedSessionRef, {
+          status: "consumido",
+          consumedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
       // Mesmo o mock administrativo deve reproduzir os limites reais da roleta.
       // O mock autoriza apenas testar a conclusão do anúncio; nunca libera giros ilimitados.
       if (String(u.rouletteDailyAdSpinDayKey || "") === today) {
@@ -7314,7 +7366,7 @@ export const adMobRewardedSsv = onRequest(
       return;
     }
 
-    if (String(session.status || "") === "recompensado") {
+    if (["recompensado", "consumido"].includes(String(session.status || ""))) {
       response.status(200).send("OK");
       return;
     }
@@ -7348,7 +7400,11 @@ export const adMobRewardedSsv = onRequest(
     }
 
     try {
-      const result = await grantRewardedAdPlacement({
+      // A roleta não recebe saldo diretamente pelo anúncio: o SSV apenas
+      // libera uma sessão que será consumida atomicamente pelo giro.
+      const result = placementId === ROULETTE_DAILY_SPIN_PLACEMENT_ID
+        ? { rouletteReady: true, providerTransactionId: transactionId }
+        : await grantRewardedAdPlacement({
         uid,
         placementId,
         adEventId: `ssv_${transactionId}`,
