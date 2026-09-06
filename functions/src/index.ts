@@ -6069,6 +6069,8 @@ async function applyPptForfeitInTransaction(
   const hostScore = Number(r.pptHostScore ?? 0);
   const guestScore = Number(r.pptGuestScore ?? 0);
   const target = Number(r.pptTargetScore ?? PPT_MATCH_TARGET_POINTS);
+  const finalHostScore = matchWinner === "host" ? Math.max(target, hostScore) : hostScore;
+  const finalGuestScore = matchWinner === "guest" ? Math.max(target, guestScore) : guestScore;
   const lastHandH = String(r.pptLastHostHand ?? "");
   const lastHandG = String(r.pptLastGuestHand ?? "");
   const synthOut: "host_win" | "guest_win" = matchWinner === "host" ? "host_win" : "guest_win";
@@ -6108,8 +6110,8 @@ async function applyPptForfeitInTransaction(
     guestHand: lastHandG,
     lastRoundOutcome: synthOut,
     pptMatchTo: target,
-    pptFinalHostScore: hostScore,
-    pptFinalGuestScore: guestScore,
+    pptFinalHostScore: finalHostScore,
+    pptFinalGuestScore: finalGuestScore,
     pptMatchWinner: matchWinner,
     forfeit: true,
     forfeitedBy: loserUid,
@@ -6224,8 +6226,8 @@ async function applyPptForfeitInTransaction(
   tx.update(roomRef, {
     phase: "completed",
     status: "completed",
-    pptHostScore: hostScore,
-    pptGuestScore: guestScore,
+    pptHostScore: finalHostScore,
+    pptGuestScore: finalGuestScore,
     pptTargetScore: target,
     pptLastHostHand: lastHandH,
     pptLastGuestHand: lastHandG,

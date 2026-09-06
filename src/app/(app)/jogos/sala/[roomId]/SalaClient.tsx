@@ -926,11 +926,11 @@ function PlayerPillar({
       </div>
       <div
         className={cn(
-          "relative flex h-[3.35rem] w-[3.35rem] shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 text-lg font-black text-white sm:h-[5.25rem] sm:w-[5.25rem] sm:rounded-2xl sm:text-2xl",
+          "relative flex h-[3.35rem] w-[3.35rem] shrink-0 items-center justify-center rounded-xl border-2 text-lg font-black text-white sm:h-[5.25rem] sm:w-[5.25rem] sm:rounded-2xl sm:text-2xl",
           simple ? "shadow-none transition-none" : "shadow-lg transition-transform duration-300",
           ringClass,
         )}
-        style={simple ? { transform: "translate3d(0,0,0)", contain: "paint" } : undefined}
+        style={simple ? { isolation: "isolate" } : undefined}
       >
         <span
           className={cn(
@@ -2185,6 +2185,9 @@ export function SalaClient({ roomId }: { roomId: string }) {
           return { ranking: eco.rankingPoints, coins: boosted.totalCoins, boostCoins: boosted.boostCoins };
         }
         if (isPpt && room.pptMatchWinner) {
+          // Desistências registram a vitória, mas não geram prêmio automático.
+          // Isso evita que duas contas combinem W.O. para farmar ranking ou moedas.
+          if (room.pptEndedByForfeit) return null;
           const eco = resolveMatchEconomy("ppt", youWonMatch ? "vitoria" : "derrota", 0, {});
           const boosted = resolveClientBoostedReward(
             eco.rewardCoins,
@@ -2607,15 +2610,33 @@ export function SalaClient({ roomId }: { roomId: string }) {
           {isPpt && matchDone && room.pptMatchWinner ? (
             <ResultSummaryPanel
               gameLabel="Pedra, papel e tesoura"
-              title={matchVictoryLine(room, isHost)}
+              title={
+                room.pptEndedByForfeit
+                  ? youWonMatch
+                    ? "Vitória por W.O.!"
+                    : "Derrota por W.O."
+                  : matchVictoryLine(room, isHost)
+              }
               victory={youWonMatch}
               myName={myDisplayName}
               opponentName={opponentNome}
               myScore={myPts}
               oppScore={oppPts}
-              primaryLine={youWonMatch ? "Você fechou a série antes do rival." : "O adversário levou a melhor nesta série."}
-              secondaryLine={rewardBoostLine}
-              tertiaryLine={null}
+              primaryLine={
+                room.pptEndedByForfeit
+                  ? youWonMatch
+                    ? "O adversário desistiu. A vitória foi registrada para você."
+                    : "Você desistiu. A vitória foi registrada para o adversário."
+                  : youWonMatch
+                    ? "Você fechou a série antes do rival."
+                    : "O adversário levou a melhor nesta série."
+              }
+              secondaryLine={room.pptEndedByForfeit ? null : rewardBoostLine}
+              tertiaryLine={
+                room.pptEndedByForfeit
+                  ? "Partidas encerradas por desistência não geram premiação automática."
+                  : null
+              }
               rankingPoints={rewardSummary?.ranking}
               rewardCoins={rewardSummary?.coins}
               boostCoins={rewardSummary?.boostCoins}
