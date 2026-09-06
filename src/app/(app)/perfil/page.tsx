@@ -26,7 +26,7 @@ import {
 } from "@/lib/users/avatarRequirements";
 import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
-import { Banknote, Coins, Crown, Flame, ShieldAlert, Sparkles, Ticket, Trophy, Wallet } from "lucide-react";
+import { Banknote, Coins, Crown, Flame, Medal, ShieldAlert, Sparkles, Ticket, Trophy, Wallet } from "lucide-react";
 
 const PROFILE_SECTIONS = [
   { id: "conta", label: "Conta", hint: "Identidade e foto" },
@@ -330,6 +330,32 @@ export default function PerfilPage() {
                   label="Missões resgatadas"
                   value={String(profile?.totalMissionRewardsClaimed ?? 0)}
                 />
+              </div>
+            </ProfileSectionCard>
+
+            <ProfileSectionCard
+              eyebrow="Conquistas"
+              title="Troféus e ganhos de ranking"
+              description="Conquistas calculadas pelo servidor e sua evolução nos placares oficiais."
+              tone="highlight"
+            >
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <ProfileMetric label="Rankings ganhos" value={String(profile?.rankingWins ?? 0)} icon={<Trophy className="h-4 w-4 text-amber-200" />} />
+                <ProfileMetric label="Pódios" value={String(profile?.rankingPodiums ?? 0)} icon={<Medal className="h-4 w-4 text-fuchsia-200" />} />
+                <ProfileMetric label="Melhor posição" value={profile?.bestRankingPosition ? `#${profile.bestRankingPosition}` : "—"} icon={<Crown className="h-4 w-4 text-cyan-200" />} />
+                <ProfileMetric label="Pontuação atual" value={String(resolveUserRankingDailyScore(profile))} icon={<Sparkles className="h-4 w-4 text-emerald-200" />} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  { title: "Primeiro ranking", unlocked: (profile?.rankingWins ?? 0) >= 1, progress: "Ganhe uma premiação oficial" },
+                  { title: "Trinca de rankings", unlocked: (profile?.rankingWins ?? 0) >= 3, progress: `${Math.min(profile?.rankingWins ?? 0, 3)}/3 ganhos` },
+                  { title: "Podium", unlocked: (profile?.rankingPodiums ?? 0) >= 1, progress: "Fique entre os 3 primeiros" },
+                ].map((trophy) => (
+                  <div key={trophy.title} className={cn("rounded-2xl border p-3", trophy.unlocked ? "border-amber-300/25 bg-amber-400/10" : "border-white/10 bg-black/20 opacity-65")}>
+                    <div className="flex items-center gap-2"><Trophy className={cn("h-4 w-4", trophy.unlocked ? "text-amber-200" : "text-white/35")} /><p className="text-sm font-semibold text-white">{trophy.title}</p></div>
+                    <p className="mt-2 text-xs text-white/55">{trophy.unlocked ? "Conquistado" : trophy.progress}</p>
+                  </div>
+                ))}
               </div>
             </ProfileSectionCard>
 

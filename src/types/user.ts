@@ -52,6 +52,10 @@ export interface UserProfile {
   scoreRankingDiarioKey?: string | null;
   scoreRankingSemanalKey?: string | null;
   scoreRankingMensalKey?: string | null;
+  /** Conquistas de ranking calculadas e atualizadas exclusivamente pelo servidor. */
+  rankingWins?: number;
+  rankingPodiums?: number;
+  bestRankingPosition?: number | null;
   banido: boolean;
   riscoFraude: FraudRiskLevel;
   /** Indicação validada (ex.: convidado cumpriu ação mínima) */
