@@ -12508,6 +12508,28 @@ async function payRankingWinnerAtomically(input: {
     const previousBestPosition = normalizeCounter(userData.bestRankingPosition);
     const bestRankingPosition =
       previousBestPosition > 0 ? Math.min(previousBestPosition, input.pos) : input.pos;
+    const rawTrophies =
+      userData.rankingTrophies && typeof userData.rankingTrophies === "object"
+        ? (userData.rankingTrophies as Record<string, Record<string, unknown>>)
+        : {};
+    const currentGameTrophy = input.gameId ? rawTrophies[input.gameId] || {} : {};
+    const currentGameBest = normalizeCounter(currentGameTrophy.bestPosition);
+    const nextGameTrophy = input.gameId
+      ? {
+          wins: normalizeCounter(currentGameTrophy.wins) + 1,
+          podiums: normalizeCounter(currentGameTrophy.podiums) + (input.pos <= 3 ? 1 : 0),
+          bestPosition: currentGameBest > 0 ? Math.min(currentGameBest, input.pos) : input.pos,
+          lastPosition: input.pos,
+          lastPeriod: input.period,
+          lastPeriodKey: input.periodKey,
+          totalRewards: {
+            coins: normalizeCounter((currentGameTrophy.totalRewards as Record<string, unknown> | undefined)?.coins) + input.tier.rewards.coins,
+            gems: normalizeCounter((currentGameTrophy.totalRewards as Record<string, unknown> | undefined)?.gems) + input.tier.rewards.gems,
+            rewardBalance: normalizeCounter((currentGameTrophy.totalRewards as Record<string, unknown> | undefined)?.rewardBalance) + input.tier.rewards.rewardBalance,
+          },
+          updatedAt: FieldValue.serverTimestamp(),
+        }
+      : null;
 
     tx.set(
       userRef,
@@ -12516,6 +12538,9 @@ async function payRankingWinnerAtomically(input: {
         rankingWins: FieldValue.increment(1),
         rankingPodiums: FieldValue.increment(input.pos <= 3 ? 1 : 0),
         bestRankingPosition,
+        ...(input.gameId && nextGameTrophy
+          ? { rankingTrophies: { ...rawTrophies, [input.gameId]: nextGameTrophy } }
+          : {}),
         atualizadoEm: FieldValue.serverTimestamp(),
       },
       { merge: true },

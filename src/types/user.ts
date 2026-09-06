@@ -3,6 +3,17 @@ import type { Timestamp } from "./firestore";
 /** Nível de risco anti-fraude */
 export type FraudRiskLevel = "baixo" | "medio" | "alto";
 
+export interface RankingGameTrophy {
+  wins: number;
+  podiums: number;
+  bestPosition: number | null;
+  lastPosition?: number | null;
+  lastPeriod?: "diario" | "semanal" | "mensal" | null;
+  lastPeriodKey?: string | null;
+  totalRewards?: { coins?: number; gems?: number; rewardBalance?: number };
+  updatedAt?: Timestamp | null;
+}
+
 /**
  * Perfil do usuário em `users/{uid}` — alinhado ao modelo solicitado.
  * Campos sensíveis (saldos, ranking) só devem ser alterados no backend.
@@ -56,6 +67,7 @@ export interface UserProfile {
   rankingWins?: number;
   rankingPodiums?: number;
   bestRankingPosition?: number | null;
+  rankingTrophies?: Partial<Record<"ppt" | "quiz" | "reaction_tap" | "card_battle" | "roleta" | "bau" | "numero_secreto", RankingGameTrophy>>;
   banido: boolean;
   riscoFraude: FraudRiskLevel;
   /** Indicação validada (ex.: convidado cumpriu ação mínima) */

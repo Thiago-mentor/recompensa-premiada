@@ -13,6 +13,7 @@ import { ROUTES, routePerfilPublico } from "@/lib/constants/routes";
 import { BOOST_SYSTEM_DEFAULT_ENABLED, isBoostSystemEnabled } from "@/lib/features/boost";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
+import Image from "next/image";
 import { resolveAvatarUrl } from "@/lib/users/avatar";
 import { resetUserAvatar, uploadUserAvatar } from "@/services/users/avatarService";
 import { DeleteAccountPanel } from "@/components/account/DeleteAccountPanel";
@@ -26,7 +27,8 @@ import {
 } from "@/lib/users/avatarRequirements";
 import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import type { SystemEconomyConfig } from "@/types/systemConfig";
-import { Banknote, Coins, Crown, Flame, Medal, ShieldAlert, Sparkles, Ticket, Trophy, Wallet } from "lucide-react";
+import { Banknote, Brain, Coins, Crown, Disc3, Flame, Hash, Layers3, Lock, Medal, PackageOpen, ShieldAlert, Sparkles, Swords, Ticket, Trophy, Wallet, Zap, type LucideIcon } from "lucide-react";
+import type { RankingGameTrophy } from "@/types/user";
 
 const PROFILE_SECTIONS = [
   { id: "conta", label: "Conta", hint: "Identidade e foto" },
@@ -35,6 +37,16 @@ const PROFILE_SECTIONS = [
 ] as const;
 
 type ProfileSectionId = (typeof PROFILE_SECTIONS)[number]["id"];
+
+const PROFILE_RANKING_GAMES = [
+  { id: "ppt", title: "PPT", subtitle: "Pedra, papel e tesoura", icon: Swords },
+  { id: "quiz", title: "Quiz", subtitle: "Conhecimento rápido", icon: Brain },
+  { id: "reaction_tap", title: "Reaction", subtitle: "Velocidade e precisão", icon: Zap },
+  { id: "card_battle", title: "Cartas", subtitle: "Batalha estratégica", icon: Layers3 },
+  { id: "roleta", title: "Roleta", subtitle: "Rodadas premiadas", icon: Disc3 },
+  { id: "bau", title: "Baús", subtitle: "Coleção de recompensas", icon: PackageOpen },
+  { id: "numero_secreto", title: "Número", subtitle: "Desafio secreto", icon: Hash },
+] as const;
 
 function boostStatusLabel(value: unknown): string {
   if (!value || typeof value !== "object") return "Inativo";
@@ -339,23 +351,32 @@ export default function PerfilPage() {
               description="Conquistas calculadas pelo servidor e sua evolução nos placares oficiais."
               tone="highlight"
             >
+              <div className="relative overflow-hidden rounded-[1.5rem] border border-amber-300/20 bg-[radial-gradient(circle_at_75%_35%,rgba(251,191,36,0.2),transparent_30%),linear-gradient(135deg,rgba(76,29,149,0.75),rgba(15,23,42,0.94))] px-4 py-5 sm:min-h-52 sm:pr-[44%]">
+                <div className="relative z-10 max-w-sm">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-100">
+                    <Crown className="h-3.5 w-3.5" /> Hall da fama
+                  </span>
+                  <h3 className="mt-3 text-2xl font-black tracking-tight text-white">Sua coleção de campeonatos</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-white/60">Cada modalidade guarda seu melhor resultado e todas as premiações oficiais recebidas.</p>
+                </div>
+                <Image src="/assets/profile/ranking-podium-premium.png" alt="Pódio premium com troféus de ouro, prata e bronze" width={560} height={560} className="mx-auto mt-4 h-48 w-48 object-contain drop-shadow-[0_18px_28px_rgba(0,0,0,0.45)] sm:absolute sm:-bottom-8 sm:right-1 sm:mt-0 sm:h-64 sm:w-64" priority={false} />
+              </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <ProfileMetric label="Rankings ganhos" value={String(profile?.rankingWins ?? 0)} icon={<Trophy className="h-4 w-4 text-amber-200" />} />
                 <ProfileMetric label="Pódios" value={String(profile?.rankingPodiums ?? 0)} icon={<Medal className="h-4 w-4 text-fuchsia-200" />} />
                 <ProfileMetric label="Melhor posição" value={profile?.bestRankingPosition ? `#${profile.bestRankingPosition}` : "—"} icon={<Crown className="h-4 w-4 text-cyan-200" />} />
                 <ProfileMetric label="Pontuação atual" value={String(resolveUserRankingDailyScore(profile))} icon={<Sparkles className="h-4 w-4 text-emerald-200" />} />
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {[
-                  { title: "Primeiro ranking", unlocked: (profile?.rankingWins ?? 0) >= 1, progress: "Ganhe uma premiação oficial" },
-                  { title: "Trinca de rankings", unlocked: (profile?.rankingWins ?? 0) >= 3, progress: `${Math.min(profile?.rankingWins ?? 0, 3)}/3 ganhos` },
-                  { title: "Podium", unlocked: (profile?.rankingPodiums ?? 0) >= 1, progress: "Fique entre os 3 primeiros" },
-                ].map((trophy) => (
-                  <div key={trophy.title} className={cn("rounded-2xl border p-3", trophy.unlocked ? "border-amber-300/25 bg-amber-400/10" : "border-white/10 bg-black/20 opacity-65")}>
-                    <div className="flex items-center gap-2"><Trophy className={cn("h-4 w-4", trophy.unlocked ? "text-amber-200" : "text-white/35")} /><p className="text-sm font-semibold text-white">{trophy.title}</p></div>
-                    <p className="mt-2 text-xs text-white/55">{trophy.unlocked ? "Conquistado" : trophy.progress}</p>
-                  </div>
-                ))}
+              <div>
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div><p className="game-kicker">Por modalidade</p><h3 className="mt-1 text-lg font-black text-white">Galeria de troféus</h3></div>
+                  <span className="text-xs font-semibold text-white/45">{Object.values(profile?.rankingTrophies ?? {}).filter((item) => (item?.wins ?? 0) > 0).length}/{PROFILE_RANKING_GAMES.length} liberados</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {PROFILE_RANKING_GAMES.map((game) => (
+                    <GameTrophyCard key={game.id} game={game} trophy={profile?.rankingTrophies?.[game.id]} />
+                  ))}
+                </div>
               </div>
             </ProfileSectionCard>
 
@@ -498,6 +519,54 @@ function ProfileMetric({
       <p className="mt-2 text-lg font-semibold text-white">{value}</p>
     </div>
   );
+}
+
+function GameTrophyCard({
+  game,
+  trophy,
+}: {
+  game: { id: string; title: string; subtitle: string; icon: LucideIcon };
+  trophy?: RankingGameTrophy;
+}) {
+  const Icon = game.icon;
+  const unlocked = (trophy?.wins ?? 0) > 0;
+  const best = trophy?.bestPosition ?? null;
+  const medalTone = best === 1
+    ? "from-amber-200 via-yellow-400 to-amber-600 text-amber-950"
+    : best === 2
+      ? "from-slate-100 via-slate-300 to-slate-500 text-slate-900"
+      : best === 3
+        ? "from-orange-200 via-orange-500 to-amber-800 text-orange-950"
+        : "from-violet-300 via-fuchsia-500 to-violet-800 text-white";
+  const rewards = trophy?.totalRewards;
+
+  return (
+    <article className={cn("relative overflow-hidden rounded-[1.35rem] border p-4 transition", unlocked ? "border-amber-300/20 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.14),transparent_38%),rgba(0,0,0,0.24)] shadow-[0_18px_36px_-28px_rgba(251,191,36,0.5)]" : "border-white/10 bg-black/20 opacity-70")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.05]"><Icon className="h-5 w-5 text-cyan-100/80" /></span>
+          <div className="min-w-0"><h4 className="truncate text-sm font-black text-white">{game.title}</h4><p className="mt-0.5 truncate text-[11px] text-white/45">{game.subtitle}</p></div>
+        </div>
+        <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br shadow-lg", unlocked ? medalTone : "from-slate-700 to-slate-900 text-white/40")}>
+          {unlocked ? <Trophy className="h-5 w-5" /> : <Lock className="h-4 w-4" />}
+        </span>
+      </div>
+      {unlocked ? (
+        <>
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            <MiniTrophyStat label="Melhor" value={best ? `#${best}` : "—"} />
+            <MiniTrophyStat label="Ganhos" value={String(trophy?.wins ?? 0)} />
+            <MiniTrophyStat label="Pódios" value={String(trophy?.podiums ?? 0)} />
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-white/55">{Math.max(0, rewards?.coins ?? 0).toLocaleString("pt-BR")} PR · {Math.max(0, rewards?.gems ?? 0).toLocaleString("pt-BR")} TICKET · {Math.max(0, rewards?.rewardBalance ?? 0).toLocaleString("pt-BR")} saldo</p>
+        </>
+      ) : <p className="mt-4 text-xs text-white/45">Conquiste uma premiação neste ranking para liberar.</p>}
+    </article>
+  );
+}
+
+function MiniTrophyStat({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-white/8 bg-black/20 px-2 py-2"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-white/35">{label}</p><p className="mt-1 text-xs font-black text-white">{value}</p></div>;
 }
 
 function ProfileSectionCard({
