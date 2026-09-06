@@ -27,6 +27,8 @@ import type { ReferralRecord } from "@/types/referral";
 import type { FraudRiskLevel, UserProfile } from "@/types/user";
 import {
   Ban,
+  Activity,
+  Filter,
   Eye,
   RefreshCw,
   Search,
@@ -100,6 +102,8 @@ export default function AdminFraudesPage() {
   const [savingRules, setSavingRules] = useState(false);
   const [savingUserState, setSavingUserState] = useState(false);
   const [busyReferralAction, setBusyReferralAction] = useState<string | null>(null);
+  const [logFilter, setLogFilter] = useState<"todos" | "alta" | "media" | "baixa">("todos");
+  const [logQuery, setLogQuery] = useState("");
 
   const showMessage = useCallback((tone: "info" | "success" | "error", text: string) => {
     notify(tone, text);
@@ -229,6 +233,24 @@ export default function AdminFraudesPage() {
     const server = logs.filter((log) => log.origem !== "client" && log.origem !== "admin").length;
     return { client, admin, server };
   }, [logs]);
+
+  const filteredLogs = useMemo(() => {
+    const term = logQuery.trim().toLowerCase();
+    return logs.filter((log) => {
+      if (logFilter !== "todos" && log.severidade !== logFilter) return false;
+      if (!term) return true;
+      return [log.tipo, log.uid, log.userName, log.username, stringifyDetails(log.detalhes)]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(term);
+    });
+  }, [logFilter, logQuery, logs]);
+
+  const protectionScore = Math.max(
+    0,
+    Math.min(100, 100 - stats.highSeverityLogs * 8 - stats.manualReviewQueue * 4),
+  );
 
   async function saveRules() {
     setSavingRules(true);
@@ -500,6 +522,22 @@ export default function AdminFraudesPage() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-cyan-200" />
+                  <p className="text-sm font-semibold text-white">Postura de proteção</p>
+                </div>
+                <span className={cn("text-lg font-black", protectionScore >= 80 ? "text-emerald-300" : protectionScore >= 55 ? "text-amber-300" : "text-rose-300")}>
+                  {protectionScore}%
+                </span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                <div className={cn("h-full rounded-full transition-all", protectionScore >= 80 ? "bg-emerald-400" : protectionScore >= 55 ? "bg-amber-400" : "bg-rose-400")} style={{ width: `${protectionScore}%` }} />
+              </div>
+              <p className="mt-2 text-xs text-white/45">Indicador operacional baseado em alertas críticos e fila manual.</p>
+            </div>
+
             <Link href={ROUTES.admin.indicacoes} className="inline-flex">
               <Button variant="ghost">
                 <Eye className="h-4 w-4" />
@@ -523,11 +561,27 @@ export default function AdminFraudesPage() {
               </span>
             </div>
 
-            {logs.length === 0 ? (
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px]">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+                <input value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="Buscar por usuário, tipo ou detalhe" className="w-full rounded-xl border border-white/10 bg-black/25 py-2 pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-cyan-400/40" />
+              </label>
+              <label className="relative block">
+                <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+                <select value={logFilter} onChange={(event) => setLogFilter(event.target.value as typeof logFilter)} className="w-full appearance-none rounded-xl border border-white/10 bg-black/25 py-2 pl-9 pr-3 text-sm text-white outline-none focus:border-cyan-400/40">
+                  <option value="todos">Todas severidades</option>
+                  <option value="alta">Alta</option>
+                  <option value="media">Média</option>
+                  <option value="baixa">Baixa</option>
+                </select>
+              </label>
+            </div>
+
+            {filteredLogs.length === 0 ? (
               <EmptyState text="Nenhum log recente disponível no momento." />
             ) : (
               <div className="space-y-3">
-                {logs.slice(0, 6).map((log) => (
+                {filteredLogs.slice(0, 8).map((log) => (
                   <FraudLogCard key={log.id} log={log} />
                 ))}
               </div>
