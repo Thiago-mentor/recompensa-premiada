@@ -895,15 +895,17 @@ function PlayerPillar({
   return (
     <div
       className={cn(
-        "flex flex-1 flex-col gap-1.5 sm:gap-2",
-        align === "left" ? "items-start text-left" : "items-end text-right",
+        "flex min-w-0 w-full flex-col items-center gap-1.5 text-center sm:gap-2",
+        align === "left"
+          ? "sm:items-start sm:text-left"
+          : "sm:items-end sm:text-right",
       )}
     >
       <div
         className={cn(
-          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 sm:gap-1.5 sm:px-2.5 sm:py-1",
+          "inline-flex w-full min-w-0 max-w-[6.5rem] items-center justify-center gap-1 rounded-full border px-2 py-0.5 sm:max-w-[11rem] sm:gap-1.5 sm:px-2.5 sm:py-1",
           simple ? "border-white/8 bg-slate-950" : "border-white/10 bg-white/[0.04]",
-          align === "left" ? "" : "flex-row-reverse",
+          align === "left" ? "sm:justify-start" : "sm:flex-row-reverse sm:justify-start",
         )}
       >
         <span
@@ -918,13 +920,13 @@ function PlayerPillar({
                 : "bg-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.75)]",
           )}
         />
-        <p className="max-w-[7rem] truncate text-[9px] font-bold uppercase tracking-[0.12em] text-white/70 sm:max-w-[11rem] sm:text-[10px]">
+        <p className="min-w-0 truncate text-[9px] font-bold uppercase tracking-[0.1em] text-white/70 sm:text-[10px] sm:tracking-[0.12em]">
           {nome}
         </p>
       </div>
       <div
         className={cn(
-          "relative flex h-[3.35rem] w-[3.35rem] items-center justify-center rounded-xl border-2 text-lg font-black text-white sm:h-[5.25rem] sm:w-[5.25rem] sm:rounded-2xl sm:text-2xl",
+          "relative flex h-[3.35rem] w-[3.35rem] shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 text-lg font-black text-white sm:h-[5.25rem] sm:w-[5.25rem] sm:rounded-2xl sm:text-2xl",
           simple ? "shadow-none transition-none" : "shadow-lg transition-transform duration-300",
           ringClass,
         )}
@@ -932,7 +934,7 @@ function PlayerPillar({
       >
         <span
           className={cn(
-            "relative z-10 font-mono text-2xl sm:text-4xl",
+            "relative z-10 font-sans text-2xl font-black leading-none tabular-nums sm:text-4xl",
             !simple && "drop-shadow-[0_0_12px_rgba(255,255,255,0.35)]",
           )}
         >
@@ -2453,7 +2455,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                 {battleCopy.title}
               </p>
             </div>
-            <div className="flex items-center justify-between gap-2 sm:gap-4">
+            <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_4.4rem_minmax(0,1fr)] items-start gap-1.5 sm:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1fr)] sm:gap-4">
               <PlayerPillar
                 nome={myDisplayName}
                 score={duelMyPts}
