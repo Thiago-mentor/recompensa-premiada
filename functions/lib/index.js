@@ -8588,15 +8588,15 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     const shardSnap = await coll.where("queueShard", "==", queueShard).limit(2).get();
     let partnerDoc = shardSnap.docs.find((d) => d.id !== uid);
     if (!partnerDoc) {
-        // Reune shards impares em pares disjuntos. Apenas o primeiro de cada par disputa a transacao.
+        // Procura o candidato mais antigo independentemente da posição do próprio
+        // usuário na janela. A estratégia anterior exigia que ambos aparecessem
+        // entre os 64 mais antigos; documentos órfãos podiam impedir novos pares
+        // de se encontrarem indefinidamente. A transação abaixo resolve disputas.
         const fallbackSnap = await coll
             .orderBy("joinedAt", "asc")
             .limit(MATCHMAKING_FALLBACK_BATCH_SIZE)
             .get();
-        const selfIndex = fallbackSnap.docs.findIndex((d) => d.id === uid);
-        if (selfIndex >= 0 && selfIndex % 2 === 0) {
-            partnerDoc = fallbackSnap.docs[selfIndex + 1];
-        }
+        partnerDoc = fallbackSnap.docs.find((d) => d.id !== uid);
     }
     if (!partnerDoc) {
         return { status: "waiting" };
