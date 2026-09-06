@@ -6829,6 +6829,15 @@ export const processRewardedAd = onCall(DEFAULT_CALLABLE_OPTS, async (request) =
   if (!ALLOWED_REWARDED_AD_PLACEMENTS.has(placementId)) {
     throw new HttpsError("invalid-argument", "placementId inválido.");
   }
+  // Números de sorteio só podem ser liberados por uma sessão SSV consumida
+  // em purchaseRaffleNumbers. Nunca aceite o token local do WebView como prova
+  // em produção, pois ele pode ser fabricado fora do fluxo real do AdMob.
+  if (placementId === RAFFLE_NUMBER_PLACEMENT_ID && REQUIRE_ROULETTE_AD_SSV && !IS_LOCAL_EMULATOR) {
+    throw new HttpsError(
+      "failed-precondition",
+      "O número do sorteio precisa ser confirmado pelo AdMob antes do resgate.",
+    );
+  }
   const { token: completionToken, isMock } = parseRewardedAdCompletionToken(
     request.data?.mockCompletionToken,
     { allowMockForAdmin: request.auth?.token?.admin === true },
@@ -9170,6 +9179,12 @@ export const purchaseRaffleNumbers = onCall(DEFAULT_CALLABLE_OPTS, async (reques
       throw new HttpsError(
         "invalid-argument",
         "Informe rewardedAdSessionId (app com validação AdMob) ou rewardedAdCompletionToken (apenas ambientes autorizados), um dos dois.",
+      );
+    }
+    if (REQUIRE_ROULETTE_AD_SSV && !IS_LOCAL_EMULATOR && !rewardedAdSessionIdIn) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Use uma sessão de anúncio confirmada pelo AdMob para obter o número.",
       );
     }
   }
