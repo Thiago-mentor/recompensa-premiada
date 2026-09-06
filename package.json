@@ -14,6 +14,7 @@
     "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm --prefix functions run build",
     "audit:prod": "npm audit --omit=dev && npm --prefix functions audit --omit=dev",
     "load:probe": "node scripts/load-probe.cjs",
+    "load:accounts:emulator": "npm --prefix functions run build && npx -y firebase-tools@15.29.0 emulators:exec --only firestore \"node scripts/load-accounts-emulator.mjs\"",
     "reset:daily-login": "node scripts/reset-daily-streak.cjs",
     "grant-admin": "node scripts/grant-admin-claims.cjs",
     "emulators": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions,storage",

@@ -2334,7 +2334,9 @@ function assertAllowedPublicName(value, fieldLabel) {
     }
 }
 function randomReferralCode(seed) {
-    return `${seed}${randomCode(4)}`.slice(0, 8);
+    // Dois caracteres reconheciveis + seis aleatorios reduzem drasticamente colisoes
+    // quando muitos cadastros com nomes parecidos acontecem ao mesmo tempo.
+    return `${seed.slice(0, 2)}${randomCode(6)}`;
 }
 function avatarInitials(name) {
     const parts = String(name || "")
@@ -8099,6 +8101,17 @@ exports.adminReviewReferral = (0, https_1.onCall)(DEFAULT_CALLABLE_OPTS, async (
 function waitingColl(gameId) {
     return db.collection(`${COL.matchmakingQueue}/${gameId}/waiting`);
 }
+const MATCHMAKING_QUEUE_SHARDS = 256;
+const MATCHMAKING_FALLBACK_BATCH_SIZE = 64;
+/** Distribui picos de entrada sem depender de estado compartilhado entre instancias. */
+function matchmakingQueueShard(uid) {
+    let hash = 2166136261;
+    for (let index = 0; index < uid.length; index += 1) {
+        hash ^= uid.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) % MATCHMAKING_QUEUE_SHARDS;
+}
 function slotRef(uid) {
     return db.doc(`${COL.multiplayerSlots}/${uid}`);
 }
@@ -8201,22 +8214,32 @@ exports.joinAutoMatch = (0, https_1.onCall)(MULTIPLAYER_CALLABLE_OPTS, async (re
     }, { merge: true });
     const waitRef = coll.doc(uid);
     const waitSnap = await waitRef.get();
+    const queueShard = matchmakingQueueShard(uid);
     if (!waitSnap.exists) {
         await waitRef.set({
             uid,
             nome,
             foto,
+            queueShard,
             joinedAt: firestore_2.FieldValue.serverTimestamp(),
         });
     }
-    const snap = await coll.orderBy("joinedAt", "asc").limit(2).get();
-    const others = snap.docs.filter((d) => d.id !== uid);
-    const partnerDoc = others[0];
-    console.info("joinAutoMatch queue check", {
-        gameId,
-        waitingCandidates: snap.size,
-        hasPartner: Boolean(partnerDoc),
-    });
+    else if (waitSnap.data()?.queueShard !== queueShard) {
+        await waitRef.set({ queueShard }, { merge: true });
+    }
+    const shardSnap = await coll.where("queueShard", "==", queueShard).limit(2).get();
+    let partnerDoc = shardSnap.docs.find((d) => d.id !== uid);
+    if (!partnerDoc) {
+        // Reune shards impares em pares disjuntos. Apenas o primeiro de cada par disputa a transacao.
+        const fallbackSnap = await coll
+            .orderBy("joinedAt", "asc")
+            .limit(MATCHMAKING_FALLBACK_BATCH_SIZE)
+            .get();
+        const selfIndex = fallbackSnap.docs.findIndex((d) => d.id === uid);
+        if (selfIndex >= 0 && selfIndex % 2 === 0) {
+            partnerDoc = fallbackSnap.docs[selfIndex + 1];
+        }
+    }
     if (!partnerDoc) {
         return { status: "waiting" };
     }
