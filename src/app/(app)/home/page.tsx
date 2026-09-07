@@ -42,6 +42,7 @@ import { getBauHomeTileLines } from "@/utils/chest";
 import type { GrantedChestSummary } from "@/types/chest";
 import type { RaffleView } from "@/types/raffle";
 import type { RankingEntry } from "@/types/ranking";
+import { BoostStatusBanner } from "@/components/boost/BoostStatusBanner";
 
 const WEEKLY_GAME_LEADERS_LIMIT = 3;
 const WEEKLY_GAME_LEADER_CARDS = [
@@ -393,6 +394,8 @@ export default function HomePage() {
             <ChestGrantNotice grantedChest={grantedChestNotice} label="Novo baú concedido" />
           </div>
         ) : null}
+
+        <BoostStatusBanner className="mt-3" />
 
         <Link
           href={activeRaffle ? ROUTES.sorteios : ROUTES.ranking}

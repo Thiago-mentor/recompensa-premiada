@@ -46,6 +46,7 @@ import {
 import { useReducedGameFx } from "@/modules/jogos/hooks/useReducedGameFx";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useAuth } from "@/hooks/useAuth";
+import { BoostStatusBanner } from "@/components/boost/BoostStatusBanner";
 
 function formatCountdownMs(remainingMs: number): string {
   const s = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -504,6 +505,8 @@ export function FilaClient() {
               {error}
             </AlertBanner>
           ) : null}
+
+          <BoostStatusBanner />
 
           {(gameId === "ppt" || gameId === "quiz" || gameId === "reaction_tap") &&
           (gameId === "ppt"

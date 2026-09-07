@@ -1,7 +1,7 @@
 import type { GameId } from "@/types/game";
 import type { ExperienceCatalogConfigEntry, ExperienceCategory } from "@/types/systemConfig";
 import { GAME_COOLDOWN_SEC } from "@/lib/games/gameEconomy";
-import { ROUTES, routeJogosFilaBuscar } from "@/lib/constants/routes";
+import { ROUTES } from "@/lib/constants/routes";
 
 export type GameCatalogEntry = {
   id: GameId;
@@ -26,7 +26,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     slug: "pedra-papel-tesoura",
     title: "Pedra, papel e tesoura",
     subtitle: "1v1 real · fila automática · melhor de N na sala",
-    href: routeJogosFilaBuscar("ppt"),
+    href: `${ROUTES.jogosFila}?gameId=ppt`,
     cooldownSec: GAME_COOLDOWN_SEC.ppt,
     multiplayerReady: true,
     experienceKind: "arena",
@@ -38,7 +38,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     slug: "quiz",
     title: "Quiz rápido 1×1",
     subtitle: "1v1 real · fila automática",
-    href: routeJogosFilaBuscar("quiz"),
+    href: `${ROUTES.jogosFila}?gameId=quiz`,
     cooldownSec: GAME_COOLDOWN_SEC.quiz,
     multiplayerReady: true,
     experienceKind: "arena",
@@ -50,7 +50,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     slug: "reaction",
     title: "Reaction tap",
     subtitle: "1v1 real · fila automática",
-    href: routeJogosFilaBuscar("reaction_tap"),
+    href: `${ROUTES.jogosFila}?gameId=reaction_tap`,
     cooldownSec: GAME_COOLDOWN_SEC.reaction_tap,
     multiplayerReady: true,
     experienceKind: "arena",
@@ -62,7 +62,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     slug: "cartas",
     title: "Batalha de cartas",
     subtitle: "1v1 real - estrategia rapida - melhor de 5",
-    href: routeJogosFilaBuscar("card_battle"),
+    href: `${ROUTES.jogosFila}?gameId=card_battle`,
     cooldownSec: GAME_COOLDOWN_SEC.card_battle,
     multiplayerReady: true,
     experienceKind: "arena",

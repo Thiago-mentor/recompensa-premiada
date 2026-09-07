@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { fetchMatchmakingStats } from "@/services/matchmaking/autoQueueService";
 import { Gift, Gem, Swords, Trophy, Zap } from "lucide-react";
+import { BoostStatusBanner } from "@/components/boost/BoostStatusBanner";
 
 const linkBtn =
   "template-3d-button inline-flex min-h-[46px] items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-bold transition";
@@ -123,6 +124,10 @@ export function JogosHubClient() {
             </div>
           </div>
         </motion.header>
+
+        <motion.div variants={fadeUpItem}>
+          <BoostStatusBanner />
+        </motion.div>
 
         <motion.section variants={fadeUpItem} className="space-y-4 rounded-[1.6rem] border border-white/10 bg-black/18 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-4">
           <div className="flex items-center justify-between gap-3">
