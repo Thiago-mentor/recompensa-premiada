@@ -150,7 +150,7 @@ function LeaveRoomDialog({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[120] flex items-end justify-center bg-black/80 p-3 backdrop-blur-md sm:items-center sm:p-4"
+      className="fixed inset-0 z-[1200] flex items-end justify-center overflow-y-auto overscroll-contain bg-black/80 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:items-center sm:p-4 sm:pb-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -158,7 +158,7 @@ function LeaveRoomDialog({
       onClick={busy ? undefined : onCancel}
     >
       <motion.div
-        className="relative w-full max-w-md overflow-hidden rounded-[1.5rem] border border-red-400/28 bg-[radial-gradient(circle_at_top,rgba(248,113,113,0.16),transparent_28%),linear-gradient(135deg,rgba(76,5,25,0.68),rgba(2,6,23,0.96)_58%,rgba(80,7,36,0.78))] p-5 shadow-[0_20px_60px_-16px_rgba(0,0,0,0.7),0_0_40px_-16px_rgba(248,113,113,0.32)] sm:p-6"
+        className="relative max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-full max-w-md overflow-x-hidden overflow-y-auto overscroll-contain rounded-[1.5rem] border border-red-400/28 bg-[radial-gradient(circle_at_top,rgba(248,113,113,0.16),transparent_28%),linear-gradient(135deg,rgba(76,5,25,0.68),rgba(2,6,23,0.96)_58%,rgba(80,7,36,0.78))] p-5 shadow-[0_20px_60px_-16px_rgba(0,0,0,0.7),0_0_40px_-16px_rgba(248,113,113,0.32)] [-webkit-overflow-scrolling:touch] sm:max-h-[calc(100dvh-2rem)] sm:p-6"
         initial={{ opacity: 0, y: 18, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 12, scale: 0.98 }}
@@ -188,7 +188,7 @@ function LeaveRoomDialog({
             </p>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="sticky bottom-0 z-10 -mx-1 -mb-1 grid gap-2 rounded-xl bg-slate-950/94 p-1 pt-2 shadow-[0_-14px_24px_-18px_rgba(2,6,23,0.95)] backdrop-blur-xl sm:static sm:mx-0 sm:mb-0 sm:grid-cols-2 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none">
             <Button variant="secondary" size="lg" disabled={busy} onClick={onCancel}>
               Continuar jogando
             </Button>
