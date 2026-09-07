@@ -4618,37 +4618,22 @@ async function shouldCreditRankedPvpMatch(input: {
     const [matchSnap, pairSnap] = await Promise.all([tx.get(matchRef), tx.get(pairRef)]);
     if (matchSnap.exists) {
       const wasCredited = matchSnap.data()?.credited === true;
-      // A elegibilidade pode ter sido reservada ao criar a sala, mas uma
-      // desistência explícita nunca pode produzir economia/ranking.
-      if (input.forfeit === true && wasCredited) {
+      if (input.forfeit === true) {
         tx.set(
           matchRef,
           {
-            credited: false,
-            reason: "explicit_forfeit",
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
-        tx.set(
-          pairRef,
-          {
-            creditedMatches: FieldValue.increment(-1),
+            endedByForfeit: true,
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true },
         );
       }
-      return input.forfeit === true ? false : wasCredited;
+      return wasCredited;
     }
 
     const previousCount = Math.max(0, Math.floor(Number(pairSnap.data()?.completedMatches) || 0));
-    const credited = input.forfeit !== true && previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
-    const reason = input.forfeit === true
-      ? "explicit_forfeit"
-      : credited
-        ? null
-        : "pair_daily_limit";
+    const credited = previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
+    const reason = credited ? null : "pair_daily_limit";
 
     tx.set(
       pairRef,
@@ -4669,6 +4654,7 @@ async function shouldCreditRankedPvpMatch(input: {
       gameId: input.gameId,
       credited,
       reason,
+      endedByForfeit: input.forfeit === true,
       createdAt: FieldValue.serverTimestamp(),
     });
     return credited;
@@ -5141,7 +5127,7 @@ async function applyCardBattleMatchCompletionInTransaction(
     { ...metaBase, cardPower: guestPower },
     economyConfig.matchRewardOverrides,
   );
-  const rewardsAllowed = r.economyEligible === true && !forfeitByUid;
+  const rewardsAllowed = r.economyEligible === true;
   const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu as Record<string, unknown>, economyConfig);
   const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu as Record<string, unknown>, economyConfig);
   const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
@@ -5597,8 +5583,7 @@ async function applyQuizForfeitInTransaction(
   const economyConfig = await getEconomy();
   const ecoH = resolveMatchEconomy("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
   const ecoG = resolveMatchEconomy("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
-  // Desistência explícita encerra a sala, mas não gera valor para nenhuma conta.
-  const rewardsAllowed = false;
+  const rewardsAllowed = r.economyEligible === true;
   const boostedH = resolveBoostedCoins(
     rewardsAllowed ? ecoH.rewardCoins : 0,
     hUSnap.data() as Record<string, unknown>,
@@ -6119,7 +6104,7 @@ async function applyPptForfeitInTransaction(
   const economyConfig = await getEconomy();
   const ecoH = resolveMatchEconomy("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
   const ecoG = resolveMatchEconomy("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
-  const rewardsAllowed = false;
+  const rewardsAllowed = r.economyEligible === true;
   const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu as Record<string, unknown>, economyConfig);
   const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu as Record<string, unknown>, economyConfig);
 

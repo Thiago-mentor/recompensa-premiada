@@ -2185,9 +2185,6 @@ export function SalaClient({ roomId }: { roomId: string }) {
           return { ranking: eco.rankingPoints, coins: boosted.totalCoins, boostCoins: boosted.boostCoins };
         }
         if (isPpt && room.pptMatchWinner) {
-          // Desistências registram a vitória, mas não geram prêmio automático.
-          // Isso evita que duas contas combinem W.O. para farmar ranking ou moedas.
-          if (room.pptEndedByForfeit) return null;
           const eco = resolveMatchEconomy("ppt", youWonMatch ? "vitoria" : "derrota", 0, {});
           const boosted = resolveClientBoostedReward(
             eco.rewardCoins,
@@ -2631,10 +2628,10 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     ? "Você fechou a série antes do rival."
                     : "O adversário levou a melhor nesta série."
               }
-              secondaryLine={room.pptEndedByForfeit ? null : rewardBoostLine}
+              secondaryLine={rewardBoostLine}
               tertiaryLine={
                 room.pptEndedByForfeit
-                  ? "Partidas encerradas por desistência não geram premiação automática."
+                  ? "A vitória por W.O. concede a mesma pontuação e premiação de uma vitória normal."
                   : null
               }
               rankingPoints={rewardSummary?.ranking}

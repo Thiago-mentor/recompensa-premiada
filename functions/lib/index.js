@@ -3565,28 +3565,17 @@ async function shouldCreditRankedPvpMatch(input) {
         const [matchSnap, pairSnap] = await Promise.all([tx.get(matchRef), tx.get(pairRef)]);
         if (matchSnap.exists) {
             const wasCredited = matchSnap.data()?.credited === true;
-            // A elegibilidade pode ter sido reservada ao criar a sala, mas uma
-            // desistência explícita nunca pode produzir economia/ranking.
-            if (input.forfeit === true && wasCredited) {
+            if (input.forfeit === true) {
                 tx.set(matchRef, {
-                    credited: false,
-                    reason: "explicit_forfeit",
-                    updatedAt: firestore_2.FieldValue.serverTimestamp(),
-                }, { merge: true });
-                tx.set(pairRef, {
-                    creditedMatches: firestore_2.FieldValue.increment(-1),
+                    endedByForfeit: true,
                     updatedAt: firestore_2.FieldValue.serverTimestamp(),
                 }, { merge: true });
             }
-            return input.forfeit === true ? false : wasCredited;
+            return wasCredited;
         }
         const previousCount = Math.max(0, Math.floor(Number(pairSnap.data()?.completedMatches) || 0));
-        const credited = input.forfeit !== true && previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
-        const reason = input.forfeit === true
-            ? "explicit_forfeit"
-            : credited
-                ? null
-                : "pair_daily_limit";
+        const credited = previousCount < MAX_RANKED_MATCHES_PER_PAIR_PER_DAY;
+        const reason = credited ? null : "pair_daily_limit";
         tx.set(pairRef, {
             day,
             gameId: input.gameId,
@@ -3602,6 +3591,7 @@ async function shouldCreditRankedPvpMatch(input) {
             gameId: input.gameId,
             credited,
             reason,
+            endedByForfeit: input.forfeit === true,
             createdAt: firestore_2.FieldValue.serverTimestamp(),
         });
         return credited;
@@ -3980,7 +3970,7 @@ async function applyCardBattleMatchCompletionInTransaction(tx, roomRef, roomId, 
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("card_battle", hostRes, hostPower, { ...metaBase, cardPower: hostPower }, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("card_battle", guestRes, guestPower, { ...metaBase, cardPower: guestPower }, economyConfig.matchRewardOverrides);
-    const rewardsAllowed = r.economyEligible === true && !forfeitByUid;
+    const rewardsAllowed = r.economyEligible === true;
     const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu, economyConfig);
     const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu, economyConfig);
     const hostClanScoreTarget = await readClanScoreCreditTargetTx(tx, hostUid);
@@ -4359,8 +4349,7 @@ async function applyQuizForfeitInTransaction(tx, roomRef, roomId, r, forfeitedBy
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("quiz", hostRes, 0, hostMeta, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("quiz", guestRes, 0, guestMeta, economyConfig.matchRewardOverrides);
-    // Desistência explícita encerra a sala, mas não gera valor para nenhuma conta.
-    const rewardsAllowed = false;
+    const rewardsAllowed = r.economyEligible === true;
     const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hUSnap.data(), economyConfig);
     const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gUSnap.data(), economyConfig);
     const finishedTs = firestore_2.Timestamp.now();
@@ -4768,7 +4757,7 @@ async function applyPptForfeitInTransaction(tx, roomRef, roomId, r, loserUid) {
     const economyConfig = await getEconomy();
     const ecoH = (0, gameEconomy_1.resolveMatchEconomy)("ppt", hostRes, 0, metaBase, economyConfig.matchRewardOverrides);
     const ecoG = (0, gameEconomy_1.resolveMatchEconomy)("ppt", guestRes, 0, metaBase, economyConfig.matchRewardOverrides);
-    const rewardsAllowed = false;
+    const rewardsAllowed = r.economyEligible === true;
     const boostedH = resolveBoostedCoins(rewardsAllowed ? ecoH.rewardCoins : 0, hu, economyConfig);
     const boostedG = resolveBoostedCoins(rewardsAllowed ? ecoG.rewardCoins : 0, gu, economyConfig);
     const finishedTs = firestore_2.Timestamp.now();
