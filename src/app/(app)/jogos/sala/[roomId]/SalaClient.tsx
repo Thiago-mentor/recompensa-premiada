@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils/cn";
 import { fetchEconomyConfigDocument } from "@/services/systemConfigs/economyDocumentCache";
 import { AnimatePresence, motion } from "framer-motion";
 import { RefreshCw, WifiOff } from "lucide-react";
+import { createPortal } from "react-dom";
 
 const PPT_HANDS = ["pedra", "papel", "tesoura"] as const;
 type PptHand = (typeof PPT_HANDS)[number];
@@ -144,11 +145,11 @@ function LeaveRoomDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  if (!open || !intent) return null;
+  if (!open || !intent || typeof document === "undefined") return null;
 
   const copy = leavePromptCopy(intent);
 
-  return (
+  return createPortal(
     <motion.div
       className="fixed inset-0 z-[1200] flex items-end justify-center overflow-y-auto overscroll-contain bg-black/80 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:items-center sm:p-4 sm:pb-4"
       initial={{ opacity: 0 }}
@@ -198,7 +199,8 @@ function LeaveRoomDialog({
           </div>
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }
 
@@ -2629,11 +2631,7 @@ export function SalaClient({ roomId }: { roomId: string }) {
                     : "O adversário levou a melhor nesta série."
               }
               secondaryLine={rewardBoostLine}
-              tertiaryLine={
-                room.pptEndedByForfeit
-                  ? "A vitória por W.O. concede a mesma pontuação e premiação de uma vitória normal."
-                  : null
-              }
+              tertiaryLine={null}
               rankingPoints={rewardSummary?.ranking}
               rewardCoins={rewardSummary?.coins}
               boostCoins={rewardSummary?.boostCoins}
