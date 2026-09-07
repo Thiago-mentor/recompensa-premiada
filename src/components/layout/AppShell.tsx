@@ -19,6 +19,7 @@ import { DailyRewardModalHost } from "@/components/dailyReward/DailyRewardModalH
 import { CasinoCard } from "@/components/cards/CasinoCard";
 import { CenterScreenFeedbackProvider } from "@/components/feedback/CenterScreenFeedback";
 import { premiumHeroLinkClassName } from "@/components/ui/Button";
+import { SessionResumeGuard } from "@/components/providers/SessionResumeGuard";
 
 const nav = [
   { href: ROUTES.home, label: "Início", icon: Home },
@@ -36,6 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <CenterScreenFeedbackProvider>
+      <SessionResumeGuard />
       <div className="template-3d-scene relative flex min-h-dvh flex-col overflow-x-clip bg-[linear-gradient(180deg,#070B1A_0%,#0a1022_45%,#0F172A_100%)] text-white">
         <div
           aria-hidden
