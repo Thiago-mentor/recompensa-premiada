@@ -128,7 +128,6 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "daily_quiz", label: "QUIZ" },
       { id: "daily_reaction_tap", label: "REACTION" },
       { id: "daily_card_battle", label: "CARTAS" },
-      { id: "daily_card_battle", label: "CARTAS" },
       { id: "daily_clan", label: "CLÃ" },
     ],
   },
@@ -139,7 +138,6 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "weekly_quiz", label: "QUIZ" },
       { id: "weekly_reaction_tap", label: "REACTION" },
       { id: "weekly_card_battle", label: "CARTAS" },
-      { id: "weekly_card_battle", label: "CARTAS" },
       { id: "weekly_clan", label: "CLÃ" },
     ],
   },
@@ -149,7 +147,6 @@ const RANKING_SELECT_GROUPS: Array<{
       { id: "monthly_ppt", label: "PPT" },
       { id: "monthly_quiz", label: "QUIZ" },
       { id: "monthly_reaction_tap", label: "REACTION" },
-      { id: "monthly_card_battle", label: "CARTAS" },
       { id: "monthly_card_battle", label: "CARTAS" },
       { id: "monthly_clan", label: "CLÃ" },
     ],
@@ -524,15 +521,15 @@ export default function RankingPage() {
                 <select
                   value={pendingRankingSelection}
                   onChange={(e) => setPendingRankingSelection(e.target.value as RankingSelectionId)}
-                  className="game-input w-full px-3 py-2 text-sm font-semibold"
+                  className="game-input ranking-select w-full px-3 py-2 text-sm font-semibold"
                 >
-                  <option value="" className="bg-slate-950">
+                  <option value="">
                     Selecione:
                   </option>
                   {RANKING_SELECT_GROUPS.map((group) => (
                     <optgroup key={group.label} label={group.label}>
                       {group.options.map((option) => (
-                        <option key={option.id} value={option.id} className="bg-slate-950">
+                        <option key={option.id} value={option.id}>
                           {option.label}
                         </option>
                       ))}
@@ -558,15 +555,15 @@ export default function RankingPage() {
                 <select
                   value={pendingPrizeSelection}
                   onChange={(e) => setPendingPrizeSelection(e.target.value as PrizeSelectionId)}
-                  className="game-input w-full px-3 py-2 text-sm font-semibold"
+                  className="game-input ranking-select w-full px-3 py-2 text-sm font-semibold"
                 >
-                  <option value="" className="bg-slate-950">
+                  <option value="">
                     Selecione:
                   </option>
                   {PRIZE_SELECT_GROUPS.map((group) => (
                     <optgroup key={group.label} label={group.label}>
                       {group.options.map((option) => (
-                        <option key={option.id} value={option.id} className="bg-slate-950">
+                        <option key={option.id} value={option.id}>
                           {option.label}
                         </option>
                       ))}

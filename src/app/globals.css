@@ -548,6 +548,19 @@ body::after {
     0 0 28px -16px rgb(34 211 238 / 0.46);
 }
 
+/* O menu nativo usa fundo claro nos títulos de grupos em alguns navegadores. */
+.ranking-select optgroup {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.ranking-select option {
+  background: #020617;
+  color: #f8fafc;
+  font-weight: 600;
+}
+
 /* Arena / matchmaking — microanimações (UI só) */
 @keyframes arena-hud-pulse {
   0%,
