@@ -311,9 +311,14 @@ export default function LojaPage() {
         subtitle="A estrutura agora já sustenta boosts ativos, craft com fragmentos e futuras campanhas especiais."
       />
 
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/55">
-        O boost já passa a afetar ganhos de PR do app no backend. Se quiser, o próximo passo é
-        deixar isso explícito na home e no resultado das partidas com um selo de multiplicador ativo.
+      <div className="rounded-2xl border border-emerald-300/20 bg-emerald-500/[0.06] p-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200/80">
+          Integração ativa
+        </p>
+        <p className="mt-1 text-sm leading-relaxed text-white/60">
+          O multiplicador já aparece na Home, na Arena, antes da fila e no resultado das partidas.
+          Todo bônus de PR é calculado e validado pelo servidor.
+        </p>
       </div>
     </div>
   );
