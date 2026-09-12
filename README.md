@@ -54,6 +54,24 @@ sobem os emuladores de Firestore e Storage separadamente.
 
 ## Configuração de segurança
 
+### Login social
+
+O cadastro por e-mail/senha e o login pelo Google usam Firebase Authentication.
+O cadastro também permite entrar pelo Google, inclusive com código de convite.
+
+Para liberar Facebook, crie um app no Meta for Developers com Facebook Login,
+configure o ID e o segredo do app em Firebase Authentication > Método de login >
+Facebook e cadastre no app Meta a URI de redirecionamento OAuth exibida pelo
+Firebase (normalmente `https://premios-14238.firebaseapp.com/__/auth/handler`).
+Adicione o domínio do site aos domínios autorizados do Firebase e conclua os
+requisitos da Meta para que pessoas fora dos administradores/testadores entrem.
+Só depois defina `NEXT_PUBLIC_FACEBOOK_LOGIN_ENABLED=true` no ambiente de build
+do App Hosting e publique novamente. Nunca coloque o segredo da Meta em variável
+`NEXT_PUBLIC_` ou no repositório. Enquanto isso, o botão Facebook fica oculto.
+
+No Android/iOS via Capacitor, valide os fluxos OAuth em dispositivos reais antes
+de lançar o aplicativo; o login web por pop-up pode ter restrições em WebViews.
+
 App Check é exigido por padrão nas Functions fora dos emuladores. A chave pública
 Web fica em `NEXT_PUBLIC_APPCHECK_SITE_KEY`. Para um diagnóstico temporário, o
 enforcement pode ser desativado explicitamente com `ENFORCE_APP_CHECK=false` durante

@@ -146,6 +146,18 @@ export function formatFirebaseError(e: unknown): string {
     if (code === "auth/too-many-requests") {
       return "Muitas tentativas. Aguarde um pouco e tente de novo.";
     }
+    if (code === "auth/account-exists-with-different-credential") {
+      return "Já existe uma conta com esse e-mail. Entre pelo método usado antes; seus dados não serão transferidos automaticamente.";
+    }
+    if (code === "auth/operation-not-allowed") {
+      return "Esse método de entrada ainda não está habilitado. Tente outro método.";
+    }
+    if (code === "auth/popup-blocked") {
+      return "O navegador bloqueou a janela de entrada. Permita pop-ups para o Rivaliza e tente novamente.";
+    }
+    if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+      return "A entrada foi cancelada. Tente novamente quando quiser.";
+    }
 
     return message || code;
   }

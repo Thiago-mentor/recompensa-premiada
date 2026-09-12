@@ -5,7 +5,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { loginEmailSchema } from "@/lib/validations/auth";
-import { loginWithEmail, loginWithGoogle, recuperarSenha } from "@/services/auth/authService";
+import {
+  facebookLoginEnabled,
+  loginWithEmail,
+  loginWithFacebook,
+  loginWithGoogle,
+  recuperarSenha,
+} from "@/services/auth/authService";
 import { syncUserProfileAfterAuth, useAuth } from "@/hooks/useAuth";
 import { suggestUsername } from "@/utils/username";
 import { ROUTES } from "@/lib/constants/routes";
@@ -23,11 +29,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
 
-  async function handleGoogle() {
+  async function handleSocial(provider: "google" | "facebook") {
     setError(null);
     setLoading(true);
     try {
-      const u = await loginWithGoogle();
+      const u = provider === "google" ? await loginWithGoogle() : await loginWithFacebook();
       const r = await syncUserProfileAfterAuth({
         user: u,
         username: suggestUsername(u.email, u.uid),
@@ -182,14 +188,29 @@ export default function LoginPage() {
 
       <Button
         type="button"
-        variant="gold"
+        variant="secondary"
         className="w-full"
-        onClick={handleGoogle}
+        onClick={() => void handleSocial("google")}
         disabled={loading}
         aria-label="Continuar com Google"
       >
+        <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-white font-bold text-blue-600">G</span>
         Continuar com Google
       </Button>
+
+      {facebookLoginEnabled ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full border-[#4b80de]/50 bg-[#15264b] hover:border-[#6d9cf0]"
+          onClick={() => void handleSocial("facebook")}
+          disabled={loading}
+          aria-label="Continuar com Facebook"
+        >
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#1877f2] font-bold text-white">f</span>
+          Continuar com Facebook
+        </Button>
+      ) : null}
 
       <p className="text-center text-sm text-white/55">
         Novo por aqui?{" "}

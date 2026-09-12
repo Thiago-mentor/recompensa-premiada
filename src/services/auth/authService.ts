@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  FacebookAuthProvider,
   GoogleAuthProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -13,9 +14,21 @@ import {
 import { getFirebaseAuth } from "@/lib/firebase/client";
 
 const googleProvider = new GoogleAuthProvider();
+const facebookProvider = new FacebookAuthProvider();
+
+// Ative somente depois de configurar o app Meta e o provedor no Firebase Auth.
+export const facebookLoginEnabled = process.env.NEXT_PUBLIC_FACEBOOK_LOGIN_ENABLED === "true";
 
 export async function loginWithGoogle(): Promise<User> {
   const cred = await signInWithPopup(getFirebaseAuth(), googleProvider);
+  return cred.user;
+}
+
+export async function loginWithFacebook(): Promise<User> {
+  if (!facebookLoginEnabled) {
+    throw new Error("O acesso com Facebook ainda não está disponível.");
+  }
+  const cred = await signInWithPopup(getFirebaseAuth(), facebookProvider);
   return cred.user;
 }
 

@@ -4,8 +4,14 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { cadastroSchema } from "@/lib/validations/auth";
-import { cadastroComEmail } from "@/services/auth/authService";
+import {
+  cadastroComEmail,
+  facebookLoginEnabled,
+  loginWithFacebook,
+  loginWithGoogle,
+} from "@/services/auth/authService";
 import { syncUserProfileAfterAuth, useAuth } from "@/hooks/useAuth";
+import { suggestUsername } from "@/utils/username";
 import { ROUTES } from "@/lib/constants/routes";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { useFirebaseEmulators as firebaseEmulatorsActive } from "@/lib/firebase/config";
@@ -65,6 +71,28 @@ export function CadastroForm() {
     }
   }
 
+  async function handleSocial(provider: "google" | "facebook") {
+    setError(null);
+    setLoading(true);
+    try {
+      const u = provider === "google" ? await loginWithGoogle() : await loginWithFacebook();
+      const r = await syncUserProfileAfterAuth({
+        user: u,
+        username: suggestUsername(u.email, u.uid),
+        codigoConvite: codigoConvite.trim() || undefined,
+      });
+      if (!r.ok) {
+        setError(r.error || "Não foi possível concluir o cadastro. Tente novamente.");
+        return;
+      }
+      router.push(ROUTES.home);
+    } catch (err) {
+      setError(formatFirebaseError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   if (!firebaseReady) {
     return (
       <AlertBanner tone="error">
@@ -95,6 +123,35 @@ export function CadastroForm() {
           {error}
         </AlertBanner>
       ) : null}
+      <div className="space-y-3">
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full"
+          onClick={() => void handleSocial("google")}
+          disabled={loading}
+        >
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-white font-bold text-blue-600">G</span>
+          Criar conta com Google
+        </Button>
+        {facebookLoginEnabled ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full border-[#4b80de]/50 bg-[#15264b] hover:border-[#6d9cf0]"
+            onClick={() => void handleSocial("facebook")}
+            disabled={loading}
+          >
+            <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#1877f2] font-bold text-white">f</span>
+            Criar conta com Facebook
+          </Button>
+        ) : null}
+      </div>
+      <div className="relative flex items-center gap-3 text-xs text-white/50">
+        <span className="h-px flex-1 bg-white/10" />
+        ou cadastre-se com e-mail
+        <span className="h-px flex-1 bg-white/10" />
+      </div>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="text-xs text-white/50" htmlFor="nome">
