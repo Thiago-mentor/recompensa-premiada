@@ -1,5 +1,12 @@
 {
   "projects": {
     "default": "premios-14238"
+  },
+  "targets": {
+    "premios-14238": {
+      "hosting": {
+        "auth": ["rivalizagame"]
+      }
+    }
   }
 }

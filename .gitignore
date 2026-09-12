@@ -36,6 +36,7 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Firebase emulator / CLI (não versionar)
+/.firebase/
 firestore-debug.log
 firebase-debug.log
 firebase-debug.*.log

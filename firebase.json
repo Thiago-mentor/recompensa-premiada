@@ -1,4 +1,9 @@
 {
+  "hosting": {
+    "target": "auth",
+    "public": "auth-hosting",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+  },
   "apphosting": {
     "backendId": "recompensa-premiada",
     "rootDir": "/",
