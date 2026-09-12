@@ -11,6 +11,12 @@ const config: CapacitorConfig = {
   appId: "com.rivalizagame.app",
   appName: "RivalizaGame",
   webDir: "capacitor-www",
+  plugins: {
+    FirebaseAuthentication: {
+      providers: ["google.com"],
+      skipNativeAuth: true,
+    },
+  },
   ...(serverUrl
     ? {
         server: {

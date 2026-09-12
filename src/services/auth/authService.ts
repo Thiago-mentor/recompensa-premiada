@@ -4,6 +4,7 @@ import {
   FacebookAuthProvider,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -11,6 +12,7 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 
 const googleProvider = new GoogleAuthProvider();
@@ -20,6 +22,23 @@ const facebookProvider = new FacebookAuthProvider();
 export const facebookLoginEnabled = process.env.NEXT_PUBLIC_FACEBOOK_LOGIN_ENABLED === "true";
 
 export async function loginWithGoogle(): Promise<User> {
+  if (Capacitor.isNativePlatform()) {
+    if (!Capacitor.isPluginAvailable("FirebaseAuthentication")) {
+      throw new Error("Atualize o aplicativo RivalizaGame para entrar com Google.");
+    }
+
+    const { FirebaseAuthentication } = await import("@capacitor-firebase/authentication");
+    const result = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
+    const idToken = result.credential?.idToken;
+    if (!idToken) {
+      throw new Error("O Google não retornou a confirmação de entrada. Tente novamente.");
+    }
+
+    const credential = GoogleAuthProvider.credential(idToken);
+    const signedIn = await signInWithCredential(getFirebaseAuth(), credential);
+    return signedIn.user;
+  }
+
   const cred = await signInWithPopup(getFirebaseAuth(), googleProvider);
   return cred.user;
 }
