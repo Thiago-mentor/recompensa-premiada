@@ -1,4 +1,4 @@
-package com.recompensapremiada.app;
+package com.rivalizagame.app;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -33,7 +33,7 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.recompensapremiada.app"
+    namespace = "com.rivalizagame.app"
     compileSdk = rootProject.ext.compileSdkVersion
     signingConfigs {
         release {
@@ -46,7 +46,7 @@ android {
         }
     }
     defaultConfig {
-        applicationId "com.recompensapremiada.app"
+        applicationId "com.rivalizagame.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode

@@ -110,6 +110,17 @@ vulnerabilidades conhecidas nas dependências de produção.
 
 ## Capacitor
 
+O nome exibido do aplicativo é `RivalizaGame` e o identificador Android/iOS é
+`com.rivalizagame.app`. Ao adicionar o app Android ao projeto Firebase, use
+**exatamente** esse identificador. Depois cadastre as impressões digitais de
+assinatura necessárias ao Login do Google e baixe o novo `google-services.json`
+para `android/app/google-services.json`. O arquivo antigo na raiz do projeto
+pertencia a `com.recompensa.premiada` e foi removido para evitar uso incorreto.
+
+O site usa o Firebase Auth Web. O login social por pop-up precisa ser testado
+separadamente dentro do app Capacitor em Android/iOS antes de enviar um AAB;
+o arquivo Android e o SHA não tornam esse fluxo WebView automaticamente nativo.
+
 Defina `CAPACITOR_SERVER_URL` em `.env.local` com a URL HTTPS do App Hosting e rode:
 
 ```bash

@@ -8,8 +8,8 @@ loadEnv({ path: resolve(process.cwd(), ".env"), override: false });
 const serverUrl = process.env.CAPACITOR_SERVER_URL?.trim();
 
 const config: CapacitorConfig = {
-  appId: "com.recompensapremiada.app",
-  appName: "Rivaliza",
+  appId: "com.rivalizagame.app",
+  appName: "RivalizaGame",
   webDir: "capacitor-www",
   ...(serverUrl
     ? {
