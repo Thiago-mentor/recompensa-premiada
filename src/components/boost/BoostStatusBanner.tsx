@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
   boostRewardPercent: 25,
   boostActivationMinutes: 15,
 };
+const ENDING_SOON_MS = 2 * 60 * 1000;
 
 function timestampToMs(value: unknown): number | null {
   if (!value || typeof value !== "object") return null;
@@ -54,7 +55,7 @@ export function BoostStatusBanner({ className }: { className?: string }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [activeUntilOverrideMs, setActiveUntilOverrideMs] = useState<number | null>(null);
   const [activating, setActivating] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +75,10 @@ export function BoostStatusBanner({ className }: { className?: string }) {
             : DEFAULT_CONFIG.boostActivationMinutes,
         );
       })
+      .catch(() => {
+        // Falha de leitura não deve exibir um percentual potencialmente incorreto.
+        if (!cancelled) setEnabled(false);
+      })
       .finally(() => {
         if (!cancelled) setResolved(true);
       });
@@ -86,13 +91,23 @@ export function BoostStatusBanner({ className }: { className?: string }) {
   const activeUntilMs = Math.max(profileActiveUntilMs ?? 0, activeUntilOverrideMs ?? 0);
   const remainingMs = Math.max(0, activeUntilMs - nowMs);
   const active = remainingMs > 0;
+  const endingSoon = active && remainingMs <= ENDING_SOON_MS;
   const storedMinutes = Math.max(0, Math.floor(profile?.storedBoostMinutes ?? 0));
   const nextActivationMinutes = Math.min(storedMinutes, activationMinutes);
 
   useEffect(() => {
     if (activeUntilMs <= Date.now()) return;
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    const refreshClock = () => {
+      if (document.visibilityState === "visible") setNowMs(Date.now());
+    };
+    document.addEventListener("visibilitychange", refreshClock);
+    window.addEventListener("focus", refreshClock);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshClock);
+      window.removeEventListener("focus", refreshClock);
+    };
   }, [activeUntilMs]);
 
   const statusCopy = useMemo(() => {
@@ -105,27 +120,34 @@ export function BoostStatusBanner({ className }: { className?: string }) {
     if (!user || activating || storedMinutes <= 0) return;
     setActivating(true);
     setMessage(null);
-    const result = await activateStoredBoostCallable();
-    setActivating(false);
-    if (!result.ok) {
-      setMessage("Não foi possível ativar agora. Tente novamente.");
-      return;
+    try {
+      const result = await activateStoredBoostCallable();
+      if (!result.ok) {
+        setMessage({ text: "Não foi possível ativar agora. Tente novamente.", tone: "error" });
+        return;
+      }
+      setActiveUntilOverrideMs(result.activeBoostUntilMs);
+      setNowMs(Date.now());
+      setMessage({ text: `Boost +${result.boostRewardPercent}% ativado.`, tone: "success" });
+      await refreshProfile().catch(() => undefined);
+    } catch {
+      setMessage({ text: "Não foi possível atualizar o Boost. Confira seu saldo e tente novamente.", tone: "error" });
+    } finally {
+      setActivating(false);
     }
-    setActiveUntilOverrideMs(result.activeBoostUntilMs);
-    setNowMs(Date.now());
-    setMessage(`Boost +${result.boostRewardPercent}% ativado.`);
-    await refreshProfile();
   }
 
-  if (!resolved || !enabled) return null;
+  if (!resolved || !enabled || !profile) return null;
 
   return (
     <section
       className={cn(
         "relative overflow-hidden rounded-[1.25rem] border px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_16px_34px_-24px_rgba(251,146,60,0.7)]",
-        active
-          ? "border-orange-300/38 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.2),transparent_40%),linear-gradient(135deg,rgba(67,20,7,0.72),rgba(30,27,75,0.64),rgba(2,6,23,0.94))]"
-          : "border-violet-300/24 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_42%),linear-gradient(135deg,rgba(46,16,101,0.46),rgba(2,6,23,0.94))]",
+        endingSoon
+          ? "border-amber-300/55 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_40%),linear-gradient(135deg,rgba(69,26,3,0.8),rgba(30,27,75,0.64),rgba(2,6,23,0.94))]"
+          : active
+            ? "border-orange-300/38 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.2),transparent_40%),linear-gradient(135deg,rgba(67,20,7,0.72),rgba(30,27,75,0.64),rgba(2,6,23,0.94))]"
+            : "border-violet-300/24 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_42%),linear-gradient(135deg,rgba(46,16,101,0.46),rgba(2,6,23,0.94))]",
         className,
       )}
       aria-label="Status do boost"
@@ -146,28 +168,44 @@ export function BoostStatusBanner({ className }: { className?: string }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/80">
-              {active ? "Boost ativo" : "Boost de PR"}
+              {endingSoon ? "Boost terminando" : active ? "Boost ativo" : "Boost de PR"}
             </p>
             {active ? (
               <span className="rounded-full border border-orange-200/35 bg-orange-400/14 px-2 py-0.5 text-[8px] font-black uppercase text-orange-100">
-                Turbo
+                {endingSoon ? "Últimos minutos" : "Turbo"}
               </span>
             ) : null}
           </div>
           <p className={cn("mt-0.5 font-black", active ? "text-sm tabular-nums text-orange-100" : "text-xs text-white")}>
             {statusCopy}
           </p>
-          {message ? <p className="mt-1 text-[9px] font-semibold text-emerald-200">{message}</p> : null}
+          {endingSoon ? (
+            <p className="mt-1 text-[9px] font-semibold text-amber-200" role="status">
+              {storedMinutes > 0 ? "Estenda agora para manter o bônus." : "O bônus termina em breve."}
+            </p>
+          ) : null}
+          {message ? (
+            <p
+              className={cn("mt-1 text-[9px] font-semibold", message.tone === "error" ? "text-red-200" : "text-emerald-200")}
+              role="status"
+            >
+              {message.text}
+            </p>
+          ) : null}
         </div>
 
-        {!active && storedMinutes > 0 ? (
+        {storedMinutes > 0 ? (
           <button
             type="button"
             onClick={() => void activate()}
             disabled={activating}
             className="min-h-10 shrink-0 rounded-xl border border-orange-300/35 bg-orange-400/15 px-3 text-[10px] font-black text-orange-100 transition hover:bg-orange-400/22 disabled:opacity-55"
           >
-            {activating ? "Ativando…" : `Ativar ${nextActivationMinutes} min`}
+            {activating
+              ? "Ativando…"
+              : active
+                ? `+${nextActivationMinutes} min`
+                : `Ativar ${nextActivationMinutes} min`}
           </button>
         ) : (
           <Link
