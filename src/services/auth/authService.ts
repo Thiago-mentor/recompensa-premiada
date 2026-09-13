@@ -47,6 +47,22 @@ export async function loginWithFacebook(): Promise<User> {
   if (!facebookLoginEnabled) {
     throw new Error("O acesso com Facebook ainda não está disponível.");
   }
+  if (Capacitor.isNativePlatform()) {
+    if (!Capacitor.isPluginAvailable("FirebaseAuthentication")) {
+      throw new Error("Atualize o aplicativo RivalizaGame para entrar com Facebook.");
+    }
+
+    const { FirebaseAuthentication } = await import("@capacitor-firebase/authentication");
+    const result = await FirebaseAuthentication.signInWithFacebook({ skipNativeAuth: true });
+    const accessToken = result.credential?.accessToken;
+    if (!accessToken) {
+      throw new Error("O Facebook não retornou a confirmação de entrada. Tente novamente.");
+    }
+
+    const credential = FacebookAuthProvider.credential(accessToken);
+    const signedIn = await signInWithCredential(getFirebaseAuth(), credential);
+    return signedIn.user;
+  }
   const cred = await signInWithPopup(getFirebaseAuth(), facebookProvider);
   return cred.user;
 }

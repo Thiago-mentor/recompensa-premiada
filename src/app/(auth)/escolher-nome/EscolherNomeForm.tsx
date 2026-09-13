@@ -33,7 +33,7 @@ export function EscolherNomeForm() {
     event.preventDefault();
     setError(null);
     if (!user) {
-      setError("Sua sessão expirou. Entre novamente com Google.");
+      setError("Sua sessão expirou. Entre novamente para continuar.");
       return;
     }
 

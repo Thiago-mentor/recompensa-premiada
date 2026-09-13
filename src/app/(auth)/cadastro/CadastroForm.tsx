@@ -11,13 +11,13 @@ import {
   loginWithGoogle,
 } from "@/services/auth/authService";
 import { syncUserProfileAfterAuth, useAuth } from "@/hooks/useAuth";
-import { suggestUsername } from "@/utils/username";
 import { fetchUserProfile } from "@/services/users/userService";
 import { ROUTES } from "@/lib/constants/routes";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { useFirebaseEmulators as firebaseEmulatorsActive } from "@/lib/firebase/config";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { SocialAuthButton } from "@/components/auth/SocialAuthButton";
 
 export function CadastroForm() {
   const router = useRouter();
@@ -77,25 +77,12 @@ export function CadastroForm() {
     setLoading(true);
     try {
       const u = provider === "google" ? await loginWithGoogle() : await loginWithFacebook();
-      if (provider === "google") {
-        const existingProfile = await fetchUserProfile(u.uid);
-        const inviteCode = codigoConvite.trim() || searchParams.get("convite")?.trim() || "";
-        const nextRoute = inviteCode
-          ? `${ROUTES.escolherNome}?convite=${encodeURIComponent(inviteCode.toUpperCase())}`
-          : ROUTES.escolherNome;
-        router.replace(existingProfile ? ROUTES.home : nextRoute);
-        return;
-      }
-      const r = await syncUserProfileAfterAuth({
-        user: u,
-        username: suggestUsername(u.email, u.uid),
-        codigoConvite: codigoConvite.trim() || undefined,
-      });
-      if (!r.ok) {
-        setError(r.error || "Não foi possível concluir o cadastro. Tente novamente.");
-        return;
-      }
-      router.push(ROUTES.home);
+      const existingProfile = await fetchUserProfile(u.uid);
+      const inviteCode = codigoConvite.trim() || searchParams.get("convite")?.trim() || "";
+      const nextRoute = inviteCode
+        ? `${ROUTES.escolherNome}?convite=${encodeURIComponent(inviteCode.toUpperCase())}`
+        : ROUTES.escolherNome;
+      router.replace(existingProfile ? ROUTES.home : nextRoute);
     } catch (err) {
       setError(formatFirebaseError(err));
     } finally {
@@ -134,27 +121,9 @@ export function CadastroForm() {
         </AlertBanner>
       ) : null}
       <div className="space-y-3">
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full"
-          onClick={() => void handleSocial("google")}
-          disabled={loading}
-        >
-          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-white font-bold text-blue-600">G</span>
-          Criar conta com Google
-        </Button>
+        <SocialAuthButton provider="google" label="Criar conta com Google" onClick={() => void handleSocial("google")} disabled={loading} />
         {facebookLoginEnabled ? (
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full border-[#4b80de]/50 bg-[#15264b] hover:border-[#6d9cf0]"
-            onClick={() => void handleSocial("facebook")}
-            disabled={loading}
-          >
-            <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#1877f2] font-bold text-white">f</span>
-            Criar conta com Facebook
-          </Button>
+          <SocialAuthButton provider="facebook" label="Criar conta com Facebook" onClick={() => void handleSocial("facebook")} disabled={loading} />
         ) : null}
       </div>
       <div className="relative flex items-center gap-3 text-xs text-white/50">

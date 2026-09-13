@@ -20,6 +20,7 @@ import { formatFirebaseError } from "@/lib/firebase/errors";
 import { useFirebaseEmulators as firebaseEmulatorsActive } from "@/lib/firebase/config";
 import { Button } from "@/components/ui/Button";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { SocialAuthButton } from "@/components/auth/SocialAuthButton";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,17 +36,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const u = provider === "google" ? await loginWithGoogle() : await loginWithFacebook();
-      if (provider === "google") {
-        const existingProfile = await fetchUserProfile(u.uid);
-        router.replace(existingProfile ? ROUTES.home : ROUTES.escolherNome);
-        return;
-      }
-      const r = await syncUserProfileAfterAuth({
-        user: u,
-        username: suggestUsername(u.email, u.uid),
-      });
-      if (!r.ok) setError(r.error || "Não foi possível sincronizar o perfil.");
-      else router.push(ROUTES.home);
+      const existingProfile = await fetchUserProfile(u.uid);
+      router.replace(existingProfile ? ROUTES.home : ROUTES.escolherNome);
     } catch (e) {
       setError(formatFirebaseError(e));
     } finally {
@@ -192,30 +184,10 @@ export default function LoginPage() {
         <span className="h-px flex-1 bg-white/10" />
       </div>
 
-      <Button
-        type="button"
-        variant="secondary"
-        className="w-full"
-        onClick={() => void handleSocial("google")}
-        disabled={loading}
-        aria-label="Continuar com Google"
-      >
-        <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-white font-bold text-blue-600">G</span>
-        Continuar com Google
-      </Button>
+      <SocialAuthButton provider="google" label="Continuar com Google" onClick={() => void handleSocial("google")} disabled={loading} />
 
       {facebookLoginEnabled ? (
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full border-[#4b80de]/50 bg-[#15264b] hover:border-[#6d9cf0]"
-          onClick={() => void handleSocial("facebook")}
-          disabled={loading}
-          aria-label="Continuar com Facebook"
-        >
-          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#1877f2] font-bold text-white">f</span>
-          Continuar com Facebook
-        </Button>
+        <SocialAuthButton provider="facebook" label="Continuar com Facebook" onClick={() => void handleSocial("facebook")} disabled={loading} />
       ) : null}
 
       <p className="text-center text-sm text-white/55">
