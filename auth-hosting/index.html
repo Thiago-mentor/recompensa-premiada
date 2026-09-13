@@ -11,15 +11,22 @@
       main { max-width: 34rem; margin: 1.5rem; padding: 2.5rem; border: 1px solid #594785; border-radius: 1.5rem; background: #1b1735; text-align: center; }
       h1 { margin: 0 0 1rem; color: #ffdf70; }
       p { line-height: 1.6; color: #d8d0e8; }
-      a { display: inline-block; margin-top: 1rem; padding: 0.9rem 1.4rem; border-radius: 0.8rem; background: #ffcf38; color: #20132e; font-weight: 700; text-decoration: none; }
+      .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin-top: 1.5rem; }
+      a { display: inline-block; padding: 0.9rem 1.4rem; border-radius: 0.8rem; background: #ffcf38; color: #20132e; font-weight: 700; text-decoration: none; }
+      a.secondary { border: 1px solid #8a70ba; background: transparent; color: #f7f3ff; }
       a:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+      .hint { margin-top: 1.25rem; font-size: 0.875rem; }
     </style>
   </head>
   <body>
     <main>
       <h1>RivalizaGame</h1>
-      <p>Este endereço é usado para a entrada segura no jogo. Para jogar, acesse o aplicativo oficial.</p>
-      <a href="https://recompensa-premiada--premios-14238.us-east4.hosted.app/">Abrir o RivalizaGame</a>
+      <p>Escolha como prefere jogar: pelo navegador ou pelo aplicativo Android.</p>
+      <div class="actions">
+        <a href="https://rivalizagame.web.app/RivalizaGame.apk" download="RivalizaGame.apk">Baixar para Android</a>
+        <a class="secondary" href="https://recompensa-premiada--premios-14238.us-east4.hosted.app/">Jogar no navegador</a>
+      </div>
+      <p class="hint">No Android, talvez seja necessário permitir a instalação pelo navegador.</p>
     </main>
   </body>
 </html>
