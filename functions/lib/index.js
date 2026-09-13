@@ -2493,8 +2493,8 @@ async function getReferralConfig() {
                 ? antiFraudSource.antiFraudRules.burstSignupThreshold
                 : 5) || 5)),
             requireManualReviewForSuspected: antiFraudSource.antiFraudRules && typeof antiFraudSource.antiFraudRules === "object"
-                ? antiFraudSource.antiFraudRules.requireManualReviewForSuspected === true
-                : false,
+                ? antiFraudSource.antiFraudRules.requireManualReviewForSuspected !== false
+                : true,
         },
         activeCampaignId: typeof d.activeCampaignId === "string" ? d.activeCampaignId : null,
         campaignText: typeof d.campaignText === "string" ? d.campaignText : null,

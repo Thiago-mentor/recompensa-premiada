@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertBanner } from "@/components/feedback/AlertBanner";
+import { ProfileLoadError } from "@/components/feedback/ProfileLoadError";
 import { Button } from "@/components/ui/Button";
 import { syncUserProfileAfterAuth, useAuth } from "@/hooks/useAuth";
 import { ROUTES } from "@/lib/constants/routes";
@@ -12,7 +13,7 @@ import { validatePublicName } from "@/lib/validations/publicNameModeration";
 export function EscolherNomeForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, profile, profileResolvedUid, loading } = useAuth();
+  const { user, profile, profileResolvedUid, profileError, loading } = useAuth();
   const [nome, setNome] = useState("");
   const [codigoConvite, setCodigoConvite] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +72,8 @@ export function EscolherNomeForm() {
       setSaving(false);
     }
   }
+
+  if (user && profileError) return <ProfileLoadError message={profileError} />;
 
   if (loading || !user || profileResolvedUid !== user.uid || profile) {
     return <div className="py-12 text-center text-white/60">Preparando seu perfil…</div>;

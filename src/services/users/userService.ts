@@ -26,14 +26,19 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile | null>
 export function subscribeUserProfile(
   uid: string,
   onNext: (profile: UserProfile | null) => void,
+  onError?: (error: Error) => void,
 ): Unsubscribe {
-  return onSnapshot(userDocRef(uid), (s) => {
-    if (!s.exists()) {
-      onNext(null);
-      return;
-    }
-    onNext({ uid, ...s.data() } as UserProfile);
-  });
+  return onSnapshot(
+    userDocRef(uid),
+    (s) => {
+      if (!s.exists()) {
+        onNext(null);
+        return;
+      }
+      onNext({ uid, ...s.data() } as UserProfile);
+    },
+    onError,
+  );
 }
 
 export async function ensureUserProfileRemote(input: {

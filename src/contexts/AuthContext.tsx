@@ -28,6 +28,7 @@ type AuthState = {
   loading: boolean;
   profileLoading: boolean;
   profileResolvedUid: string | null;
+  profileError: string | null;
   error: string | null;
   refreshProfile: () => Promise<void>;
   setProfileLocal: (p: UserProfile | null) => void;
@@ -43,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileResolvedUid, setProfileResolvedUid] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
@@ -73,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(u);
         setError(null);
         setProfileResolvedUid(null);
+        setProfileError(null);
         if (!u) {
           setProfile(null);
           setIsAdmin(false);
@@ -88,10 +91,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsAdmin(false);
         }
         unsubProfile?.();
-        unsubProfile = subscribeUserProfile(u.uid, (nextProfile) => {
-          setProfile(nextProfile);
-          setProfileResolvedUid(u.uid);
-        });
+        unsubProfile = subscribeUserProfile(
+          u.uid,
+          (nextProfile) => {
+            setProfile(nextProfile);
+            setProfileResolvedUid(u.uid);
+            setProfileError(null);
+          },
+          () => {
+            setProfileResolvedUid(null);
+            setProfileError("Não foi possível carregar seu perfil. Verifique a conexão e tente novamente.");
+          },
+        );
         setLoading(false);
       });
       return () => {
@@ -139,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       profileLoading,
       profileResolvedUid,
+      profileError,
       error,
       refreshProfile,
       setProfileLocal: setProfile,
@@ -151,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       profileLoading,
       profileResolvedUid,
+      profileError,
       error,
       refreshProfile,
     ],

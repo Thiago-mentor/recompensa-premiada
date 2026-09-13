@@ -73,7 +73,7 @@ const DEFAULT_RULES: AntiFraudRules = {
   blockSelfReferral: true,
   flagBurstSignups: true,
   burstSignupThreshold: 5,
-  requireManualReviewForSuspected: false,
+  requireManualReviewForSuspected: true,
 };
 
 const EMPTY_STATS: FraudStats = {
@@ -913,7 +913,7 @@ function normalizeRules(raw: unknown): AntiFraudRules {
     blockSelfReferral: data.blockSelfReferral !== false,
     flagBurstSignups: data.flagBurstSignups !== false,
     burstSignupThreshold: Math.max(1, Math.floor(Number(data.burstSignupThreshold) || 5)),
-    requireManualReviewForSuspected: data.requireManualReviewForSuspected === true,
+    requireManualReviewForSuspected: data.requireManualReviewForSuspected !== false,
   };
 }
 

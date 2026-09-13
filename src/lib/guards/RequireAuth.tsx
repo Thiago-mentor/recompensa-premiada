@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { ROUTES } from "@/lib/constants/routes";
+import { ProfileLoadError } from "@/components/feedback/ProfileLoadError";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, profile, profileResolvedUid, loading, firebaseReady } = useAuth();
+  const { user, profile, profileResolvedUid, profileError, loading, firebaseReady } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -25,6 +26,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       </div>
     );
   }
+
+  if (user && profileError) return <ProfileLoadError message={profileError} />;
 
   if (loading || !user || profileResolvedUid !== user.uid || !profile) {
     return (

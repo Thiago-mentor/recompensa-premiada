@@ -81,7 +81,7 @@ const EMPTY_CONFIG: ReferralSystemConfig = {
     blockSelfReferral: true,
     flagBurstSignups: true,
     burstSignupThreshold: 5,
-    requireManualReviewForSuspected: false,
+    requireManualReviewForSuspected: true,
   },
   rankingRules: {
     daily: [],

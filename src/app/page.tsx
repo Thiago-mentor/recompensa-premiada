@@ -6,9 +6,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { ROUTES } from "@/lib/constants/routes";
 import { isFirebaseConfigured } from "@/lib/firebase/config";
 import { CasinoCard } from "@/components/cards/CasinoCard";
+import { ProfileLoadError } from "@/components/feedback/ProfileLoadError";
 
 export default function RootPage() {
-  const { user, profile, profileResolvedUid, loading, firebaseReady } = useAuth();
+  const { user, profile, profileResolvedUid, profileError, loading, firebaseReady } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -33,6 +34,8 @@ export default function RootPage() {
       </div>
     );
   }
+
+  if (user && profileError) return <ProfileLoadError message={profileError} />;
 
   return (
     <div className="min-h-dvh flex items-center justify-center p-6">

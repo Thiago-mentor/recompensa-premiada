@@ -3251,8 +3251,8 @@ async function getReferralConfig(): Promise<ReferralConfig> {
         ),
       ),
       requireManualReviewForSuspected: antiFraudSource.antiFraudRules && typeof antiFraudSource.antiFraudRules === "object"
-        ? (antiFraudSource.antiFraudRules as Record<string, unknown>).requireManualReviewForSuspected === true
-        : false,
+        ? (antiFraudSource.antiFraudRules as Record<string, unknown>).requireManualReviewForSuspected !== false
+        : true,
     },
     activeCampaignId: typeof d.activeCampaignId === "string" ? d.activeCampaignId : null,
     campaignText: typeof d.campaignText === "string" ? d.campaignText : null,
