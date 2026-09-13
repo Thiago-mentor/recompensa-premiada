@@ -4,4 +4,7 @@
     <string name="title_activity_main">RivalizaGame</string>
     <string name="package_name">com.rivalizagame.app</string>
     <string name="custom_url_scheme">com.rivalizagame.app</string>
+    <string name="facebook_app_id">1370208518147049</string>
+    <string name="fb_login_protocol_scheme">fb1370208518147049</string>
+    <string name="facebook_client_token">592dcdb45841c4495859dd8df1af9079</string>
 </resources>
