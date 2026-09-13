@@ -27,6 +27,7 @@ type AuthState = {
   isAdmin: boolean;
   loading: boolean;
   profileLoading: boolean;
+  profileResolvedUid: string | null;
   error: string | null;
   refreshProfile: () => Promise<void>;
   setProfileLocal: (p: UserProfile | null) => void;
@@ -41,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [profileResolvedUid, setProfileResolvedUid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
@@ -70,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const unsub = onAuthStateChanged(auth, async (u) => {
         setUser(u);
         setError(null);
+        setProfileResolvedUid(null);
         if (!u) {
           setProfile(null);
           setIsAdmin(false);
@@ -77,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false);
           return;
         }
+        setProfile(null);
         try {
           const tr = await u.getIdTokenResult(true);
           setIsAdmin(tr.claims.admin === true);
@@ -84,7 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsAdmin(false);
         }
         unsubProfile?.();
-        unsubProfile = subscribeUserProfile(u.uid, setProfile);
+        unsubProfile = subscribeUserProfile(u.uid, (nextProfile) => {
+          setProfile(nextProfile);
+          setProfileResolvedUid(u.uid);
+        });
         setLoading(false);
       });
       return () => {
@@ -131,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin,
       loading,
       profileLoading,
+      profileResolvedUid,
       error,
       refreshProfile,
       setProfileLocal: setProfile,
@@ -142,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin,
       loading,
       profileLoading,
+      profileResolvedUid,
       error,
       refreshProfile,
     ],
@@ -159,10 +168,11 @@ export function useAuthContext(): AuthState {
 /** Garante perfil Firestore após cadastro/login (chama Callable). */
 export async function syncUserProfileAfterAuth(input: {
   user: User;
+  nome?: string;
   username: string;
   codigoConvite?: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  const nome = input.user.displayName || input.username;
+  const nome = input.nome?.trim() || input.user.displayName || input.username;
   return ensureUserProfileRemote({
     nome,
     username: input.username,

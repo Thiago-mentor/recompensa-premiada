@@ -10,7 +10,7 @@ import { ROUTES } from "@/lib/constants/routes";
 export function AuthCasinoFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const footer =
-    pathname === ROUTES.cadastro ? (
+    pathname === ROUTES.escolherNome ? null : pathname === ROUTES.cadastro ? (
       <Link href={ROUTES.login} className={goldButtonLinkClassName()}>
         Entrar
       </Link>

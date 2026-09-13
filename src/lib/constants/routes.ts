@@ -1,6 +1,7 @@
 export const ROUTES = {
   login: "/login",
   cadastro: "/cadastro",
+  escolherNome: "/escolher-nome",
   home: "/home",
   missoes: "/missoes",
   jogos: "/jogos",

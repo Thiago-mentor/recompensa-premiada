@@ -8,15 +8,17 @@ import { isFirebaseConfigured } from "@/lib/firebase/config";
 import { CasinoCard } from "@/components/cards/CasinoCard";
 
 export default function RootPage() {
-  const { user, loading, firebaseReady } = useAuth();
+  const { user, profile, profileResolvedUid, loading, firebaseReady } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!firebaseReady) return;
     if (loading) return;
-    if (user) router.replace(ROUTES.home);
-    else router.replace(ROUTES.login);
-  }, [user, loading, router, firebaseReady]);
+    if (!user) router.replace(ROUTES.login);
+    else if (profileResolvedUid === user.uid) {
+      router.replace(profile ? ROUTES.home : ROUTES.escolherNome);
+    }
+  }, [user, profile, profileResolvedUid, loading, router, firebaseReady]);
 
   if (!isFirebaseConfigured()) {
     return (

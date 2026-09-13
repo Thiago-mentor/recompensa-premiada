@@ -14,6 +14,7 @@ import {
 } from "@/services/auth/authService";
 import { syncUserProfileAfterAuth, useAuth } from "@/hooks/useAuth";
 import { suggestUsername } from "@/utils/username";
+import { fetchUserProfile } from "@/services/users/userService";
 import { ROUTES } from "@/lib/constants/routes";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { useFirebaseEmulators as firebaseEmulatorsActive } from "@/lib/firebase/config";
@@ -34,6 +35,11 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const u = provider === "google" ? await loginWithGoogle() : await loginWithFacebook();
+      if (provider === "google") {
+        const existingProfile = await fetchUserProfile(u.uid);
+        router.replace(existingProfile ? ROUTES.home : ROUTES.escolherNome);
+        return;
+      }
       const r = await syncUserProfileAfterAuth({
         user: u,
         username: suggestUsername(u.email, u.uid),

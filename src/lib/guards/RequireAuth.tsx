@@ -6,13 +6,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { ROUTES } from "@/lib/constants/routes";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, firebaseReady } = useAuth();
+  const { user, profile, profileResolvedUid, loading, firebaseReady } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!firebaseReady || loading) return;
     if (!user) router.replace(ROUTES.login);
-  }, [user, loading, router, firebaseReady]);
+    else if (profileResolvedUid === user.uid && !profile) router.replace(ROUTES.escolherNome);
+  }, [user, profile, profileResolvedUid, loading, router, firebaseReady]);
 
   if (!firebaseReady) {
     return (
@@ -25,7 +26,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  if (loading || !user) {
+  if (loading || !user || profileResolvedUid !== user.uid || !profile) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center">
         <div className="h-10 w-10 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />

@@ -12,6 +12,7 @@ import {
 } from "@/services/auth/authService";
 import { syncUserProfileAfterAuth, useAuth } from "@/hooks/useAuth";
 import { suggestUsername } from "@/utils/username";
+import { fetchUserProfile } from "@/services/users/userService";
 import { ROUTES } from "@/lib/constants/routes";
 import { formatFirebaseError } from "@/lib/firebase/errors";
 import { useFirebaseEmulators as firebaseEmulatorsActive } from "@/lib/firebase/config";
@@ -76,6 +77,15 @@ export function CadastroForm() {
     setLoading(true);
     try {
       const u = provider === "google" ? await loginWithGoogle() : await loginWithFacebook();
+      if (provider === "google") {
+        const existingProfile = await fetchUserProfile(u.uid);
+        const inviteCode = codigoConvite.trim() || searchParams.get("convite")?.trim() || "";
+        const nextRoute = inviteCode
+          ? `${ROUTES.escolherNome}?convite=${encodeURIComponent(inviteCode.toUpperCase())}`
+          : ROUTES.escolherNome;
+        router.replace(existingProfile ? ROUTES.home : nextRoute);
+        return;
+      }
       const r = await syncUserProfileAfterAuth({
         user: u,
         username: suggestUsername(u.email, u.uid),
